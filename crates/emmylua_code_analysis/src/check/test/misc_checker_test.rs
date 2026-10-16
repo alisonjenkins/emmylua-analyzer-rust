@@ -446,3 +446,25 @@ fn test_discard_returns_ok() {
         0
     );
 }
+
+/// A callback param assigned back to the field it is inferred from (`config.root_dir = root_dir`)
+/// is a cycle: inferring the field needs the param, inferring the param needs the field.
+/// It must resolve to unknown instead of recursing until the stack overflows.
+#[test]
+fn test_closure_param_assigned_to_field_it_is_inferred_from_terminates() {
+    let diagnostics = check_source(
+        r#"
+        local config = {}
+        config.root_dir(1, function(root_dir)
+          config.root_dir = root_dir
+        end)
+        "#,
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code != DiagnosticCode::ParamTypeMismatch),
+        "diagnostics: {:?}",
+        diagnostics
+    );
+}
