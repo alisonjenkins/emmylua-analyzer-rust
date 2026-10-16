@@ -891,4 +891,35 @@ mod tests {
         lines.sort();
         verify_eq!(lines, vec![2, 6, 11])
     }
+
+    #[gtest]
+    fn test_references_of_class_field_through_a_receiver_unioned_with_a_function() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Opts
+                ---@field out<??>path? string
+
+                ---@param opts Opts|fun()|table
+                local function request(opts)
+                    if opts.outpath then
+                        return opts.outpath
+                    end
+                end
+            "#,
+        ));
+        let file_id = ws.def(&content);
+
+        let result = references(&ws.analysis, file_id, position, true)
+            .ok_or("failed to get references")
+            .or_fail()?;
+
+        let mut lines = result
+            .iter()
+            .map(|location| location.range.start.line)
+            .collect::<Vec<_>>();
+        lines.sort();
+        lines.dedup();
+        verify_eq!(lines, vec![2, 6, 7])
+    }
 }
