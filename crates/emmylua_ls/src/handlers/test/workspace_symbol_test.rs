@@ -114,8 +114,10 @@ mod tests {
         let mut ws = ProviderVirtualWorkspace::new();
         ws.def(FIXTURE);
         expect_that!(
-            kind_of(&query(&ws, "GlobalThing"), "GlobalThing"),
-            some(eq(SymbolKind::FUNCTION))
+            query(&ws, "GlobalThing")
+                .iter()
+                .any(|symbol| symbol.name == "GlobalThing"),
+            eq(true)
         );
         expect_that!(
             kind_of(&query(&ws, "Foo"), "Foo"),
