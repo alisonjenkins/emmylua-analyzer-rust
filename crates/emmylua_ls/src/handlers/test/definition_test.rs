@@ -27,6 +27,22 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_method_on_string_local() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_definition(
+            r#"
+                local s = "abc"
+                local r = s:su<??>b(1, 2)
+            "#,
+            vec![Expected {
+                file: "string.lua".to_string(),
+                line: 317
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_basic_definition() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(
