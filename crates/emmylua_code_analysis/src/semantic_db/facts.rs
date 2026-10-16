@@ -116,6 +116,8 @@ pub struct FileFacts {
     members_by_owner: HashMap<SemanticId, Vec<usize>>,
     members_by_owner_name: HashMap<(SemanticId, SmolStr), Vec<usize>>,
     members_by_name: HashMap<SmolStr, Vec<usize>>,
+    /// Implicit `self` declarations by the table their method is defined on.
+    selves_by_owner: HashMap<SemanticId, Vec<usize>>,
     type_def_by_full_name: HashMap<SmolStr, usize>,
     type_def_by_name: HashMap<SmolStr, usize>,
     type_defs_by_lower_name: HashMap<SmolStr, Vec<usize>>,
@@ -214,6 +216,15 @@ impl FileFacts {
     pub fn member_by_value_syntax(&self, syntax: LuaSyntaxId) -> Option<&Member> {
         let index = self.member_by_value_syntax.get(&syntax)?;
         self.members.get(*index)
+    }
+
+    /// The implicit `self` declarations of the methods defined on `owner` (in this file).
+    pub fn selves_of_owner(&self, owner: &SemanticId) -> impl Iterator<Item = &Decl> {
+        self.selves_by_owner
+            .get(owner)
+            .into_iter()
+            .flat_map(|indices| indices.iter())
+            .filter_map(move |&index| self.decls.get(index))
     }
 
     /// Members whose owner is `SemanticId` (in this file).
@@ -931,6 +942,17 @@ impl FactsBuilder {
             .map(|(i, def)| (def.id.clone(), i))
             .collect();
 
+        let mut selves_by_owner: HashMap<SemanticId, Vec<usize>> = HashMap::new();
+        for (index, decl) in self.decls.iter().enumerate() {
+            if decl.is_implicit_self
+                && let Some(owner) = &decl.self_owner
+            {
+                selves_by_owner
+                    .entry(owner.clone())
+                    .or_default()
+                    .push(index);
+            }
+        }
         let mut members_by_owner: HashMap<SemanticId, Vec<usize>> = HashMap::new();
         let mut members_by_name: HashMap<SmolStr, Vec<usize>> = HashMap::new();
         let mut field_member_by_type_name: HashMap<(SemanticId, SmolStr), usize> = HashMap::new();
@@ -1093,6 +1115,7 @@ impl FactsBuilder {
             members_by_owner,
             members_by_owner_name,
             members_by_name,
+            selves_by_owner,
             type_def_by_full_name,
             type_def_by_name,
             type_defs_by_lower_name,
@@ -2018,6 +2041,7 @@ impl FactsBuilder {
         let mut name = None;
         let mut is_method = false;
         let mut self_range = None;
+        let mut self_owner = None;
         if let Some(func_stat) = closure.get_parent::<LuaFuncStat>() {
             if let Some(func_name) = func_stat.get_func_name() {
                 match func_name {
@@ -2029,6 +2053,9 @@ impl FactsBuilder {
                             is_method = index_token.is_colon();
                             if is_method {
                                 self_range = Some(index_token.syntax().text_range());
+                                self_owner = index_expr.get_prefix_expr().and_then(|prefix| {
+                                    self.resolve_member_owner(prefix, &mut Vec::new())
+                                });
                             }
                         }
                         name = index_expr
@@ -2065,6 +2092,9 @@ impl FactsBuilder {
         // (instead of an invisible/zero-width range inside the parameter list).
         if is_method && let Some(self_range) = self_range {
             self.add_implicit_self_decl(SmolStr::new("self"), self_range);
+            if let Some(decl) = self.decls.last_mut() {
+                decl.self_owner = self_owner;
+            }
         }
 
         let mut docs = doc_owner.and_then(|owner| self.signature_doc_map.remove(&owner));

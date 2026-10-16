@@ -891,4 +891,64 @@ mod tests {
         lines.sort();
         verify_eq!(lines, vec![2, 6, 11])
     }
+
+    fn reference_lines(
+        content: &str,
+        position: lsp_types::Position,
+        ws: &mut ProviderVirtualWorkspace,
+    ) -> Vec<u32> {
+        let file_id = ws.def(content);
+        let result = references(&ws.analysis, file_id, position, true).unwrap_or_default();
+        let mut lines = result
+            .iter()
+            .map(|location| location.range.start.line)
+            .collect::<Vec<_>>();
+        lines.sort();
+        lines.dedup();
+        lines
+    }
+
+    #[gtest]
+    fn test_references_of_self_field_across_methods_of_an_unannotated_table() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local M = {}
+                function M:open() self._clos<??>ing = false end
+                function M:close() self._closing = true end
+                function M:check() return self._closing end
+                function M:other() return self._opening end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 3, 4])
+    }
+
+    #[gtest]
+    fn test_references_of_class_field_assigned_through_self() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Task
+                ---@field package _closing boolean
+                local Task = {}
+
+                function Task:close()
+                    if not self._closing then
+                        self._clos<??>ing = true
+                    end
+                end
+
+                function Task:check() return self._closing end
+
+                ---@param task Task
+                local function peek(task)
+                    return task._closing
+                end
+            "#,
+        ));
+        verify_eq!(
+            reference_lines(&content, position, &mut ws),
+            vec![2, 6, 7, 11, 15]
+        )
+    }
 }
