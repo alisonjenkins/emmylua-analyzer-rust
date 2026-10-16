@@ -2467,6 +2467,14 @@ impl<'a> InferVm<'a> {
             return vec![fun.as_ref().clone()];
         }
 
+        // A function literal called in place: `(function() return {} end)()`.
+        if let Some(closure_syntax) = callee.closure_syntax
+            && matches!(callee.ty, LuaType::Function)
+            && let Some(fun) = self.model.type_of_signature(closure_syntax)
+        {
+            return vec![fun];
+        }
+
         // The runtime table from `---@class Foo` + `local Foo = {}` is both a class table
         // and a callable object: calling `Foo()` directly should use the class's
         // `---@overload fun(...)` / `---@operator call`.
