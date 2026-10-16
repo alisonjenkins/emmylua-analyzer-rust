@@ -1346,7 +1346,7 @@ mod tests {
                 local n = require("util").cou<??>nt
             "#,
             VirtualHoverResult {
-                value: "```lua\nfun(t: table) -> integer\n```".to_string(),
+                value: "```lua\nlocal function count(t: table) -> integer\n```".to_string(),
             },
         ));
         Ok(())
@@ -1627,6 +1627,31 @@ mod tests {
             "#,
             VirtualHoverResult {
                 value: "```lua\n(parameter) a: any\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// The field of a `require(...)` call is hovered as the module member, not as a bare `function`.
+    #[gtest]
+    fn test_hover_field_of_require_call() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "shuffle_mod.lua",
+            r#"
+                return {
+                    shuffle = function(t, seed)
+                        return t
+                    end,
+                }
+            "#,
+        );
+        check!(ws.check_hover(
+            r#"
+                local shuffle = require("shuffle_mod").shu<??>ffle
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction shuffle(t: any, seed: any)\n```".to_string(),
             },
         ));
         Ok(())
