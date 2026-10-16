@@ -410,6 +410,31 @@ impl<'db> SemanticModel<'db> {
                     .unwrap_or_default();
                 LuaType::Generic(Rc::new(LuaGenericType::new(base_id, params)))
             }
+            // `{x: integer}[]` / `{x: integer}?`: the shell layer flattens the inline object to
+            // `table`, so keep the element's rich projection.
+            LuaDocType::Array(array) => match array.get_type() {
+                Some(base) => LuaType::Array(Rc::new(LuaArrayType::from_base_type(
+                    self.doc_type_lua_rich_in(file_id, base.get_syntax_id()),
+                ))),
+                None => self.analysis().doc_type_lua(file_id, type_syntax, &[]),
+            },
+            LuaDocType::Nullable(nullable) => match nullable.get_type() {
+                Some(inner) => {
+                    let inner = self.doc_type_lua_rich_in(file_id, inner.get_syntax_id());
+                    match inner {
+                        LuaType::Union(union) => {
+                            let mut types = union.into_vec();
+                            types.push(LuaType::Nil);
+                            LuaType::Union(Rc::new(LuaUnionType::from_vec(types)))
+                        }
+                        other => LuaType::Union(Rc::new(LuaUnionType::from_vec(vec![
+                            other,
+                            LuaType::Nil,
+                        ]))),
+                    }
+                }
+                None => self.analysis().doc_type_lua(file_id, type_syntax, &[]),
+            },
             _ => self.analysis().doc_type_lua(file_id, type_syntax, &[]),
         }
     }
