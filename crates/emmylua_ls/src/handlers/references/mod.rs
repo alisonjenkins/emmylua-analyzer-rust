@@ -80,18 +80,17 @@ pub fn references(
             }
         }
     }
-    if model.is_std_file(file_id) {
+    let is_meta =
+        |id| model.is_std_file(id) || model.file_facts_of(id).is_some_and(|facts| facts.is_meta);
+    if is_meta(file_id) {
         return Some(locations);
     }
-    // LuaLS does not list the library stub of a standard function among its references.
+    // LuaLS does not list a library stub (a standard function's, or any `---@meta` file's) among
+    // its references, unless the search starts in one.
     Some(
         locations
             .into_iter()
-            .filter(|location| {
-                !analysis
-                    .get_file_id(&location.uri)
-                    .is_some_and(|id| model.is_std_file(id))
-            })
+            .filter(|location| !analysis.get_file_id(&location.uri).is_some_and(is_meta))
             .collect(),
     )
 }
