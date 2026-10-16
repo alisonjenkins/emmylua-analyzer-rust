@@ -370,6 +370,67 @@ mod tests {
         Ok(())
     }
 
+    fn names_of(symbols: Vec<WorkspaceSymbol>) -> Vec<String> {
+        symbols.into_iter().map(|symbol| symbol.name).collect()
+    }
+
+    #[gtest]
+    fn test_letters_only_match_follows_exact_prefix_and_substring_hits() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "a.lua",
+            "local resolve_external_names = 1\nlocal xranx = 1\nlocal ran_x = 1\nlocal ran = 1\nlocal details = 1\n",
+        );
+        expect_that!(
+            names_of(query(&ws, "ran")),
+            elements_are![
+                eq("ran"),
+                eq("ran_x"),
+                eq("xranx"),
+                eq("resolve_external_names")
+            ]
+        );
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_letters_only_matches_are_ordered_deterministically() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "a.lua",
+            "local rxaxn = 1\nlocal r_an = 1\nlocal rnnaa = 1\n",
+        );
+        ws.def_file("b.lua", "local rxaxn = 1\n");
+        let first = located_names(&query(&ws, "ran"));
+        expect_that!(first.len(), eq(4));
+        for _ in 0..5 {
+            expect_that!(located_names(&query(&ws, "ran")), eq(&first));
+        }
+        // shorter names first within the tier
+        expect_that!(
+            names_of(query(&ws, "ran")).first().map(String::as_str),
+            some(eq("r_an"))
+        );
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_letters_only_matches_do_not_displace_better_ones_at_the_cap() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let letters_only: String = (0..1100)
+            .map(|i| format!("local r_a_n_{i} = 1\n"))
+            .collect();
+        ws.def_file("a.lua", &letters_only);
+        ws.def_file("z.lua", "local xranx = 1\n");
+        let symbols = query(&ws, "ran");
+        expect_that!(symbols.len(), eq(1000));
+        expect_that!(
+            symbols.first().map(|symbol| symbol.name.as_str()),
+            some(eq("xranx"))
+        );
+        Ok(())
+    }
+
     fn uris_of(symbols: &[WorkspaceSymbol]) -> Vec<String> {
         located_names(symbols)
             .into_iter()
