@@ -498,7 +498,12 @@ impl<'a> InferVm<'a> {
                     key_value.ty = flow_ty;
                 }
                 key_value.ty = key_value.ty.get_result_slot_type(0).unwrap_or(LuaType::Nil);
-                let value = self.index_member_dynamic(owner_value, key_value);
+                let value = match &owner_value.ty {
+                    LuaType::Array(array) if self.is_length_expr(syntax) => {
+                        Value::plain(array.get_base().clone())
+                    }
+                    _ => self.index_member_dynamic(owner_value, key_value),
+                };
                 self.stack.push(value);
             }
             Instr::IndexMember(IndexKey::Static(key)) => {
@@ -799,6 +804,23 @@ impl<'a> InferVm<'a> {
     /// Whether the file belongs to the STD workspace.
     fn is_std_file(model: &SemanticModel<'_>, file_id: FileId) -> bool {
         model.is_std_file(file_id)
+    }
+
+    /// `#items` as an index key addresses the last element, so it is not nil on a non-empty array.
+    fn is_length_expr(&self, syntax: LuaSyntaxId) -> bool {
+        self.model
+            .syntax_tree()
+            .and_then(|tree| syntax.to_node_from_root(&tree.get_red_root()))
+            .and_then(LuaExpr::cast)
+            .is_some_and(|expr| {
+                matches!(
+                    expr,
+                    LuaExpr::UnaryExpr(unary)
+                        if unary.get_op_token().is_some_and(|token| {
+                            token.get_op() == emmylua_parser::UnaryOperator::OpLen
+                        })
+                )
+            })
     }
 
     fn index_member_dynamic(&mut self, owner: Value, key: Value) -> Value {
@@ -4998,7 +5020,10 @@ fn unary_type(
     {
         return ty;
     }
-    operand.clone()
+    match op {
+        OpLen => LuaType::Integer,
+        _ => operand.clone(),
+    }
 }
 
 /// Binary operator -> `@operator` name.
