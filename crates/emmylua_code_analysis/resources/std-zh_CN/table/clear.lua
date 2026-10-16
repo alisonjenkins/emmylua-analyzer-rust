@@ -3,19 +3,16 @@
 --- @version JIT
 
 --- @version JIT
---- 清除表中的所有键和值，但保留已分配的数组/哈希容量。
 ---
---- 当一个表被多个地方引用而需要被清空，或需要在同一上下文中回收复用表时，这很有用。
---- 这样可以避免维护反向引用、节省一次分配，以及减少数组/哈希部分逐步增长的开销。
---- 使用前需要先 require：
----
+--- This clears all keys and values from a table, but preserves the allocated array/hash sizes. This is useful when a table, which is linked from multiple places, needs to be cleared and/or when recycling a table for use by the same context. This avoids managing backlinks, saves an allocation and the overhead of incremental array/hash part growth. The function needs to be required before use.
 --- ```lua
---- require("table.clear")
+---    require("table.clear").
 --- ```
+--- Please note this function is meant for very specific situations. In most cases it's better to replace the (usually single) link with a new table and let the GC do its work.
 ---
---- 注意：此函数仅适用于非常特定的场景。多数情况下，更好的做法是用一个新表替换（通常唯一的）引用，并让 GC 自行回收旧表。
 ---
---- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-table.clear"])
+--- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-table.clear"])
+---
 --- @param tab table
 local function clear(tab) end
 

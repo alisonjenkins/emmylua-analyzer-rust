@@ -16,11 +16,11 @@
 --- @class tablelib
 table = {}
 
---- 给定一个列表，其中所有元素都是字符串或数字，返回字符串
---- `list[i]..sep..list[i+1] ... sep..list[j]`。
 ---
---- `sep` 的默认值为空字符串，`i` 的默认值为 1，`j` 的默认值为 `#list`。
---- 如果 `i` 大于 `j`，则返回空字符串。
+--- Given a list where all elements are strings or numbers, returns the string
+--- `list[i]..sep..list[i+1] ... sep..list[j]`. The default value for
+--- `sep` is the empty string, the default for `i` is 1, and the default for
+--- `j` is #list. If `i` is greater than `j`, returns the empty string.
 --- @param list table
 --- @param sep? string
 --- @param i?   integer
@@ -29,10 +29,11 @@ table = {}
 --- @nodiscard
 function table.concat(list, sep, i, j) end
 
---- 在 `list` 的位置 `pos` 处插入元素 `value`，并将
---- `list[pos]`、`list[pos+1]`、`···`、`list[#list]` 这些元素向后移动。
 ---
---- `pos` 的默认值为 `#list+1`，因此调用 `table.insert(t, x)` 会把 `x` 插入到列表 `t` 的末尾。
+--- Inserts element `value` at position `pos` in `list`, shifting up the
+--- elements to `list[pos]`, `list[pos+1]`, `···`, `list[#list]`. The default
+--- value for `pos` is ``#list+1`, so that a call `table.insert(t,x)`` inserts
+--- `x` at the end of list `t`.
 --- @overload fun(list: table, value: any)
 --- @param list  table
 --- @param pos   integer
@@ -40,12 +41,13 @@ function table.concat(list, sep, i, j) end
 function table.insert(list, pos, value) end
 
 --- @version >5.3
---- 将元素从表 `a1` 移动到表 `a2`，等价于进行如下的多重赋值：
---- `a2[t]`, `···` = `a1[f]`, `···`, `a1[e]`。
 ---
---- `a2` 的默认值为 `a1`。目标区间可以与源区间重叠。要移动的元素数量必须能放入 Lua 整数。
+--- Moves elements from table a1 to table `a2`, performing the equivalent to
+--- the following multiple assignment: `a2[t]`,`··· = a1[f]`,`···,a1[e]`. The
+--- default for `a2` is `a1`. The destination range can overlap with the source
+--- range. The number of elements to be moved must fit in a Lua integer.
 ---
---- 返回目标表 `a2`。
+--- Returns the destination table `a2`.
 --- @overload fun(a1: table, f: integer, e: integer, t: integer): table
 --- @param a1 table
 --- @param f  integer
@@ -56,43 +58,54 @@ function table.insert(list, pos, value) end
 function table.move(a1, f, e, t, a2) end
 
 --- @version 5.1, JIT
---- 返回给定表的最大正整数索引；如果表没有正整数索引，则返回 0。
+---
+--- Returns the largest positive numerical index of the given table, or zero if the table has no positive numerical indices.
+---
 --- @param table table
 --- @return integer
 --- @nodiscard
 function table.maxn(table) end
 
---- 移除 `list` 中位置 `pos` 处的元素，并返回被移除元素的值。
 ---
---- 当 `pos` 是 1 到 `#list` 之间的整数时，它会将 `list[pos+1]`、`list[pos+2]`、`···`、
---- `list[#list]` 向前移动，并清除 `list[#list]`；当 `#list` 为 0 时，`pos` 也可以为 0，
---- 或者 `#list + 1`；这些情况下，函数会清除 `list[pos]`。
+--- Removes from `list` the element at position `pos`, returning the value of
+--- the removed element. When `pos` is an integer between 1 and `#list`, it
+--- shifts down the elements `list[pos+1]`, `list[pos+2]`, `···`,
+--- `list[#list]` and erases element `list[#list]`; The index pos can also be 0
+--- when `#list` is 0, or `#list` + 1; in those cases, the function erases
+--- the element `list[pos]`.
 ---
---- `pos` 的默认值为 `#list`，因此调用 `table.remove(l)` 会移除列表 `l` 的最后一个元素。
+--- The default value for `pos` is `#list`, so that a call `table.remove(l)`
+--- removes the last element of list `l`.
 --- @generic V
 --- @param list table<integer, V> | V[]
 --- @param pos? integer
 --- @return V
 function table.remove(list, pos) end
 
---- 在表内从 `list[1]` 到 `list[#list]` 之间，按指定顺序 *原地* 排序列表元素。
 ---
---- 如果提供了 `comp`，它必须是一个接收两个列表元素并返回布尔值的函数：当第一个元素在最终排序中应位于第二个元素之前时返回 true
---- （因此，排序后 `i < j` 蕴含 `not comp(list[j], list[i])`）。如果不提供 `comp`，则使用标准 Lua 运算符 `<`。
+--- Sorts list elements in a given order, *in-place*, from `list[1]` to
+--- `list[#list]`. If `comp` is given, then it must be a function that receives
+--- two list elements and returns true when the first element must come before
+--- the second in the final order (so that, after the sort, `i < j` implies not
+--- `comp(list[j],list[i]))`. If `comp` is not given, then the standard Lua
+--- operator `<` is used instead.
 ---
---- 注意：`comp` 必须在列表元素上定义一个严格偏序（即非对称且传递）；否则可能无法得到有效排序。
+--- Note that the `comp` function must define a strict partial order over the
+--- elements in the list; that is, it must be asymmetric and transitive.
+--- Otherwise, no valid sort may be possible.
 ---
---- 排序算法不稳定：在给定顺序下被认为相等的元素，其相对位置可能在排序后发生变化。
+--- The sort algorithm is not stable: elements considered equal by the given
+--- order may have their relative positions changed by the sort.
 --- @generic V
 --- @param list  V[]
 --- @param comp? fun(a: V, b: V): boolean
 function table.sort(list, comp) end
 
 --- @version >5.2, JIT
---- 返回给定列表中的元素。该函数等价于：
---- `return list[i], list[i+1], ···, list[j]`。
 ---
---- 默认情况下，`i` 为 1，`j` 为 `#list`。
+--- Returns the elements from the given list. This function is equivalent to
+--- return `list[i]`, `list[i+1]`, `···`, `list[j]`
+--- By default, i is 1 and j is #list.
 --- @generic const T, const Start: integer, const End: integer
 --- @param i?   Start
 --- @param j?   End
@@ -101,7 +114,9 @@ function table.sort(list, comp) end
 function table.unpack(list, i, j) end
 
 --- @version >5.2, JIT
---- 返回一个新表，将所有参数依次存入键 `1`、`2` 等，并设置字段 `"n"` 为参数总数。
+---
+--- Returns a new table with all arguments stored into keys `1`, `2`, etc. and with a field `"n"` with the total number of arguments.
+---
 --- @generic T
 --- @param ... T...
 --- @return [T...]&{ n: integer }
@@ -109,8 +124,10 @@ function table.unpack(list, i, j) end
 function table.pack(...) end
 
 --- @version 5.1, JIT
---- 对表的所有元素执行给定函数 `f`。对每个元素，`f` 会以索引与对应值作为参数被调用。
---- 如果 `f` 返回非 nil 值，则中断循环，并将该值作为 `foreach` 的最终返回值。
+---
+--- Executes the given f over all elements of table. For each element, f is called with the index and respective value as arguments. If f returns a non-nil value, then the loop is broken, and this value is returned as the final value of foreach.
+---
+---
 --- @generic T
 --- @param list     any
 --- @param callback fun(key: string, value: any): T | nil
@@ -119,9 +136,9 @@ function table.pack(...) end
 function table.foreach(list, callback) end
 
 --- @version 5.1, JIT
---- 对表的数值索引执行给定函数 `f`。对每个索引，`f` 会以索引与对应值作为参数被调用。
---- 索引会按顺序访问，从 1 到 n，其中 n 为表的大小。
---- 如果 `f` 返回非 nil 值，则中断循环，并将该值作为 `foreachi` 的结果返回。
+---
+--- Executes the given f over the numerical indices of table. For each index, f is called with the index and respective value as arguments. Indices are visited in sequential order, from 1 to n, where n is the size of the table. If f returns a non-nil value, then the loop is broken and this value is returned as the result of foreachi.
+---
 --- @generic T
 --- @param list     any
 --- @param callback fun(key: string, value: any): T | nil
@@ -130,7 +147,10 @@ function table.foreach(list, callback) end
 function table.foreachi(list, callback) end
 
 --- @version 5.1, JIT
---- 返回表中的元素数量。该函数等价于 `#list`。
+---
+--- Returns the number of elements in the table. This function is equivalent to `#list`.
+---
+--- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-table.getn"])
 --- @generic T
 --- @param list T[]
 --- @return integer
@@ -138,9 +158,10 @@ function table.foreachi(list, callback) end
 --- @deprecated
 function table.getn(list) end
 
---- 创建一个新的空表，并预分配内存。当你事先知道表会包含多少元素时，这种预分配可能有助于提升性能并节省内存。
----
---- 参数 `nseq` 用于提示该表作为序列会包含多少元素；可选参数 `nrec` 用于提示该表还会包含多少其他元素，默认值为 0。
+--- Creates a new empty table, preallocating memory. This preallocation may help
+--- performance and save memory when you know in advance how many elements the table will have.
+--- Parameter `nseq` is a hint for how many elements the table will have as a sequence. Optional parameter `nrec`
+--- is a hint for how many other elements the table will have; its default is zero.
 --- @version >5.5
 --- @param nseq  integer
 --- @param nrec? integer
