@@ -27,6 +27,74 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_param_lists_its_reassignments() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local function f(bufnr)
+                    bufnr = tostring(bufnr)
+                    return buf<??>nr
+                end
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 1,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 2,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_local_lists_assignments_in_nested_closures() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local res
+                run(function() res = 1 end)
+                run(function() res = 2 end)
+                print(re<??>s)
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 1,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 2,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 3,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_unreassigned_local_stays_single() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local value = 1
+                print(val<??>ue)
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 1,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_basic_definition() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(

@@ -9,8 +9,8 @@ use emmylua_code_analysis::{
     Emmyrc, LuaMemberKey, MemberInfo, SemanticDatabase, SemanticId, SemanticModel, WorkspaceId,
 };
 use emmylua_parser::{
-    LuaAstNode, LuaAstToken, LuaComment, LuaDocDescription, LuaExpr, LuaIndexExpr, LuaLocalStat,
-    LuaNameExpr, LuaSyntaxToken, LuaTableExpr, LuaTableField, LuaTokenKind,
+    LuaAssignStat, LuaAstNode, LuaAstToken, LuaComment, LuaDocDescription, LuaExpr, LuaIndexExpr,
+    LuaLocalStat, LuaNameExpr, LuaSyntaxToken, LuaTableExpr, LuaTableField, LuaTokenKind,
 };
 use lsp_types::{GotoDefinitionResponse, Location};
 use rowan::TextSize;
@@ -32,7 +32,17 @@ pub fn goto_def_definition(
             {
                 return goto_def_definition(model, db, &origin, token);
             }
-            location_of(db, key.file_id, key.name_range).map(GotoDefinitionResponse::Scalar)
+            let declaration = location_of(db, key.file_id, key.name_range)?;
+            let mut locations = vec![declaration];
+            for location in assignment_sites(model, db, decl) {
+                if !locations.contains(&location) {
+                    locations.push(location);
+                }
+            }
+            Some(match locations.len() {
+                1 => GotoDefinitionResponse::Scalar(locations.remove(0)),
+                _ => GotoDefinitionResponse::Array(locations),
+            })
         }
         SemanticId::Member(_) => goto_member_definition(model, db, decl, token),
         SemanticId::TypeDef(key) => {
@@ -46,6 +56,51 @@ pub fn goto_def_definition(
         }
         _ => None,
     }
+}
+
+/// Where a variable is assigned (`x = v`), in source order.
+///
+/// LuaLS answers go-to-definition on a variable with its declaration plus every assignment.
+fn assignment_sites(
+    model: &SemanticModel<'_>,
+    db: &SemanticDatabase,
+    decl: &SemanticId,
+) -> Vec<Location> {
+    let mut ranges = db.decl_reference_ranges(decl);
+    ranges.sort_by_key(|(file_id, range)| (*file_id, range.start()));
+    ranges
+        .into_iter()
+        .filter(|(file_id, range)| is_assignment_target(model, *file_id, *range))
+        .filter_map(|(file_id, range)| location_of(db, file_id, range))
+        .collect()
+}
+
+fn is_assignment_target(
+    model: &SemanticModel<'_>,
+    file_id: emmylua_code_analysis::FileId,
+    range: rowan::TextRange,
+) -> bool {
+    let file_model = model.model_for(file_id);
+    let Some(chunk) = file_model.chunk() else {
+        return false;
+    };
+    let Some(name_expr) = chunk
+        .syntax()
+        .token_at_offset(range.start())
+        .right_biased()
+        .and_then(|token| token.parent())
+        .and_then(LuaNameExpr::cast)
+    else {
+        return false;
+    };
+    let Some(assign) = name_expr.get_parent::<LuaAssignStat>() else {
+        return false;
+    };
+    assign
+        .get_var_and_expr_list()
+        .0
+        .iter()
+        .any(|var| var.get_range() == name_expr.get_range())
 }
 
 fn goto_member_definition(
