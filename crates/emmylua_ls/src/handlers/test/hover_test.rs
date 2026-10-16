@@ -1321,4 +1321,34 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// `_M.count = count` (a local function) exported from a module keeps its signature when read through `require`.
+    #[gtest]
+    fn test_hover_required_member_assigned_a_local_function() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "util.lua",
+            r#"
+                local _M = {}
+
+                ---@param t table
+                ---@return integer
+                local function count(t)
+                    return 1
+                end
+                _M.count = count
+
+                return _M
+            "#,
+        );
+        check!(ws.check_hover(
+            r#"
+                local n = require("util").cou<??>nt
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfun(t: table) -> integer\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
