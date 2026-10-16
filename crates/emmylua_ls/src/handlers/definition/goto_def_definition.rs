@@ -328,7 +328,7 @@ fn type_has_field_accessor(
     })
 }
 
-fn location_of(
+pub(super) fn location_of(
     db: &SemanticDatabase,
     file_id: emmylua_code_analysis::FileId,
     range: rowan::TextRange,

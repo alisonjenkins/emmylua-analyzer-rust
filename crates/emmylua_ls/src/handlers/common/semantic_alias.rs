@@ -6,7 +6,7 @@
 use std::collections::HashSet;
 
 use emmylua_code_analysis::{ModuleExport, SemanticId, SemanticModel};
-use emmylua_parser::{LuaAstNode, LuaAstToken, LuaExpr, LuaIndexExpr};
+use emmylua_parser::{LuaAstNode, LuaAstToken, LuaClosureExpr, LuaExpr, LuaIndexExpr, LuaReturnStat};
 
 /// Follow the value initialization chain of a local variable / member to its final declared identity.
 ///
@@ -96,6 +96,114 @@ pub fn resolve_alias_origin(model: &SemanticModel<'_>, decl: &SemanticId) -> Opt
             other => return Some(other.clone()),
         }
     }
+}
+
+/// The function a declaration's value evaluates to when that value is a call (`x = make()`,
+/// `{ key = make() }`): the closure the callee returns. LuaLS lists it beside the assignment.
+///
+/// Follows `resolve_alias_origin` first so `local g = cfg.on_init` reaches the same closure.
+pub fn call_value_function(
+    model: &SemanticModel<'_>,
+    decl: &SemanticId,
+) -> Option<(emmylua_code_analysis::FileId, rowan::TextRange)> {
+    let origin = resolve_alias_origin(model, decl);
+    let candidates = std::iter::once(decl.clone()).chain(origin.filter(|origin| origin != decl));
+    for id in candidates {
+        let Some(file_id) = semantic_id_file(&id) else {
+            continue;
+        };
+        let file_model = model.model_for(file_id);
+        let Some(facts) = file_model.file_facts() else {
+            continue;
+        };
+        let value_syntax = match &id {
+            SemanticId::Decl(_) => facts.decl_by_id(&id).and_then(|d| d.value_expr_syntax),
+            SemanticId::Member(_) => facts.member_by_id(&id).and_then(|m| m.value_syntax),
+            _ => None,
+        };
+        let Some(value_syntax) = value_syntax else {
+            continue;
+        };
+        let Some(tree) = file_model.syntax_tree() else {
+            continue;
+        };
+        let Some(LuaExpr::CallExpr(call)) = value_syntax
+            .to_node_from_root(&tree.get_red_root())
+            .and_then(LuaExpr::cast)
+        else {
+            continue;
+        };
+        if call.is_require() {
+            continue;
+        }
+        if let Some(found) = returned_function(&file_model, &call) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// The closure a called function returns: `return function() end` or `return local_fn`.
+///
+/// The call's inferred type is a bare `Function` for these, so the callee's `return` is read directly.
+fn returned_function(
+    file_model: &SemanticModel<'_>,
+    call: &emmylua_parser::LuaCallExpr,
+) -> Option<(emmylua_code_analysis::FileId, rowan::TextRange)> {
+    let callee = match call.get_prefix_expr()? {
+        LuaExpr::NameExpr(name) => file_model.resolve_name(name.get_position())?,
+        LuaExpr::IndexExpr(index) => file_model.resolve_member(&index)?.member_id?,
+        _ => return None,
+    };
+    let callee = resolve_alias_origin(file_model, &callee).unwrap_or(callee);
+    let (callee_model, callee_closure) = closure_of(file_model, &callee)?;
+    let callee_chunk_model = callee_model;
+    // A declared `@return` is the answer LuaLS gives, not the closure in the body.
+    if callee_chunk_model
+        .file_facts()
+        .and_then(|facts| facts.signature_by_closure(callee_closure.get_syntax_id()))
+        .and_then(|signature| signature.docs.as_ref())
+        .is_some_and(|docs| !docs.returns.is_empty())
+    {
+        return None;
+    }
+    for ret in callee_closure.descendants::<LuaReturnStat>() {
+        let owner = ret.syntax().ancestors().find_map(LuaClosureExpr::cast);
+        if owner.as_ref() != Some(&callee_closure) {
+            continue;
+        }
+        match ret.get_expr_list().next() {
+            Some(LuaExpr::ClosureExpr(closure)) => {
+                return Some((callee_chunk_model.file_id(), closure.get_range()));
+            }
+            Some(LuaExpr::NameExpr(name)) => {
+                let id = callee_chunk_model.resolve_name(name.get_position())?;
+                let (closure_model, closure) = closure_of(&callee_chunk_model, &id)?;
+                return Some((closure_model.file_id(), closure.get_range()));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The function expression a declaration is initialised with.
+pub fn closure_of<'db>(
+    model: &SemanticModel<'db>,
+    id: &SemanticId,
+) -> Option<(SemanticModel<'db>, LuaClosureExpr)> {
+    let file_model = model.model_for(semantic_id_file(id)?);
+    let facts = file_model.file_facts()?;
+    let value_syntax = match id {
+        SemanticId::Decl(_) => facts.decl_by_id(id)?.value_expr_syntax?,
+        SemanticId::Member(_) => facts.member_by_id(id)?.value_syntax?,
+        _ => return None,
+    };
+    let tree = file_model.syntax_tree()?;
+    let closure = value_syntax
+        .to_node_from_root(&tree.get_red_root())
+        .and_then(LuaClosureExpr::cast)?;
+    Some((file_model, closure))
 }
 
 /// Resolves a direct `require("mod").field` member expression. When `resolve_member`

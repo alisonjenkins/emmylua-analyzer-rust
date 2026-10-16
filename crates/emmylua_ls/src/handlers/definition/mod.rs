@@ -3,6 +3,7 @@ mod goto_field_assignment;
 mod goto_label;
 mod goto_module_file;
 mod goto_string;
+mod goto_value_origin;
 
 use emmylua_code_analysis::{EmmyLuaAnalysis, FileId, SemanticId};
 use emmylua_parser::{LuaAstNode, LuaAstToken, LuaStringToken, LuaTokenKind};
@@ -99,12 +100,14 @@ pub fn definition(
     // 3. Semantic declarations (decl / member / typedef).
     let decl = model.find_decl(token.clone().into())?;
     let response = goto_def_definition::goto_def_definition(&model, &analysis.db, &decl, &token)?;
-    if matches!(decl, SemanticId::Member(_)) {
-        return Some(goto_field_assignment::with_field_assignments(
-            analysis, &model, &token, response,
-        ));
-    }
-    Some(response)
+    let response = if matches!(decl, SemanticId::Member(_)) {
+        goto_field_assignment::with_field_assignments(analysis, &model, &token, response)
+    } else {
+        response
+    };
+    Some(goto_value_origin::with_value_origin(
+        analysis, &model, &decl, &token, response,
+    ))
 }
 
 pub struct DefinitionCapabilities;
