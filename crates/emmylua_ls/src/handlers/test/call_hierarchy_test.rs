@@ -8,6 +8,29 @@ mod tests {
     fn incoming(ws: &mut ProviderVirtualWorkspace, block: &str) -> Result<Vec<(String, Vec<u32>)>> {
         let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(block));
         let file_id = ws.def(&content);
+        incoming_at(ws, file_id, position)
+    }
+
+    /// Like `incoming`, with the function declared in `mod.lua` and used by `consumer.lua`, which
+    /// is loaded after it.
+    fn incoming_from_module(
+        ws: &mut ProviderVirtualWorkspace,
+        module_block: &str,
+        consumer: &str,
+    ) -> Result<Vec<(String, Vec<u32>)>> {
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            module_block
+        ));
+        let file_id = ws.def_file("mod.lua", &content);
+        ws.def(consumer);
+        incoming_at(ws, file_id, position)
+    }
+
+    fn incoming_at(
+        ws: &mut ProviderVirtualWorkspace,
+        file_id: emmylua_code_analysis::FileId,
+        position: lsp_types::Position,
+    ) -> Result<Vec<(String, Vec<u32>)>> {
         let items = prepare_call_hierarchy(&ws.analysis, file_id, position)
             .ok_or("prepare failed")
             .or_fail()?;
@@ -238,6 +261,51 @@ mod tests {
             "#
         ));
         verify_eq!(got, vec![("run".to_string(), vec![16])])
+    }
+
+    #[gtest]
+    fn test_incoming_calls_on_the_result_of_calling_a_required_function() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(incoming_from_module(
+            &mut ws,
+            r#"
+                return function(ctx)
+                    local e = {}
+                    function e.s<??>et(k) end
+                    return e
+                end
+            "#,
+            r#"
+                local make = require("mod")
+                local env = make(1)
+                local function use_it()
+                    env.set(1)
+                end
+            "#,
+        ));
+        verify_eq!(got, vec![("use_it".to_string(), vec![4])])
+    }
+
+    #[gtest]
+    fn test_incoming_calls_on_the_result_of_calling_a_require_expression() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(incoming_from_module(
+            &mut ws,
+            r#"
+                return function(ctx)
+                    local e = {}
+                    function e.s<??>et(k) end
+                    return e
+                end
+            "#,
+            r#"
+                local env = require("mod")(1)
+                local function use_it()
+                    env.set(1)
+                end
+            "#,
+        ));
+        verify_eq!(got, vec![("use_it".to_string(), vec![3])])
     }
 
     #[gtest]
