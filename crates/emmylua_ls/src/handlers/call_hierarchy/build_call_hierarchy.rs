@@ -11,8 +11,6 @@ use lsp_types::{
 use rowan::TextRange;
 use serde::{Deserialize, Serialize};
 
-use crate::handlers::common::{decl_reference_ranges, member_reference_ranges};
-
 /// Serializable encoding for `SemanticId` (identity = file + range).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SemanticIdData {
@@ -117,15 +115,11 @@ pub fn build_call_hierarchy_item(
     }
 }
 
+/// Incoming calls from the reference sites of a function; sites that are not calls are skipped.
 pub fn build_incoming_hierarchy(
     db: &SemanticDatabase,
-    semantic_decl: &SemanticId,
+    ranges: Vec<(FileId, TextRange)>,
 ) -> Option<Vec<CallHierarchyIncomingCall>> {
-    let ranges = match semantic_decl {
-        SemanticId::Decl(_) => decl_reference_ranges(db, semantic_decl, false),
-        SemanticId::Member(_) => member_reference_ranges(db, semantic_decl, false),
-        _ => return None,
-    };
     let mut callers = CallerGroups::default();
     let mut seen = HashSet::new();
     for (file_id, range) in ranges {

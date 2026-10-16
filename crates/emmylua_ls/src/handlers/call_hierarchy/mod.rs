@@ -15,6 +15,7 @@ use rowan::TokenAtOffset;
 use tokio_util::sync::CancellationToken;
 
 use crate::context::{RequestOutcome, ServerContextSnapshot, snapshot_query};
+use crate::handlers::references::reference_searcher::search_references;
 
 use super::RegisterCapabilities;
 
@@ -88,8 +89,30 @@ pub fn incoming_calls(
 ) -> Option<Vec<CallHierarchyIncomingCall>> {
     let data = item.data.as_ref()?;
     let data = serde_json::from_value::<CallHierarchyItemData>(data.clone()).ok()?;
-    let semantic_decl = data.semantic_decl.to_semantic_id()?;
-    build_incoming_hierarchy(&analysis.db, &semantic_decl)
+    data.semantic_decl.to_semantic_id()?;
+
+    // The references of the function name, so calls found through aliases and typed receivers count.
+    let file_id = analysis.get_file_id(&item.uri)?;
+    let model = analysis.semantic_model(file_id);
+    let document = analysis.db.document(file_id)?;
+    let start = item.selection_range.start;
+    let offset = document.get_offset(start.line as usize, start.character as usize)?;
+    let token = model
+        .chunk()?
+        .syntax()
+        .token_at_offset(offset)
+        .right_biased()?;
+    let references = search_references(&model, &analysis.db, token, false)?;
+    let ranges = references
+        .iter()
+        .filter_map(|location| {
+            let file_id = analysis.get_file_id(&location.uri)?;
+            let document = analysis.db.document(file_id)?;
+            let range = document.to_rowan_range(location.range)?;
+            Some((file_id, range))
+        })
+        .collect();
+    build_incoming_hierarchy(&analysis.db, ranges)
 }
 
 pub async fn on_outgoing_calls_handler(
