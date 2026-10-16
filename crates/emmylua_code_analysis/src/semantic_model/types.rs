@@ -889,6 +889,23 @@ impl<'db> SemanticModel<'db> {
         } else {
             ty
         };
+        // `_M.count = count` where `count` is a local function: the shell only knows `function`;
+        // the expression's own type carries the signature.
+        if matches!(ty, LuaType::Function)
+            && let Some(facts) = self.file_facts_of(member_file)
+            && let Some(member_def) = facts.member_by_id(member)
+            && member_def.doc_type_syntax.is_none()
+            && let Some(value_syntax) = member_def.value_syntax
+            && let Some(tree) = self.syntax_tree_of(member_file)
+            && let Some(node) = value_syntax.to_node_from_root(&tree.get_red_root())
+            && matches!(LuaExpr::cast(node), Some(LuaExpr::NameExpr(_)))
+        {
+            let value_ty =
+                flow::type_of_expr_with_cast(self, value_syntax, flow::ExprCastMode::AsOnly);
+            if matches!(value_ty, LuaType::DocFunction(_)) {
+                return Some(value_ty);
+            }
+        }
         Some(ty)
     }
     /// Whether this is a table-literal field in a declaration initializer.
