@@ -2089,20 +2089,25 @@ impl<'a> InferVm<'a> {
         let Some(closure) = LuaClosureExpr::cast(node) else {
             return LuaType::Unknown;
         };
-        let return_exprs: Vec<LuaExpr> = closure
+        let return_stats: Vec<Vec<LuaExpr>> = closure
             .descendants::<LuaReturnStat>()
             .filter(|ret| {
                 ret.ancestors::<LuaClosureExpr>()
                     .next()
                     .is_some_and(|owner| owner.get_syntax_id() == closure_syntax)
             })
-            .flat_map(|ret| ret.get_expr_list())
+            .map(|ret| ret.get_expr_list().collect())
             .collect();
-        if return_exprs.is_empty() {
+        if return_stats.iter().all(|exprs| exprs.is_empty()) {
             return LuaType::Unknown;
         }
-        let mut types = Vec::new();
-        for expr in return_exprs {
+        // One list of candidate types per return slot: `return nil, err` and `return value` fill
+        // slots 0 and 1 and slot 0 respectively, they do not add up to one flat union.
+        let mut slots: Vec<Vec<LuaType>> = Vec::new();
+        for (slot, expr) in return_stats
+            .into_iter()
+            .flat_map(|exprs| exprs.into_iter().enumerate())
+        {
             let expr_syntax = expr.get_syntax_id();
             let mut code = Vec::new();
             compile(expr, self.model.file_id(), &mut code);
@@ -2116,16 +2121,29 @@ impl<'a> InferVm<'a> {
             if !matches!(flow_ty, LuaType::Unknown | LuaType::Any) && flow_ty != ty {
                 ty = flow_ty;
             }
-            if !matches!(ty, LuaType::Unknown | LuaType::Any) && !types.contains(&ty) {
+            while slots.len() <= slot {
+                slots.push(Vec::new());
+            }
+            if let Some(types) = slots.get_mut(slot)
+                && !matches!(ty, LuaType::Unknown | LuaType::Any)
+                && !types.contains(&ty)
+            {
                 types.push(ty);
             }
         }
-        if types.is_empty() {
-            LuaType::Unknown
-        } else if types.len() == 1 {
-            types.pop().expect("len checked")
-        } else {
-            LuaType::from_vec(types)
+        let mut slot_types: Vec<LuaType> = slots
+            .into_iter()
+            .map(|mut types| match types.len() {
+                0 => LuaType::Unknown,
+                1 => types.pop().unwrap_or(LuaType::Unknown),
+                _ => LuaType::from_vec(types),
+            })
+            .collect();
+        match slot_types.len() {
+            0 => LuaType::Unknown,
+            1 => slot_types.pop().unwrap_or(LuaType::Unknown),
+            _ if slot_types.iter().all(|ty| matches!(ty, LuaType::Unknown)) => LuaType::Unknown,
+            _ => LuaType::Variadic(Rc::new(VariadicType::Multi(slot_types))),
         }
     }
 

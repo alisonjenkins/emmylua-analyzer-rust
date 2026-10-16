@@ -452,6 +452,201 @@ mod tests {
         Ok(())
     }
 
+    fn check_unannotated_constructor_method_references(
+        module: &str,
+        close_line: u32,
+    ) -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            module,
+            vec![(
+                "a.lua",
+                r#"
+                    local reader = require("virtual_0")
+                    local r = reader.open("x")
+                    r:close()
+                "#,
+            )],
+            vec![
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: close_line,
+                },
+                VirtualLocation {
+                    file: "a.lua".to_string(),
+                    line: 3,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_method_references_through_unannotated_setmetatable_return() -> Result<()> {
+        check_unannotated_constructor_method_references(
+            r#"
+                ---@class Reader
+                local M = {}
+                M.__index = M
+
+                function M.open(path)
+                    return setmetatable({ path = path }, M)
+                end
+
+                function M:cl<??>ose()
+                end
+
+                return M
+            "#,
+            9,
+        )
+    }
+
+    #[gtest]
+    fn test_method_references_through_unannotated_constructor_with_error_return() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_references(
+            r#"
+                local M = {}
+                local Reader = {}
+                Reader.__index = Reader
+
+                function M.open(path)
+                    if not path then return nil, "no path" end
+                    return setmetatable({ path = path }, Reader)
+                end
+
+                function Reader:cl<??>ose()
+                end
+
+                return M
+            "#,
+            vec![(
+                "a.lua",
+                r#"
+                    local reader = require("virtual_0")
+                    local r = assert(reader.open("x"))
+                    r:close()
+                    local q, err = reader.open("y")
+                    q:close()
+                "#,
+            )],
+            vec![
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 10,
+                },
+                VirtualLocation {
+                    file: "a.lua".to_string(),
+                    line: 3,
+                },
+                VirtualLocation {
+                    file: "a.lua".to_string(),
+                    line: 5,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_method_references_through_unannotated_class_without_doc_class() -> Result<()> {
+        check_unannotated_constructor_method_references(
+            r#"
+                local M = {}
+                M.__index = M
+
+                function M.open(path)
+                    return setmetatable({ path = path }, M)
+                end
+
+                function M:cl<??>ose()
+                end
+
+                return M
+            "#,
+            8,
+        )
+    }
+
+    #[gtest]
+    fn test_method_references_through_unannotated_self_local_return() -> Result<()> {
+        check_unannotated_constructor_method_references(
+            r#"
+                local M = {}
+                M.__index = M
+
+                function M.open(path)
+                    local self = setmetatable({}, M)
+                    self.path = path
+                    return self
+                end
+
+                function M:cl<??>ose()
+                end
+
+                return M
+            "#,
+            10,
+        )
+    }
+
+    #[gtest]
+    fn test_method_references_through_unannotated_inline_index_metatable() -> Result<()> {
+        check_unannotated_constructor_method_references(
+            r#"
+                local M = {}
+
+                function M.open(path)
+                    return setmetatable({ path = path }, { __index = M })
+                end
+
+                function M:cl<??>ose()
+                end
+
+                return M
+            "#,
+            7,
+        )
+    }
+
+    #[gtest]
+    fn test_method_references_through_nullable_receiver() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        ws.def_file("b.lua", "local h = io.open('z')\nh:close()\n");
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local f = assert(io.open('x'))
+                f:cl<??>ose()
+                local g = io.open('y')
+                g:close()
+            "#,
+        ));
+        let file_id = ws.def(&content);
+
+        let result = references(&ws.analysis, file_id, position, false)
+            .ok_or("failed to get references")
+            .or_fail()?;
+
+        let mut uses: Vec<(String, u32)> = result
+            .iter()
+            .filter(|l| !l.uri.as_str().ends_with("io.lua"))
+            .map(|l| {
+                let file = l.uri.as_str().rsplit('/').next().unwrap_or_default();
+                (file.to_string(), l.range.start.line)
+            })
+            .collect();
+        uses.sort();
+        verify_eq!(
+            uses,
+            vec![
+                ("b.lua".to_string(), 1),
+                ("virtual_0.lua".to_string(), 2),
+                ("virtual_0.lua".to_string(), 4),
+            ]
+        )
+    }
+
     #[gtest]
     fn test_member_references_alias_cycle_does_not_stack_overflow() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();

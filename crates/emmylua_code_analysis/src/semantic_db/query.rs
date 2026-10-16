@@ -2604,6 +2604,7 @@ pub(crate) fn signature_returns(
         .collect();
     let multi_path_returns = returns.len() > 1;
     let mut slots: Vec<TypeShell> = Vec::new();
+    let mut has_unknown_return = false;
     for ret in returns {
         let exprs: Vec<_> = ret.get_expr_list().collect();
         for (index, expr) in exprs.iter().enumerate() {
@@ -2627,6 +2628,7 @@ pub(crate) fn signature_returns(
                 _ => None,
             }
             .unwrap_or_else(|| expr_type_of(db, file, config, expr.get_syntax_id()));
+            has_unknown_return |= shell.is_unknown();
             let shell = if index + 1 < exprs.len() {
                 shell.first_result()
             } else {
@@ -2644,6 +2646,11 @@ pub(crate) fn signature_returns(
         if let Some(expected) = member_expected_returns(db, &facts, file, config, closure_syntax) {
             return expected;
         }
+    }
+    // Merging drops a return whose shell is unknown, which would pass `nil | Reader` off as `nil`.
+    // An empty result sends the caller to the body inference, which does see the whole expression.
+    if has_unknown_return && multi_path_returns {
+        return Vec::new();
     }
     slots
 }

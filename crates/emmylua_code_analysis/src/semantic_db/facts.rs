@@ -11,8 +11,9 @@ use emmylua_parser::{
     LuaClosureExpr, LuaComment, LuaDocFieldKey, LuaDocGenericDeclList, LuaDocTag,
     LuaDocTagAttributeUse, LuaDocTagDiagnostic, LuaDocTagField, LuaDocType, LuaDocTypeFlag,
     LuaExpr, LuaFuncStat, LuaIfClauseStat, LuaIndexExpr, LuaIndexKey, LuaLiteralExpr,
-    LuaLiteralToken, LuaLocalStat, LuaNameToken, LuaStat, LuaSyntaxId, LuaSyntaxKind, LuaTableExpr,
-    LuaTableField, LuaVarExpr, LuaVersionCondition, NumberResult, UnaryOperator,
+    LuaLiteralToken, LuaLocalStat, LuaNameToken, LuaReturnStat, LuaStat, LuaSyntaxId,
+    LuaSyntaxKind, LuaTableExpr, LuaTableField, LuaVarExpr, LuaVersionCondition, NumberResult,
+    UnaryOperator,
 };
 use rowan::{TextRange, TextSize, WalkEvent};
 use smol_str::SmolStr;
@@ -2285,11 +2286,18 @@ impl FactsBuilder {
     /// matching `setmetatable` call for a table literal.
     fn collect_setmetatable_calls(&mut self, chunk: &LuaChunk) {
         let root = chunk.get_root();
+        // `return setmetatable({}, Class)` builds the table in the return position, with no declaration to hang it on.
+        let returned: Vec<LuaSyntaxId> = chunk
+            .descendants::<LuaReturnStat>()
+            .flat_map(|ret| ret.get_expr_list())
+            .map(|expr| expr.get_syntax_id())
+            .collect();
         let values = self
             .decls
             .iter()
             .filter_map(|decl| decl.value_expr_syntax)
-            .chain(self.members.iter().filter_map(|member| member.value_syntax));
+            .chain(self.members.iter().filter_map(|member| member.value_syntax))
+            .chain(returned);
         for value_syntax in values {
             let Some(node) = value_syntax.to_node_from_root(&root) else {
                 continue;
