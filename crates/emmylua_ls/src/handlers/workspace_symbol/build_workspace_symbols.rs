@@ -5,9 +5,9 @@ use std::{
 };
 
 use emmylua_code_analysis::{
-    Decl, DeclKind, EmmyLuaAnalysis, FileFacts, LuaDocument, Member, SemanticId,
+    Decl, DeclKind, EmmyLuaAnalysis, FileFacts, LuaDocument, Member, SemanticId, SemanticModel,
 };
-use emmylua_parser::LuaSyntaxKind;
+use emmylua_parser::{LuaAssignStat, LuaAstNode, LuaSyntaxKind, LuaSyntaxNode};
 use lsp_types::{SymbolKind, SymbolTag, Uri, WorkspaceSymbol, WorkspaceSymbolResponse};
 use rowan::TextRange;
 use tokio_util::sync::CancellationToken;
@@ -172,6 +172,7 @@ pub fn build_workspace_symbols(
                 file.add(&decl.name, decl.name_range, || (kind, None, None));
             }
         }
+        push_reassignments(model, &mut file, &cancel_token);
         if let Some(facts) = model.file_facts() {
             for def in facts.type_defs.iter() {
                 if cancel_token.is_cancelled() {
@@ -221,6 +222,59 @@ pub fn build_workspace_symbols(
     Some(WorkspaceSymbolResponse::Nested(
         best.into_iter().map(|candidate| candidate.symbol).collect(),
     ))
+}
+
+/// LuaLS lists every plain assignment to a name (`plan = patch()`) next to its
+/// declaration, whatever the name resolves to. Only name uses whose text matches
+/// the query have their syntax node looked up.
+fn push_reassignments(
+    model: &SemanticModel<'_>,
+    file: &mut FileSymbols<'_>,
+    cancel_token: &CancellationToken,
+) {
+    let (Some(uses), Some(tree)) = (model.name_uses(), model.syntax_tree()) else {
+        return;
+    };
+    let mut root = None;
+    let mut decl_starts = None;
+    for name_use in uses {
+        if cancel_token.is_cancelled() {
+            return;
+        }
+        if match_tier(&name_use.name, file.query).is_none() {
+            continue;
+        }
+        let root = root.get_or_insert_with(|| tree.get_red_root());
+        let Some(node) = name_use.syntax.to_node_from_root(root) else {
+            continue;
+        };
+        if !is_assignment_target(&node) {
+            continue;
+        }
+        // The first assignment to a global is already its declaration.
+        let decl_starts = decl_starts.get_or_insert_with(|| {
+            model
+                .decls()
+                .unwrap_or_default()
+                .iter()
+                .map(|decl| decl.name_range.start())
+                .collect::<HashSet<_>>()
+        });
+        let range = name_use.syntax.get_range();
+        if decl_starts.contains(&range.start()) {
+            continue;
+        }
+        file.add(&name_use.name, range, || (SymbolKind::VARIABLE, None, None));
+    }
+}
+
+fn is_assignment_target(node: &LuaSyntaxNode) -> bool {
+    node.parent()
+        .and_then(LuaAssignStat::cast)
+        .is_some_and(|assign| {
+            let (vars, _) = assign.get_var_and_expr_list();
+            vars.iter().any(|var| var.syntax() == node)
+        })
 }
 
 fn member_symbol_kind(member: &Member) -> SymbolKind {
