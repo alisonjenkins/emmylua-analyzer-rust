@@ -1955,6 +1955,15 @@ impl FactsBuilder {
                 if let Some(decl) = self.find_visible_decl_before_offset(&name, offset)
                     && !matches!(decl.kind, DeclKind::Global)
                 {
+                    // `local api = vim.api`: `api.f = v` defines `vim.api.f`.
+                    if let Some(path) = super::query::aliased_global_path(
+                        &|name, offset| self.find_visible_decl_before_offset(name, offset),
+                        &name_expr.get_root(),
+                        decl,
+                        0,
+                    ) {
+                        return Some(SemanticId::name(SmolStr::new(path.join("."))));
+                    }
                     return Some(decl.id.clone());
                 }
                 Some(SemanticId::name(SmolStr::new(name)))

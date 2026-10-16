@@ -891,4 +891,35 @@ mod tests {
         lines.sort();
         verify_eq!(lines, vec![2, 6, 11])
     }
+
+    #[gtest]
+    fn test_references_of_undeclared_field_through_locals_aliasing_a_global_path() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "other.lua",
+            "\n\n\n\n\n\n\nlocal api = foo.bar\nlocal ngx = ngx\n\nprint(api.status)\nprint(ngx.status)\n",
+        );
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local lib = foo
+                lib.bar.stat<??>us = 1
+                local ngx = ngx
+                ngx.status = 2
+                foo.bar.status = 3
+            "#,
+        ));
+        let file_id = ws.def(&content);
+
+        let result = references(&ws.analysis, file_id, position, true)
+            .ok_or("failed to get references")
+            .or_fail()?;
+
+        let mut lines = result
+            .iter()
+            .map(|location| location.range.start.line)
+            .collect::<Vec<_>>();
+        lines.sort();
+        lines.dedup();
+        verify_eq!(lines, vec![2, 5, 10])
+    }
 }
