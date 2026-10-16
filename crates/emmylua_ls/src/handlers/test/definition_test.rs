@@ -1448,4 +1448,35 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_class_name_keeps_blocks_of_other_files_after_one_is_updated() -> Result<()>
+    {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file("a.lua", "---@class view.Shared\nlocal A = {}\n");
+        ws.def_file("b.lua", "---@class view.Shared\nlocal B = {}\n");
+        // An open or edited file is re-indexed; the other files' blocks of the class stay.
+        ws.def_file("b.lua", "---@class view.Shared\nlocal B = {}\n");
+        check!(ws.check_definition(
+            r#"
+                ---@class vi<??>ew.Shared
+                local C = {}
+            "#,
+            vec![
+                Expected {
+                    file: "a.lua".to_string(),
+                    line: 0
+                },
+                Expected {
+                    file: "b.lua".to_string(),
+                    line: 0
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 1
+                },
+            ]
+        ));
+        Ok(())
+    }
 }
