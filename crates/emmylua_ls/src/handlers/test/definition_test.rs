@@ -27,6 +27,31 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_global_function_declared_in_several_files() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file("a.lua", "function shared() end");
+        ws.def_file("b.lua", "function shared() end");
+        check!(ws.check_definition(
+            r#"
+                local function run()
+                    sha<??>red()
+                end
+            "#,
+            vec![
+                Expected {
+                    file: "b.lua".to_string(),
+                    line: 0
+                },
+                Expected {
+                    file: "a.lua".to_string(),
+                    line: 0
+                }
+            ]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_definition_of_field_on_inline_require() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         ws.def_file(
