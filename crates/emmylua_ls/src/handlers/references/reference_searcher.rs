@@ -193,32 +193,50 @@ fn class_fields_of_receiver(model: &SemanticModel<'_>, token: &LuaSyntaxToken) -
     if key.get_range() != Some(token.text_range()) {
         return Vec::new();
     }
+    class_fields_of_index(model, &index_expr)
+}
+
+/// The class fields a `receiver.key` access names through the type of its receiver.
+fn class_fields_of_index(model: &SemanticModel<'_>, index_expr: &LuaIndexExpr) -> Vec<SemanticId> {
+    let Some(key) = index_expr.get_index_key() else {
+        return Vec::new();
+    };
     let Some(prefix) = index_expr.get_prefix_expr() else {
         return Vec::new();
     };
     let receiver_type = model.type_of_expr(prefix.get_syntax_id());
-    let (LuaType::Ref(type_id) | LuaType::Def(type_id)) = &receiver_type else {
-        return Vec::new();
-    };
-    let Some(class) = model.type_def_of(type_id) else {
-        return Vec::new();
+    // A local reassigned from a typed call (`item = format(item)`) is a union holding the class.
+    let components = match &receiver_type {
+        LuaType::Union(union) => union.into_vec(),
+        other => vec![other.clone()],
     };
     let member_key = LuaMemberKey::Name(key.get_path_part().into());
-    // Only the receiver's own `---@field`s: a parent class's field of the same name is another slot.
-    model
-        .member_infos_with_key_all(&receiver_type, &member_key)
-        .into_iter()
-        .filter_map(|info| info.id)
-        .filter(|id| {
-            let SemanticId::Member(member_key) = id else {
-                return false;
-            };
+    let mut out = Vec::new();
+    for component in components {
+        let (LuaType::Ref(type_id) | LuaType::Def(type_id)) = &component else {
+            continue;
+        };
+        let Some(class) = model.type_def_of(type_id) else {
+            continue;
+        };
+        // Only the receiver's own `---@field`s: a parent class's field of the same name is another slot.
+        out.extend(
             model
-                .file_facts_of(member_key.file_id)
-                .and_then(|facts| facts.member_by_id(id))
-                .is_some_and(|fact| fact.owner == class.id)
-        })
-        .collect()
+                .member_infos_with_key_all(&component, &member_key)
+                .into_iter()
+                .filter_map(|info| info.id)
+                .filter(|id| {
+                    let SemanticId::Member(member_key) = id else {
+                        return false;
+                    };
+                    model
+                        .file_facts_of(member_key.file_id)
+                        .and_then(|facts| facts.member_by_id(id))
+                        .is_some_and(|fact| fact.owner == class.id)
+                }),
+        );
+    }
+    out
 }
 
 /// Uses of the member whose receiver is only known by type (`local r = M.open(); r:close()`).
@@ -256,9 +274,11 @@ fn typed_receiver_uses(
             let resolved = file_model
                 .resolve_member(&index_expr)
                 .and_then(|resolved| resolved.member_id);
-            if resolved.is_some_and(|id| slot.contains(&id))
-                && let Some(range) = key.get_range()
-            {
+            let names_slot = resolved.is_some_and(|id| slot.contains(&id))
+                || class_fields_of_index(&file_model, &index_expr)
+                    .iter()
+                    .any(|id| slot.contains(id));
+            if names_slot && let Some(range) = key.get_range() {
                 push_unique(&mut out, (file_id, range));
             }
         }
