@@ -113,6 +113,40 @@ mod tests {
     }
 
     #[gtest]
+    fn test_incoming_includes_calls_on_receivers_known_by_type() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "a.lua",
+            r#"
+                local reader = require("virtual_0")
+                local function use_it()
+                    local r = reader.open("x")
+                    r:close()
+                end
+            "#,
+        );
+        let got = check!(incoming(
+            &mut ws,
+            r#"
+                ---@class Reader
+                local M = {}
+                M.__index = M
+
+                ---@return Reader
+                function M.open(path)
+                    return setmetatable({ path = path }, M)
+                end
+
+                function M:cl<??>ose()
+                end
+
+                return M
+            "#
+        ));
+        verify_eq!(got, vec![("use_it".to_string(), vec![4])])
+    }
+
+    #[gtest]
     fn test_incoming_top_level_calls_are_grouped_into_one_module_caller() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         let got = check!(incoming(
