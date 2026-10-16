@@ -284,6 +284,25 @@ fn build_document_symbol(
                 symbols.extend(build_assign_symbols(model, document, assign_stat));
                 continue;
             }
+            LuaAst::LuaParamName(param) => {
+                let Some(name_token) = param.get_name_token() else {
+                    continue;
+                };
+                let Some(range) = document.to_lsp_range(name_token.get_range()) else {
+                    continue;
+                };
+                Some(DocumentSymbol {
+                    name: name_token.get_name_text().to_string(),
+                    detail: None,
+                    kind: SymbolKind::CONSTANT,
+                    range,
+                    selection_range: range,
+                    children: None,
+                    tags: None,
+                    #[allow(deprecated)]
+                    deprecated: None,
+                })
+            }
             LuaAst::LuaClosureExpr(closure) => {
                 build_anonymous_symbol(document, LuaExpr::ClosureExpr(closure.clone()))
             }
@@ -623,7 +642,10 @@ mod tests {
         let got = outline_of(
             "vim.schedule(function()\n  local x = 1\nend)\nclient:request('m', function(err) end)\ndescribe('a', function() end)\n",
         );
-        assert_eq!(got, ["vim.schedule", "  x", "client:request", "describe"]);
+        assert_eq!(
+            got,
+            ["vim.schedule", "  x", "client:request", "  err", "describe"]
+        );
         let kinds = names(&symbols("foo(function() end)\n"));
         assert_eq!(kinds, [("foo".to_string(), SymbolKind::FUNCTION)]);
     }
@@ -737,6 +759,21 @@ mod tests {
 
         let closure = names(&symbols("M['y'] = function() end\n"));
         assert_eq!(closure, [(" ".to_string(), SymbolKind::FUNCTION)]);
+    }
+
+    #[test]
+    fn parameters_nest_under_their_function_as_constants() {
+        let got = outline_of(
+            "function M:m(x) end\nlocal function f(a, b, ...) end\nfoo(function(e) end)\n",
+        );
+        assert_eq!(got, ["M:m", "  x", "f", "  a", "  b", "foo", "  e"]);
+        let first = symbols("local function f(a) end\n");
+        let kind = first[0]
+            .children
+            .as_deref()
+            .and_then(|children| children.first())
+            .map(|param| param.kind);
+        assert_eq!(kind, Some(SymbolKind::CONSTANT));
     }
 
     #[test]
