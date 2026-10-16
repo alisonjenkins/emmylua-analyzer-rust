@@ -1516,7 +1516,31 @@ impl<'a> InferVm<'a> {
                             .map(|a| a.ty.clone())
                             .unwrap_or(LuaType::Unknown),
                     ) {
-                        return Value::plain(self.model.require_module_type(&module_name));
+                        let module_type = self.model.require_module_type(&module_name);
+                        // `require("debug")`: the standard library table, whose members hang on the global name.
+                        if matches!(module_type, LuaType::Unknown)
+                            && matches!(
+                                module_name.as_str(),
+                                "string"
+                                    | "table"
+                                    | "math"
+                                    | "os"
+                                    | "io"
+                                    | "debug"
+                                    | "coroutine"
+                                    | "utf8"
+                                    | "package"
+                            )
+                        {
+                            let owner = SemanticId::name(SmolStr::new(&module_name));
+                            return Value {
+                                ty: self.global_type(&owner),
+                                owner: Some(owner),
+                                closure_syntax: None,
+                                receiver: None,
+                            };
+                        }
+                        return Value::plain(module_type);
                     }
                 }
                 // assert(x, ...): returns x when truthy (removing nil) and passes through
