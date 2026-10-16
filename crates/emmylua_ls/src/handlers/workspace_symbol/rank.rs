@@ -17,7 +17,30 @@ pub fn match_tier(text: &str, query: &str) -> Option<MatchTier> {
     if query.chars().any(|c| c.is_uppercase()) {
         return tier_of(text, query);
     }
+    if query.is_ascii() && text.is_ascii() {
+        // Runs once per name use in the workspace; skip allocating lowercased copies.
+        return ascii_tier_ignore_case(text, query);
+    }
     tier_of(&text.to_lowercase(), &query.to_lowercase())
+}
+
+fn ascii_tier_ignore_case(text: &str, query: &str) -> Option<MatchTier> {
+    let (text, query) = (text.as_bytes(), query.as_bytes());
+    if text.eq_ignore_ascii_case(query) {
+        Some(MatchTier::Exact)
+    } else if text
+        .get(..query.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(query))
+    {
+        Some(MatchTier::Prefix)
+    } else if text
+        .windows(query.len())
+        .any(|window| window.eq_ignore_ascii_case(query))
+    {
+        Some(MatchTier::Substring)
+    } else {
+        None
+    }
 }
 
 fn tier_of(text: &str, query: &str) -> Option<MatchTier> {
