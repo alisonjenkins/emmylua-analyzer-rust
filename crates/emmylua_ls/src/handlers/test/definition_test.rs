@@ -74,6 +74,45 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_stdlib_function_through_local_alias_of_global() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_definition(
+            r#"
+                local string = string
+                local s = string.for<??>mat("%d", 1)
+            "#,
+            vec![Expected {
+                file: "string.lua".to_string(),
+                line: 118,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_field_through_local_alias_of_workspace_global() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "lib.lua",
+            r#"
+                helpers = {}
+                function helpers.trim() end
+            "#,
+        );
+        check!(ws.check_definition(
+            r#"
+                local h = helpers
+                h.tr<??>im()
+            "#,
+            vec![Expected {
+                file: "lib.lua".to_string(),
+                line: 2
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_basic_definition() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(

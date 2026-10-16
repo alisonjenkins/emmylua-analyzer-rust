@@ -1072,6 +1072,13 @@ impl<'a> InferVm<'a> {
                 owners.push(name_owner);
             }
         }
+        // `local io = io`: the local shares the members of the global it was initialised with.
+        if let Some(owner_id) = &owner.owner
+            && let Some(alias_owner) = self.model.aliased_global_owner(owner_id)
+            && !owners.contains(&alias_owner)
+        {
+            owners.push(alias_owner);
+        }
         // `local x = {}` associated with `---@class MyClass`: also add the class def as a
         // member candidate so `@field` typed members (e.g. `unpack` overloads) are
         // reachable through the table identity. The runtime table and class name may differ;
