@@ -1048,4 +1048,62 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 6, 7])
     }
+
+    #[gtest]
+    fn test_references_of_class_field_used_as_a_key_of_a_call_argument_table() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class SetOpts
+                ---@field hl_g<??>roup? string
+
+                ---@param opts SetOpts
+                local function set(buf, opts) end
+
+                set(1, { hl_group = "A" })
+                set(2, { hl_group = "B" })
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 7, 8])
+    }
+
+    #[gtest]
+    fn test_references_of_a_key_of_a_call_argument_table_include_the_class_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class SetOpts
+                ---@field hl_group? string
+
+                ---@param opts SetOpts
+                local function set(buf, opts) end
+
+                set(1, { hl_g<??>roup = "A" })
+                set(2, { hl_group = "B" })
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 7, 8])
+    }
+
+    #[gtest]
+    fn test_references_of_class_field_used_as_a_key_of_an_assigned_table() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Slot
+                ---@field cur<??>rent integer
+
+                ---@class Holder
+                ---@field slots table<integer, Slot?>
+                local Holder = {}
+
+                function Holder:attach(id)
+                    self.slots[id] = {
+                        current = 0,
+                    }
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 10])
+    }
 }

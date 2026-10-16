@@ -15,7 +15,7 @@ use emmylua_parser::{
 use lsp_types::{GotoDefinitionResponse, Location};
 use rowan::TextSize;
 
-use crate::handlers::common::{call_value_function, resolve_alias_origin};
+use crate::handlers::common::{call_value_function, expected_class_of_table, resolve_alias_origin};
 use crate::util::parse_desc;
 
 pub fn goto_def_definition(
@@ -156,6 +156,12 @@ fn goto_member_definition(
         {
             prefix_types.push(ty);
         }
+        // `set(1, { key = v })`: the class the parameter (or the enclosing literal's field) names.
+        if prefix_types.is_empty()
+            && let Some(class) = expected_class_of_table(model, &table)
+        {
+            prefix_types.push(class);
+        }
     }
 
     for prefix_type in &prefix_types {
@@ -195,11 +201,20 @@ fn filter_overload_infos(
     token: &LuaSyntaxToken,
     infos: &[MemberInfo],
 ) -> Vec<MemberInfo> {
-    let Some(call) = token.parent().and_then(|parent| {
-        parent
-            .ancestors()
-            .find_map(emmylua_parser::LuaCallExpr::cast)
-    }) else {
+    // Only a call whose callee the token names selects among overloads; a token in an argument
+    // (`after_each(function() m.flag = false end)`) belongs to no call.
+    let Some(call) = token
+        .parent()
+        .and_then(|parent| {
+            parent
+                .ancestors()
+                .find_map(emmylua_parser::LuaCallExpr::cast)
+        })
+        .filter(|call| {
+            call.get_prefix_expr()
+                .is_some_and(|prefix| prefix.get_range().contains_range(token.text_range()))
+        })
+    else {
         return infos.to_vec();
     };
     let Some(args) = call.get_args_list() else {
