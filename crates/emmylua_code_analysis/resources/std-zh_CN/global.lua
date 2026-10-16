@@ -13,11 +13,9 @@
 -- License for the specific language governing permissions and limitations under
 -- the License.
 
----
---- Calls error if the value of its argument `v` is false (i.e., **nil** or
---- **false**); otherwise, returns all its arguments. In case of error,
---- `message` is the error object; when absent, it defaults to "assertion
---- failed!"
+--- 如果参数 `v` 的值为假（即 **nil** 或 **false**），则调用 error；
+--- 否则返回所有参数。在发生错误的情况下，`message` 将是错误对象；
+--- 如果省略，默认为 "assertion failed!"。
 --- @generic T, T1
 --- @param v   T
 --- @param ... T1...
@@ -44,83 +42,72 @@ function assert(v, ...) end
 --- | "stepmul"    # step multiplier
 --- | "stepsize"   # step size
 
+--- 此函数是垃圾收集器的通用接口。它根据第一个参数 `opt` 执行不同的功能。
 ---
---- This function is a generic interface to the garbage collector. It performs
---- different functions according to its first argument, `opt`:
+--- ### opt
 ---
---- **"collect"**: performs a full garbage-collection cycle. This is the default
---- option.
---- **"stop"**: stops automatic execution of the garbage collector. The
---- collector will run only when explicitly invoked, until a call to restart it.
---- **"restart"**: restarts automatic execution of the garbage collector.
---- **"count"**: returns the total memory in use by Lua in Kbytes. The value has
---- a fractional part, so that it multiplied by 1024 gives the exact number of
---- bytes in use by Lua (except for overflows).
---- **"step"**: performs a garbage-collection step. The step "size" is
---- controlled by `arg`. With a zero value, the collector will perform one basic
---- (indivisible) step. For non-zero values, the collector will perform as if
---- that amount of memory (in KBytes) had been allocated by Lua. Returns
---- **true** if the step finished a collection cycle.
---- **"setpause"**: sets `arg` as the new value for the *pause* of the collector
---- (see §2.5). Returns the previous value for *pause`.
---- **"incremental"**: Change the collector mode to incremental. This option can
---- be followed by three numbers: the garbage-collector pause, the step
---- multiplier, and the step size.
---- **"generational"**: Change the collector mode to generational. This option
---- can be followed by two numbers: the garbage-collector minor multiplier and
---- the major multiplier.
---- **"isrunning"**: returns a boolean that tells whether the collector is
---- running (i.e., not stopped).
+--- - **"collect"**: 执行完整的垃圾回收。这是默认选项。
+---
+--- - **"stop"**: 停止垃圾收集器的自动执行。收集器只会在显式调用之前运行，
+--- 直到调用 restart。
+---
+--- - **"restart"**: 重启垃圾收集器的自动执行。
+---
+--- - **"count"**: 以 Kbytes 为单位返回 Lua 使用的总内存数。该值有小数部分，
+--- 乘以 1024 可得到 Lua 使用的确切字节数（溢出除外）。
+---
+--- - **"step"**: 执行垃圾收集步进。步进 "size" 由 `arg` 控制。
+--- 如果值为 0，收集器将执行一个基础（不可分割）步进。
+--- 对于非零值，收集器执行的效果等同于 Lua 分配了相应数量（以 KBytes 为单位）的内存。
+--- 如果步进完成了一个回收周期，则返回 **true**。
+---
+--- - **"setpause"**: 将 `arg` 设置为收集器 *pause* （参见 §2.5）的新值。
+--- 返回 *pause* 的前一个值。
+---
+--- - **"incremental"**: 将收集器模式更改为增量模式。此选项后面可以跟三个数字：
+--- 垃圾收集器暂停、步进倍率和步进大小。
+---
+--- - **"generational"**: 将收集器模式更改为分代模式。此选项后面可以跟两个数字：
+--- 垃圾收集器次要倍率和主要倍率。
+---
+--- - **"isrunning"**: 返回一个布尔值，指示收集器是否正在运行（即未停止）。
 --- @overload fun(opt: "param", param: std.collectgarbage.param, value: integer): integer
 --- @param opt? std.collectgarbage_opt
 --- @param ...  any
 --- @return any
 function collectgarbage(opt, ...) end
 
----
---- Opens the named file and executes its contents as a Lua chunk. When called
---- without arguments, `dofile` executes the contents of the standard input
---- (`stdin`). Returns all values returned by the chunk. In case of errors,
---- `dofile` propagates the error to its caller (that is, `dofile` does not run
---- in protected mode).
+--- 打开指定的文件并将其内容作为 Lua 代码块执行。不带参数调用时，
+--- `dofile` 执行标准输入（`stdin`）的内容。返回代码块返回的所有值。
+--- 如果发生错误，`dofile` 将错误传播给调用者（即 `dofile` 不在保护模式下运行）。
 --- @param filename? string
 --- @return any ...
 function dofile(filename) end
 
----
---- Terminates the last protected function called and returns `message` as the
---- error object. Function `error` never returns. Usually, `error` adds some
---- information about the error position at the beginning of the message, if the
---- message is a string. The `level` argument specifies how to get the error
---- position. With level 1 (the default), the error position is where the
---- `error` function was called. Level 2 points the error to where the function
---- that called `error` was called; and so on. Passing a level 0 avoids the
---- addition of error position information to the message.
+--- 终止最后调用的受保护函数，并将 `message` 作为错误对象返回。
+--- Function `error` 永远不会返回。通常，如果消息是字符串，`error`
+--- 会在消息开头添加一些关于错误位置的信息。`level` 参数指定如何获取
+--- 错误位置。使用 level 1（默认值），错误位置是调用 `error` 函数的位置。
+--- Level 2 将错误指向调用 `error` 的函数的调用位置；依此类推。
+--- 传递 level 0 可以避免向消息添加错误位置信息。
 --- @param message any
 --- @param level?  integer
 function error(message, level) end
 
----
---- A global variable (not a function) that holds the global environment. Lua
---- itself does not use this variable; changing its value does not affect any
---- environment, nor vice versa.
+--- 一个保存全局环境的全局变量（不是函数）。Lua 本身不使用此变量；
+--- 更改其值不会影响任何环境，反之亦然。
 --- @type global
 _G = {}
 
----
---- If `object` does not have a metatable, returns **nil**. Otherwise, if the
---- object's metatable has a `"__metatable"` field, returns the associated
---- value. Otherwise, returns the metatable of the given object.
+--- 如果 `object` 没有元表，则返回 **nil**。否则，如果对象的元表
+--- 具有 `"__metatable"` 字段，则返回关联的值。否则，返回给定对象的元表。
 --- @param object any
 --- @return any
 function getmetatable(object) end
 
----
---- Returns three values (an iterator function, the table `t`, and 0) so that
---- the construction
+--- 返回三个值（一个迭代器函数、表 `t` 和 0），以便构造
 --- > `for i,v in ipairs(t) do` *body* `end`
---- will iterate over the key–value pairs (1,`t[1]`), (2,`t[2]`), ..., up to
---- the first absent index.
+--- 将遍历键值对 (1,`t[1]`), (2,`t[2]`), ...，直到第一个不存在的索引。
 --- @generic V
 --- @param t V[] | table<int, V> | { [int]: V }
 --- @return fun(tbl: any): int, V
@@ -131,35 +118,28 @@ function ipairs(t) end
 --- | "t"  # 仅文本块
 --- | "bt" # 二进制和文本块
 
+--- 加载一个代码块。
+--- 如果 `chunk` 是字符串，则代码块就是该字符串。如果 `chunk` 是函数，
+--- `load` 会重复调用它以获取代码块片段。每次调用 `chunk` 必须返回
+--- 一个与先前结果连接的字符串。返回空字符串、**nil** 或无值表示代码块结束。
 ---
---- Loads a chunk.
---- If `chunk` is a string, the chunk is this string. If `chunk` is a function,
---- `load` calls it repeatedly to get the chunk pieces. Each call to `chunk`
---- must return a string that concatenates with previous results. A return of
---- an empty string, **nil**, or no value signals the end of the chunk.
+--- 如果没有语法错误，则将编译后的代码块作为函数返回；
+--- 否则，返回 **nil** 加上错误消息。
 ---
---- If there are no syntactic errors, returns the compiled chunk as a function;
---- otherwise, returns **nil** plus the error message.
+--- 如果生成的函数有上值，则第一个上值设置为 `env` 的值（如果给定了该参数），
+--- 或者设置为全局环境的值。其他上值初始化为 **nil**。（当你加载主代码块时，
+--- 生成的函数将始终只有一个上值，即 _ENV 变量。但是，当你加载从函数创建的
+--- 二进制代码块时（参见 string.dump），生成的函数可以有任意数量的上值。）
+--- 所有上值都是新的，即它们不与任何其他函数共享。
 ---
---- If the resulting function has upvalues, the first upvalue is set to the
---- value of `env`, if that parameter is given, or to the value of the global
---- environment. Other upvalues are initialized with **nil**. (When you load a
---- main chunk, the resulting function will always have exactly one upvalue, the
---- _ENV variable. However, when you load a binary chunk created from a
---- function (see string.dump), the resulting function can have an arbitrary
---- number of upvalues.) All upvalues are fresh, that is, they are not shared
---- with any other function.
+--- `chunkname` 用作错误消息和调试信息的代码块名称。如果省略，
+--- 由于 `chunk` 是字符串，默认为 `chunk`，否则默认为 "=(load)"。
 ---
---- `chunkname` is used as the name of the chunk for error messages and debug
---- information. When absent, it defaults to `chunk`, if `chunk` is a string,
---- or to "=(`load`)" otherwise.
+--- 字符串 `mode` 控制代码块是文本还是二进制（即预编译代码块）。
+--- 它可以是字符串 "b"（仅二进制代码块）、"t"（仅文本代码块）
+--- 或 "bt"（二进制和文本）。默认为 "bt"。
 ---
---- The string `mode` controls whether the chunk can be text or binary (that is,
---- a precompiled chunk). It may be the string "b" (only binary chunks), "t"
---- (only text chunks), or "bt" (both binary and text). The default is "bt".
----
---- Lua does not check the consistency of binary chunks. Maliciously crafted
---- binary chunks can crash the interpreter.
+--- Lua 不检查二进制代码块的一致性。恶意构造的二进制代码块可能会导致解释器崩溃。
 --- @param chunk      (fun(...: any): string) | Language<"Lua">
 --- @param chunkname? string
 --- @param mode?      std.loadmode
@@ -169,9 +149,7 @@ function ipairs(t) end
 --- @nodiscard
 function load(chunk, chunkname, mode, env) end
 
----
---- Loads a chunk from the given string.
----
+--- 从给定字符串加载代码块。
 --- @version 5.1, JIT
 --- @param text       Language<"Lua">
 --- @param chunkname? string
@@ -180,9 +158,8 @@ function load(chunk, chunkname, mode, env) end
 --- @nodiscard
 function loadstring(text, chunkname) end
 
----
---- Similar to `load`, but gets the chunk from file `filename` or from the
---- standard input, if no file name is given.
+--- 类似于 `load`，但从文件 `filename` 获取代码块，或者如果没有给出文件名，
+--- 则从标准输入获取。
 --- @param filename? string
 --- @param mode?     std.loadmode
 --- @param env?      table
@@ -196,31 +173,23 @@ function loadfile(filename, mode, env) end
 function newproxy(proxy) end
 
 --- @version 5.1, JIT
----
---- Creates a module.
----
----
+--- 创建一个模块。
 --- @param name string
 --- @param ...  any
 function module(name, ...) end
 
+--- 允许程序遍历表的所有字段。它的第一个参数是一个表，第二个参数是
+--- 表中的一个索引。`next` 返回表的下一个索引及其关联的值。当使用 **nil**
+--- 作为第二个参数调用时，`next` 返回初始索引及其关联的值。当使用最后一个索引
+--- 调用，或者在空表中使用 **nil** 调用时，`next` 返回 **nil**。
+--- 如果省略第二个参数，则将其解释为 **nil**。特别是，你可以使用 `next(t)`
+--- 来检查表是否为空。
 ---
---- Allows a program to traverse all fields of a table. Its first argument is
---- a table and its second argument is an index in this table. `next` returns
---- the next index of the table and its associated value. When called with
---- **nil** as its second argument, `next` returns an initial index and its
---- associated value. When called with the last index, or with **nil** in an
---- empty table, `next` returns **nil**. If the second argument is absent, then
---- it is interpreted as **nil**. In particular, you can use `next(t)` to check
---- whether a table is empty.
+--- 索引枚举的顺序未指定，*即使对于数字索引也是如此*。（要按数字顺序
+--- 遍历表，请使用数字 **for**。）
 ---
---- The order in which the indices are enumerated is not specified, *even for
---- numeric indices*. (To traverse a table in numerical order, use a numerical
---- **for**.)
----
---- The behavior of `next` is undefined if, during the traversal, you assign
---- any value to a non-existent field in the table. You may however modify
---- existing fields. In particular, you may set existing fields to nil.
+--- 如果在遍历过程中将任何值赋给表中不存在的字段，则 `next` 的行为未定义。
+--- 但是，你可以修改现有字段。特别是，你可以将现有字段设置为 nil。
 --- @generic K, V
 --- @overload fun(table: table<K, V>): K?, V?
 --- @param table  table<K, V> | V[] | { [K]: V }
@@ -228,29 +197,22 @@ function module(name, ...) end
 --- @return K?, V?
 function next(table, index) end
 
+--- 如果 `t` 具有元方法 `__pairs`，则以 `t` 作为参数调用它，并返回该调用的前三个结果。
 ---
---- If `t` has a metamethod `__pairs`, calls it with `t` as argument and returns
---- the first three results from the call.
+--- 否则，返回三个值：`next` 函数、表 `t` 和 `nil`，
+--- 因此结构 `for k,v in pairs(t) do *body* end` 会遍历表 `t` 的所有键值对。
 ---
---- Otherwise, returns three values: the `next` function, the table `t`, and
---- **nil**, so that the construction
---- `for k,v in pairs(t) do *body* end`
---- will iterate over all key–value pairs of table `t`.
----
---- See function `next` for the caveats of modifying the table during its
---- traversal.
+--- 关于在遍历过程中修改表的注意事项，请参见函数 `next`。
 --- @generic K, V, I
 --- @param t table<K, V> | V[] | { [K]: V }
 --- @return (fun(tbl: table<I, V>, index: I?): K, V), table<I, V>, I?
 function pairs(t) end
 
----
---- Calls function `f` with the given arguments in *protected mode*. This
---- means that any error inside `f` is not propagated; instead, `pcall` catches
---- the error and returns a status code. Its first result is the status code (a
---- boolean), which is true if the call succeeds without errors. In such case,
---- `pcall` also returns all results from the call, after this first result. In
---- case of any error, `pcall` returns **false** plus the error message.
+--- 以 *保护模式* 调用给定参数的函数 `f`。这意味着 `f` 内部的任何错误
+--- 都不会传播；相反，`pcall` 会捕获错误并返回状态码。它的第一个结果是
+--- 状态码（一个布尔值），如果调用成功且没有错误，则为 true。在这种情况下，
+--- `pcall` 还会返回调用后的所有结果。如果发生任何错误，`pcall` 返回
+--- **false** 加上错误消息。
 --- @generic T, R
 --- @param f   sync fun(...: T...): R...
 --- @param ... T...
@@ -258,25 +220,20 @@ function pairs(t) end
 --- @return_overload false, string
 function pcall(f, ...) end
 
----
---- Receives any number of arguments, and prints their values to `stdout`,
---- using the `tostring` function to convert them to strings. `print` is not
---- intended for formatted output, but only as a quick way to show a value,
---- for instance for debugging. For complete control over the output, use
---- `string.format` and `io.write`.
+--- 接收任意数量的参数，并使用 `tostring` 函数将它们转换为字符串，
+--- 然后将它们的值打印到 `stdout`。`print` 不用于格式化输出，
+--- 仅作为显示值的快速方式，例如用于调试。为了完全控制输出，
+--- 请使用 `string.format` 和 `io.write`。
 function print(...) end
 
----
---- Checks whether `v1` is equal to `v2`, without the `__eq` metamethod. Returns
---- a boolean.
+--- 检查 `v1` 是否等于 `v2`，不调用 `__eq` 元方法。返回布尔值。
 --- @param v1 any
 --- @param v2 any
 --- @return boolean
 function rawequal(v1, v2) end
 
----
---- Gets the real value of `table[index]`, the `__index` metamethod. `table`
---- must be a table; `index` may be any value.
+--- 获取 `table[index]` 的实际值，不调用 `__index` 元方法。`table`
+--- 必须是一个表；`index` 可以是任何值。
 --- @generic const T, const K
 --- @param table T
 --- @param index K
@@ -284,62 +241,51 @@ function rawequal(v1, v2) end
 function rawget(table, index) end
 
 --- @version >5.2
----
---- Returns the length of the object `v`, which must be a table or a string, without
---- invoking any metamethod. Returns an integer number.
+--- 返回对象 `v` 的长度，该对象必须是表或字符串，不调用任何元方法。返回一个整数。
 --- @param v string | table
 --- @return integer
 function rawlen(v) end
 
----
---- Sets the real value of `table[index]` to `value`, without invoking the
---- `__newindex` metamethod. `table` must be a table, `index` any value
---- different from **nil** and NaN, and `value` any Lua value.
+--- 将 `table[index]` 的实际值设置为 `value`，不调用 `__newindex` 元方法。
+--- `table` 必须是一个表，`index` 是除 **nil** 和 NaN 之外的任何值，
+--- `value` 是任何 Lua 值。
 --- @param table table
 --- @param index any
 --- @param value any
 --- @return table
 function rawset(table, index, value) end
 
+--- 加载给定的模块。该函数首先在 'package.loaded' 表中查找 `modname`
+--- 是否这就加载。如果是，则 `require` 返回存储在 `package.loaded[modname]`
+--- 中的值。否则，它尝试为模块查找 *加载器*。
 ---
---- Loads the given module. The function starts by looking into the
---- 'package.loaded' table to determine whether `modname` is already
---- loaded. If it is, then `require` returns the value stored at
---- `package.loaded[modname]`. Otherwise, it tries to find a *loader* for
---- the module.
+--- 为了查找加载器，`require` 由 `package.searchers` 序列引导。
+--- 通过更改此序列，我们可以改变 `require` 查找模块的方式。
+--- 以下解释基于 `package.searchers` 的默认配置。
 ---
---- To find a loader, `require` is guided by the `package.searchers` sequence.
---- By changing this sequence, we can change how `require` looks for a module.
---- The following explanation is based on the default configuration for
---- `package.searchers`.
+--- 首先 `require` 查询 `package.preload[modname]`。如果它有值，
+--- 该值（应该是一个函数）就是加载器。否则 `require` 使用存储在
+--- `package.path` 中的路径搜索 Lua 加载器。如果这也失败，它使用
+--- 存储在 `package.cpath` 中的路径搜索 C 加载器。如果这也失败，
+--- 它尝试 *一体化* 加载器（参见 `package.loaders`）。
 ---
---- First `require` queries `package.preload[modname]`. If it has a value,
---- this value (which should be a function) is the loader. Otherwise `require`
---- searches for a Lua loader using the path stored in `package.path`. If
---- that also fails, it searches for a C loader using the path stored in
---- `package.cpath`. If that also fails, it tries an *all-in-one* loader (see
---- `package.loaders`).
+--- 一旦找到加载器，`require` 就会使用两个参数调用加载器：`modname`
+--- 和一个取决于它如何获取加载器的额外值。（如果加载器来自文件，
+--- 这个额外值就是文件名。）如果加载器返回任何非 nil 值，require
+--- 将返回的值赋值给 `package.loaded[modname]`。如果加载器没有返回
+--- 非 nil 值并且没有给 `package.loaded[modname]` 赋值，则 `require`
+--- 将 true 赋值给该条目。在任何情况下，require 返回
+--- `package.loaded[modname]` 的最终值。
 ---
---- Once a loader is found, `require` calls the loader with a two argument:
---- `modname` and an extra value dependent on how it got the loader. (If the
---- loader came from a file, this extra value is the file name.) If the loader
---- returns any non-nil value, require assigns the returned value to
---- `package.loaded[modname]`. If the loader does not return a non-nil value and
---- has not assigned any value to `package.loaded[modname]`, then `require`
---- assigns true to this entry. In any case, require returns the final value of
---- `package.loaded[modname]`.
----
---- If there is any error loading or running the module, or if it cannot find
---- any loader for the module, then `require` raises an error.
+--- 如果加载或运行模块时出现任何错误，或者找不到模块的任何加载器，
+--- 则 `require` 引发错误。
 --- @param modname string
 --- @return any
 function require(modname) end
 
----
---- If `index` is a number, returns all arguments after argument number
---- `index`. a negative number indexes from the end (-1 is the last argument).
---- Otherwise, `index` must be the string "#", and `select` returns
---- the total number of extra arguments it received.
+--- 如果 `index` 是数字，则返回参数编号 `index` 之后的所有参数；
+--- 负数从末尾开始索引（-1 是最后一个参数）。
+--- 否则，`index` 必须是字符串 "#"，`select` 返回接收到的额外参数的总数。
 --- @generic T, const Num: integer | '#'
 --- @param index Num
 --- @param ...   T...
@@ -378,48 +324,39 @@ function select(index, ...) end
 
 -- NOTE: The actual implementation of setmetatable is provided by the language server
 
+--- 为给定表设置元表。（要从 Lua 代码更改其他类型的元表，必须使用调试库。）
+--- 如果 `metatable` 为 **nil**，则移除给定表的元表。如果原始元表
+--- 具有 `"__metatable"` 字段，则引发错误。
 ---
---- Sets the metatable for the given table. (To change the metatable of other
---- types from Lua code, you must use the debug library.) If `metatable`
---- is **nil**, removes the metatable of the given table. If the original
---- metatable has a `"__metatable"` field, raises an error.
----
---- This function returns `table`.
+--- 此函数返回 `table`。
 --- @generic T: table
 --- @param table     T
 --- @param metatable std.metatable | table | nil
 --- @return T
 function setmetatable(table, metatable) end
 
+--- 当不带 `base` 调用时，`tonumber` 尝试将其参数转换为数字。
+--- 如果参数已经是数字或可转换为数字的字符串，则 `tonumber` 返回该数字；
+--- 否则，返回 **nil**。
 ---
---- When called with no `base`, `tonumber` tries to convert its argument to a
---- number. If the argument is already a number or a string convertible to a
---- number, then `tonumber` returns this number; otherwise, it returns **nil**.
+--- 字符串的转换可以根据 Lua 的词法约定产生整数或浮点数。（字符串可以有
+--- 前导和尾随空格以及符号。）
 ---
---- The conversion of strings can result in integers or floats, according to the
---- lexical conventions of Lua. (The string may have leading and trailing
---- spaces and a sign.)
----
---- When called with `base`, then e must be a string to be interpreted as an
---- integer numeral in that base. The base may be any integer between 2 and 36,
---- inclusive. In bases above 10, the letter 'A' (in either upper or lower case)
---- represents 10, 'B' represents 11, and so forth, with 'Z' representing 35. If
---- the string `e` is not a valid numeral in the given base, the function
---- returns **nil**.
+--- 当带 `base` 调用时，e 必须是一个字符串，被解释为该进制的整数。
+--- 进制可以是 2 到 36 之间的任何整数（含）。在 10 以上的进制中，
+--- 字母 'A'（大写或小写）表示 10，'B' 表示 11，依此类推，'Z' 表示 35。
+--- 如果字符串 `e` 不是给定进制的有效数字，则函数返回 **nil**。
 --- @overload fun(e: string, base: integer): integer?
 --- @param e any
 --- @return number?
 --- @nodiscard
 function tonumber(e) end
 
+--- 接收任何类型的值并将其转换为人类可读格式的字符串。（为了完全控制
+--- 数字的转换方式，请使用 `string.format`）。
 ---
---- Receives a value of any type and converts it to a string in a human-readable
---- format. (For complete control of how numbers are converted, use `string
---- .format`).
----
---- If the metatable of `v` has a `__tostring` field, then `tostring` calls
---- the corresponding value with `v` as argument, and uses the result of the
---- call as its result.
+--- 如果 `v` 的元表具有 `__tostring` 字段，则 `tostring` 使用 `v`
+--- 作为参数调用相应的值，并将调用的结果作为其结果。
 --- @param v any
 --- @return string
 function tostring(v) end
@@ -434,23 +371,18 @@ function tostring(v) end
 --- | "thread"
 --- | "userdata"
 
----
---- Returns the type of its only argument, coded as a string. The possible
---- results of this function are "`nil`" (a string, not the value **nil**),
---- "`number`", "`string`", "`boolean`", "`table`", "`function`", "`thread`",
---- and "`userdata`".
+--- 返回其唯一参数的类型，编码为字符串。此函数的可能结果是 "`nil`"
+--- （字符串，不是值 **nil**）、"`number`"、"`string`"、"`boolean`"、
+--- "`table`"、"`function`"、"`thread`" 和 "`userdata`"。
 --- @param v any
 --- @return std.type type
 function type(v) end
 
----
---- A global variable (not a function) that holds a string containing the
---- running Lua version. The current value of this variable is "`Lua 5.5`".
+--- 一个保存包含运行 Lua 版本字符串的全局变量（不是函数）。
+--- 此变量的当前值是 "`Lua 5.4`"。
 _VERSION = "Lua 5.5"
 
----
---- This function is similar to `pcall`, except that it sets a new message
---- handler `msgh`.
+--- 此函数类似于 `pcall`，只是它设置了一个新的消息处理程序 `msgh`。
 --- @generic T, R
 --- @param f    sync fun(...: T...): R...
 --- @param msgh fun(err: any): any
@@ -468,13 +400,11 @@ function xpcall(f, msgh, ...) end
 function unpack(list, i, j) end
 
 --- @version >5.4
+--- 发出一条警告，其消息由其所有参数（应为字符串）拼接而成。
 ---
---- Emits a warning with a message composed by the concatenation of all its arguments (which should be strings).
----
---- By convention, a one-piece message starting with '@' is intended to be a control message,
---- which is a message to the warning system itself. In particular,
---- the standard warning function in Lua recognizes the control messages "@off", to stop the emission of warnings,
---- and "@on", to (re)start the emission; it ignores unknown control messages.
+--- 按照约定，以“@”开头的单段消息被视为控制消息，也就是发给警告系统本身的消息。
+--- 具体来说，Lua 中的标准警告函数会识别控制消息“@off”，用于停止发出警告，
+--- 以及“@on”，用于（重新）开始发出警告；它会忽略未知的控制消息。
 --- @param msg1 string | number
 --- @param ...  string | number
 function warn(msg1, ...) end
@@ -482,22 +412,19 @@ function warn(msg1, ...) end
 --- @type string[]
 arg = {}
 
---- This is an incorrect annotation, but truly supporting _ENV would completely break the variable analysis path.
---- For now, let's treat it as a global variable.
+--- 这是一个不正确的注解，但真正支持 _ENV 会完全破坏变量分析路径；目前将其视为一个全局变量。
 --- @version >5.3
 --- @type global
 _ENV = {}
 
 --- @version 5.1, JIT
----
---- Sets the environment for the specified function.
+--- 设置指定函数的环境。
 --- @param f   function | integer 要设置环境的函数。
 --- @param env table              要分配给函数的环境表。
 function setfenv(f, env) end
 
 --- @version 5.1, JIT
----
---- Retrieves the environment table of the specified function.
+--- 检索指定函数的环境表。
 --- @param f function | integer 要检索环境的函数。
 --- @return table The 与给定函数关联的环境表。
 function getfenv(f) end

@@ -4,85 +4,65 @@
 --- @version 5.2
 
 --- @version 5.2
----
----
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32"])
 --- @class bit32lib
 bit32 = {}
 
+--- 返回 `x` 向右算术位移 `disp` 位的结果。`disp` 为负时向左位移。
 ---
---- Returns the number `x` shifted `disp` bits to the right. Negative displacements shift to the left.
+--- 这是算术位移操作：左侧空位用 `x` 的最高位填充，右侧空位用 `0` 填充。
 ---
---- This shift operation is what is called arithmetic shift. Vacant bits on the left are filled with copies of the higher bit of `x`; vacant bits on the right are filled with zeros.
----
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.arshift"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.arshift"])
 --- @param x    integer
 --- @param disp integer
 --- @return integer
 --- @nodiscard
 function bit32.arshift(x, disp) end
 
+--- 返回其操作数的按位与（AND）结果。
 ---
---- Returns the bitwise *and* of its operands.
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.band"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.band"])
 --- @return integer
 --- @nodiscard
 function bit32.band(...) end
 
----
---- Returns the bitwise negation of `x`.
+--- 返回 `x` 的按位取反结果。
 ---
 --- ```lua
 --- assert(bit32.bnot(x) ==
 --- (-1 - x) % 2^32)
 --- ```
 ---
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.bnot"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.bnot"])
 --- @param x integer
 --- @return integer
 --- @nodiscard
 function bit32.bnot(x) end
 
+--- 返回其操作数的按位或（OR）结果。
 ---
---- Returns the bitwise *or* of its operands.
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.bor"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.bor"])
 --- @return integer
 --- @nodiscard
 function bit32.bor(...) end
 
+--- 返回一个布尔值，表示其操作数的按位与（AND）结果是否不为零。
 ---
---- Returns a boolean signaling whether the bitwise *and* of its operands is different from zero.
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.btest"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.btest"])
 --- @return boolean
 --- @nodiscard
 function bit32.btest(...) end
 
+--- 返回其操作数的按位异或（XOR）结果。
 ---
---- Returns the bitwise *exclusive or* of its operands.
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.bxor"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.bxor"])
 --- @return integer
 --- @nodiscard
 function bit32.bxor(...) end
 
+--- 返回由 `n` 的第 `field` 位到第 `field + width - 1` 位构成的无符号数。
 ---
---- Returns the unsigned number formed by the bits `field` to `field + width - 1` from `n`.
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.extract"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.extract"])
 --- @param n      integer
 --- @param field  integer
 --- @param width? integer
@@ -90,11 +70,9 @@ function bit32.bxor(...) end
 --- @nodiscard
 function bit32.extract(n, field, width) end
 
+--- 返回 `n` 的一个副本，并将第 `field` 位到第 `field + width - 1` 位替换为 `v` 的值。
 ---
---- Returns a copy of `n` with the bits `field` to `field + width - 1` replaced by the value `v` .
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.replace"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.replace"])
 --- @param n      integer
 --- @param v      integer
 --- @param field  integer
@@ -102,56 +80,46 @@ function bit32.extract(n, field, width) end
 --- @nodiscard
 function bit32.replace(n, v, field, width) end
 
+--- 返回 `x` 向左旋转 `disp` 位的结果。`disp` 为负时向右旋转。
 ---
---- Returns the number `x` rotated `disp` bits to the left. Negative displacements rotate to the right.
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.lrotate"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.lrotate"])
 --- @param x     integer
 --- @param distp integer
 --- @return integer
 --- @nodiscard
 function bit32.lrotate(x, distp) end
 
----
---- Returns the number `x` shifted `disp` bits to the left. Negative displacements shift to the right. In any direction, vacant bits are filled with zeros.
+--- 返回 `x` 向左位移 `disp` 位的结果。`disp` 为负时向右位移。无论方向如何，空位都用 `0` 填充。
 ---
 --- ```lua
 --- assert(bit32.lshift(b, disp) ==
 --- (b * 2^disp) % 2^32)
 --- ```
 ---
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.lshift"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.lshift"])
 --- @param x     integer
 --- @param distp integer
 --- @return integer
 --- @nodiscard
 function bit32.lshift(x, distp) end
 
+--- 返回 `x` 向右旋转 `disp` 位的结果。`disp` 为负时向左旋转。
 ---
---- Returns the number `x` rotated `disp` bits to the right. Negative displacements rotate to the left.
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.rrotate"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.rrotate"])
 --- @param x     integer
 --- @param distp integer
 --- @return integer
 --- @nodiscard
 function bit32.rrotate(x, distp) end
 
----
---- Returns the number `x` shifted `disp` bits to the right. Negative displacements shift to the left. In any direction, vacant bits are filled with zeros.
+--- 返回 `x` 向右位移 `disp` 位的结果。`disp` 为负时向左位移。无论方向如何，空位都用 `0` 填充。
 ---
 --- ```lua
 --- assert(bit32.rshift(b, disp) ==
 --- math.floor(b % 2^32 / 2^disp))
 --- ```
 ---
----
---- [View documents](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.rshift"])
----
+--- [查看文档](command:extension.lua.doc?["en-us/54/manual.html/pdf-bit32.rshift"])
 --- @param x     integer
 --- @param distp integer
 --- @return integer

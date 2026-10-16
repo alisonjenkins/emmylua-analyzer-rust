@@ -19,17 +19,12 @@
 --- @class utf8lib
 utf8 = {}
 
----
---- Receives zero or more integers, converts each one to its corresponding
---- UTF-8 byte sequence and returns a string with the concatenation of all
---- these sequences.
+--- 接收零个或多个整数，将每个整数转换为对应的 UTF-8 字节序列，并返回将这些序列连接在一起的字符串。
 --- @return string
 function utf8.char(...) end
 
----
---- The pattern (a string, not a function) "`[\0-\x7F\xC2-\xF4][\x80-\xBF]*`",
---- which matches exactly one UTF-8 byte sequence, assuming that the subject
---- is a valid UTF-8 string.
+--- 模式（一个字符串，而非函数）`[\0-\x7F\xC2-\xF4][\x80-\xBF]*`，
+--- 在假定被匹配对象是合法 UTF-8 字符串的情况下，它精确匹配一个 UTF-8 字节序列。
 --- @type string
 utf8.charpattern = ""
 
@@ -93,18 +88,16 @@ function utf8.len(s, i, j) end
 --- @nodiscard
 function utf8.len(s, i, j, lax) end
 
+--- 返回 `s` 中第 `n` 个字符的编码起始位置（按字节计）（从位置 `i` 开始计数）。
+--- 负的 `n` 表示取 `i` 之前的字符。
 ---
---- Returns the position (in bytes) where the encoding of the `n`-th character
---- of `s` (counting from position `i`) starts. A negative `n` gets
---- characters before position `i`. The default for `i` is 1 when `n` is
---- non-negative and `#s + 1` otherwise, so that `utf8.offset(s, -n)` gets the
---- offset of the `n`-th character from the end of the string. If the
---- specified character is neither in the subject nor right after its end,
---- the function returns nil. As a special case, when `n` is 0 the function
---- returns the start of the encoding of the character that contains the `i`-th
---- byte of `s`.
+--- `n` 非负时，`i` 的默认值为 1；否则 `i` 的默认值为 `#s + 1`，因此
+--- `utf8.offset(s, -n)` 可获得从字符串末尾数第 `n` 个字符的偏移。
 ---
---- This function assumes that `s` is a valid UTF-8 string.
+--- 如果指定字符既不在字符串中也不在其末尾紧接处，则函数返回 nil。
+--- 特殊情况：当 `n` 为 0 时，函数返回包含 `s` 的第 `i` 个字节的那个字符的编码起始位置。
+---
+--- 此函数假定 `s` 是合法的 UTF-8 字符串。
 --- @overload fun(s: string): integer
 --- @param s  string
 --- @param n  integer
