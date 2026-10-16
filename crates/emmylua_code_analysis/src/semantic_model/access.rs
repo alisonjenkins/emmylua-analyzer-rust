@@ -203,6 +203,15 @@ impl<'db> SemanticModel<'db> {
                 return resolved.member_id;
             }
         }
+        // 2b. String-literal member key (the `"x"` in `T["x"]`) names the same member as `T.x`.
+        if kind == LuaSyntaxKind::LiteralExpr
+            && let Some(index_expr) = parent.parent().and_then(LuaIndexExpr::cast)
+            && let Some(key @ emmylua_parser::LuaIndexKey::String(_)) = index_expr.get_index_key()
+            && key.get_range() == Some(token.text_range())
+            && let Some(resolved) = self.resolve_member(&index_expr)
+        {
+            return resolved.member_id;
+        }
         // 3. Doc name type (the `Old` in `---@type Old`) -> TypeDef.
         if kind == LuaSyntaxKind::TypeName
             && let Some(name_type) = LuaDocNameType::cast(parent.clone())
