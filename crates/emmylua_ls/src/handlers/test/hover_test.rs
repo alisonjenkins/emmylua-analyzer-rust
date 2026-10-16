@@ -148,7 +148,8 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) right: Node\n```".to_string(),
+                value: "```lua\n(field) right: Node {\n    x: number,\n    right: Node?,\n}\n```"
+                    .to_string(),
             },
         ));
 
@@ -1661,6 +1662,32 @@ mod tests {
             "#,
             VirtualHoverResult {
                 value: "```lua\n(parameter) e: Entry {\n    a: integer,\n    b: string,\n}\n```"
+                    .to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// A field whose type is a class lists the class members, like a local of that class does.
+    #[gtest]
+    fn test_hover_class_typed_field_expands_members() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@class GitObj
+                ---@field file string
+                ---@field n integer
+
+                ---@class Cache
+                ---@field git_obj GitObj
+                local Cache = {}
+
+                function Cache:use()
+                    return self.git<??>_obj.file
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(field) git_obj: GitObj {\n    file: string,\n    n: integer,\n}\n```"
                     .to_string(),
             },
         ));
