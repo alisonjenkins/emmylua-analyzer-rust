@@ -1645,8 +1645,28 @@ impl<'a> InferVm<'a> {
         // For class-table receivers (`local a = {}` + `---@class a`), pass the class
         // reference type to implicit self/constructor params instead of the bare TableConst,
         // otherwise `a:create()` binds T to table.
+        // A `string?` receiver still calls `string.upper(s: string)`: only its non-nil part is matched.
+        let member_name = self.callee_member_name(&callee);
         let match_receiver = callee.receiver.as_ref().map(|receiver| {
-            receiver_class_type(self.model, receiver).unwrap_or_else(|| receiver.clone())
+            let receiver = remove_nil_from_type(receiver.clone());
+            // `(string|number):upper()`: only the components that have the method are matched.
+            let receiver = match (&receiver, &member_name) {
+                (LuaType::Union(union), Some(name)) => {
+                    let key = LuaMemberKey::Name(name.clone());
+                    let having: Vec<LuaType> = union
+                        .into_vec()
+                        .into_iter()
+                        .filter(|component| self.model.member_info(component, &key).is_some())
+                        .collect();
+                    if having.is_empty() {
+                        receiver
+                    } else {
+                        LuaType::from_vec(having)
+                    }
+                }
+                _ => receiver,
+            };
+            receiver_class_type(self.model, &receiver).unwrap_or(receiver)
         });
         let Some((callee_fun, mut bindings)) = self
             .select_callable(&candidates, args, colon_call, match_receiver.as_ref())
