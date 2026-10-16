@@ -135,7 +135,14 @@ fn goto_member_definition(
     token: &LuaSyntaxToken,
 ) -> Option<GotoDefinitionResponse> {
     let mut locations = Vec::new();
-    let parent = token.parent();
+    // The string of `t["k"]` and `["k"] = v` sits in a literal expression inside the index or field.
+    let parent = token.parent().map(|parent| {
+        if emmylua_parser::LuaLiteralExpr::can_cast(parent.kind().into()) {
+            parent.parent().unwrap_or(parent)
+        } else {
+            parent
+        }
+    });
     let is_usage = parent
         .as_ref()
         .is_some_and(|p| LuaIndexExpr::can_cast(p.kind().into()));
