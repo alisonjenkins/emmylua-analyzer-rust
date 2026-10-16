@@ -973,4 +973,21 @@ mod tests {
             vec![2, 6, 7, 11, 15]
         )
     }
+
+    #[gtest]
+    fn test_references_of_member_of_a_table_returned_by_an_iife() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local M = {}
+                M.path = (function()
+                    local function iterate_parents(p) return p end
+                    return { iterate_parents = iterate_parents }
+                end)()
+                print(M.path.iterate_<??>parents(1))
+                print(M.path.iterate_parents(2))
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![4, 6, 7])
+    }
 }

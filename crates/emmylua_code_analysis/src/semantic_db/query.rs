@@ -2815,6 +2815,8 @@ fn callee_closure_syntax(facts: &FileFacts, callee: LuaExpr) -> Option<LuaSyntax
             member.value_syntax
         }
         LuaExpr::ClosureExpr(closure) => Some(closure.get_syntax_id()),
+        // `(function() ... end)()`
+        LuaExpr::ParenExpr(paren) => callee_closure_syntax(facts, paren.get_expr()?),
         _ => None,
     }
 }
