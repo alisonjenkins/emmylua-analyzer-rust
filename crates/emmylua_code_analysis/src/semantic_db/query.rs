@@ -2352,6 +2352,16 @@ pub(crate) fn member_type(
         return TypeShell::from_module_ref(module_file);
     }
 
+    // `---@type T` on `t.x = value`: the declared type wins over the assigned value's type.
+    if let Some(type_syntax) = member.doc_type_syntax
+        && !matches!(member.owner, SemanticId::TypeDef(_))
+    {
+        let shell = lower_doc_type(db, file, type_syntax, &[]);
+        if !shell.is_unknown() {
+            return shell;
+        }
+    }
+
     // Value: owner is `TypeDef` (@field) -> doc type node; otherwise -> expression.
     if let Some(value_syntax) = member.value_syntax {
         match &member.owner {
