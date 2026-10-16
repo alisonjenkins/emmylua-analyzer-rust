@@ -149,9 +149,7 @@ mod tests {
     }
 
     // LuaLS 3.18.1 also returns named fields of table constructors
-    // (`return { run = function() end }`), so they stay. LuaLS additionally
-    // returns fields of `local t = { a = 1 }`, which emmylua does not index
-    // as members yet; that gap is not pinned here.
+    // (`return { run = function() end }`), so they stay.
     #[gtest]
     fn test_table_constructor_fields_are_found() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
@@ -171,6 +169,33 @@ mod tests {
             kind_of(&query(&ws, "modfield"), "modfield"),
             some(eq(SymbolKind::FIELD))
         );
+        Ok(())
+    }
+
+    // LuaLS 3.18.1 returns each field of a local constructor once, including
+    // nested ones, even when the table is never returned or exported.
+    #[gtest]
+    fn test_local_constructor_fields_are_found_once() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+            local t = { ctorfield = 1, ctorfn = function() end }
+            local u = { inner = { deep = 1 } }
+            print(t, u)
+        "#,
+        );
+        for (name, kind) in [
+            ("ctorfield", SymbolKind::FIELD),
+            ("ctorfn", SymbolKind::FUNCTION),
+            ("inner", SymbolKind::FIELD),
+            ("deep", SymbolKind::FIELD),
+        ] {
+            expect_that!(kind_of(&query(&ws, name), name), some(eq(kind)), "{name}");
+        }
+        let container = query(&ws, "ctorfield")
+            .into_iter()
+            .find_map(|symbol| symbol.container_name);
+        expect_that!(container.as_deref(), some(eq("t")));
         Ok(())
     }
 
