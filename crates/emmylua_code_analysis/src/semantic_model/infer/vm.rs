@@ -1713,6 +1713,21 @@ impl<'a> InferVm<'a> {
             .or_else(|| {
                 self.select_callable_partial(&candidates, args, colon_call, match_receiver.as_ref())
             })
+            .or_else(|| {
+                // A mistyped argument does not change what the only declared signature returns;
+                // callbacks stay unguessed (a non-function for a callback param is a wrong call).
+                match candidates.as_slice() {
+                    [only]
+                        if only.get_generic_params().is_empty()
+                            && !only.get_params().iter().any(|(_, ty)| {
+                                matches!(ty, Some(LuaType::DocFunction(_) | LuaType::Signature(_)))
+                            }) =>
+                    {
+                        Some((only.clone(), unify::TplBindings::default()))
+                    }
+                    _ => None,
+                }
+            })
         else {
             return Value::plain(LuaType::Unknown);
         };
