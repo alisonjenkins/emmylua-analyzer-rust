@@ -26,14 +26,23 @@ pub fn goto_def_definition(
 ) -> Option<GotoDefinitionResponse> {
     match decl {
         SemanticId::Decl(key) => {
-            // Value alias: `local f = t.func` / `local a = b` jump to the real function/member definition.
+            let declaration = location_of(db, key.file_id, key.name_range)?;
+            let mut locations = Vec::new();
+            // Value alias: `local f = t.func` / `local a = b` list the real function/member definition
+            // and the alias itself, as LuaLS does.
             if let Some(origin) = resolve_alias_origin(model, decl)
                 && origin != *decl
+                && let Some(response) = goto_def_definition(model, db, &origin, token)
             {
-                return goto_def_definition(model, db, &origin, token);
+                locations.extend(match response {
+                    GotoDefinitionResponse::Scalar(location) => vec![location],
+                    GotoDefinitionResponse::Array(locations) => locations,
+                    GotoDefinitionResponse::Link(_) => Vec::new(),
+                });
             }
-            let declaration = location_of(db, key.file_id, key.name_range)?;
-            let mut locations = vec![declaration];
+            if !locations.contains(&declaration) {
+                locations.push(declaration);
+            }
             for location in assignment_sites(model, db, decl) {
                 if !locations.contains(&location) {
                     locations.push(location);
