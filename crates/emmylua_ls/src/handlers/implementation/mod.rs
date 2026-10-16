@@ -2,7 +2,7 @@ mod implementation_searcher;
 
 use crate::context::{RequestOutcome, ServerContextSnapshot, snapshot_query};
 use emmylua_code_analysis::{EmmyLuaAnalysis, FileId};
-use emmylua_parser::LuaAstNode;
+use emmylua_parser::{LuaAstNode, LuaTokenKind};
 use implementation_searcher::search_implementations;
 use lsp_types::{
     ClientCapabilities, GotoDefinitionResponse, ImplementationProviderCapability, Position,
@@ -45,7 +45,13 @@ pub fn implementation(
     let token = match root.syntax().token_at_offset(position_offset) {
         TokenAtOffset::None => return None,
         TokenAtOffset::Single(token) => token,
-        TokenAtOffset::Between(token, _) => token,
+        TokenAtOffset::Between(left, right) => {
+            if left.kind() == LuaTokenKind::TkName.into() {
+                left
+            } else {
+                right
+            }
+        }
     };
 
     let implementations = search_implementations(&model, &analysis.db, token)?;
