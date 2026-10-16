@@ -5,8 +5,8 @@ use emmylua_code_analysis::{
     MemberInfo, SemanticDatabase, SemanticId, SemanticModel, TypeDef, TypeDefKind, VariadicType,
 };
 use emmylua_parser::{
-    LuaAssignStat, LuaAstNode, LuaCallExpr, LuaDocAttributeUse, LuaDocDescriptionOwner, LuaDocType,
-    LuaExpr, LuaIndexExpr, LuaLocalStat, LuaSyntaxToken, LuaTableExpr, LuaTableField,
+    LuaAssignStat, LuaAstNode, LuaCallExpr, LuaClosureExpr, LuaDocAttributeUse, LuaDocDescriptionOwner, LuaDocType,
+    LuaExpr, LuaIndexExpr, LuaLocalStat, LuaReturnStat, LuaSyntaxToken, LuaTableExpr, LuaTableField,
 };
 use hashbrown::HashMap;
 use lsp_types::{Hover, HoverContents, MarkupContent};
@@ -611,6 +611,39 @@ fn humanize_return(model: &SemanticModel<'_>, ty: &LuaType) -> String {
     }
 }
 
+/// ` -> unknown` for a closure that returns a value the analysis cannot type; a closure that returns nothing keeps no return.
+fn with_unknown_return(
+    model: &SemanticModel<'_>,
+    closure_syntax: Option<emmylua_parser::LuaSyntaxId>,
+    func: &LuaFunctionType,
+    ret: String,
+) -> String {
+    if ret.is_empty()
+        && matches!(func.get_ret(), LuaType::Unknown)
+        && closure_syntax.is_some_and(|syntax| closure_returns_value(model, syntax))
+    {
+        " -> unknown".to_string()
+    } else {
+        ret
+    }
+}
+
+fn closure_returns_value(model: &SemanticModel<'_>, closure_syntax: emmylua_parser::LuaSyntaxId) -> bool {
+    let Some(tree) = model.syntax_tree() else {
+        return false;
+    };
+    let Some(closure) = closure_syntax
+        .to_node_from_root(&tree.get_red_root())
+        .and_then(LuaClosureExpr::cast)
+    else {
+        return false;
+    };
+    closure.descendants::<LuaReturnStat>().any(|stat| {
+        stat.get_expr_list().next().is_some()
+            && stat.ancestors::<LuaClosureExpr>().next().as_ref() == Some(&closure)
+    })
+}
+
 fn render_function_params_and_ret_mode(
     model: &SemanticModel<'_>,
     func: &LuaFunctionType,
@@ -1036,7 +1069,12 @@ fn build_decl_hover(
         let ret = if has_named_returns {
             render_named_returns(model, Some(closure))
         } else {
-            render_function_params_and_ret_mode(model, &signature, false, false, false).1
+            with_unknown_return(
+                model,
+                Some(closure),
+                &signature,
+                render_function_params_and_ret_mode(model, &signature, false, false, false).1,
+            )
         };
         let overloads = decl_overload_count(model, closure);
         let overloads = if overloads > 0 {
@@ -1316,7 +1354,7 @@ fn param_decl_type(
         .right_biased()?;
     let closure = token
         .parent_ancestors()
-        .find_map(emmylua_parser::LuaClosureExpr::cast)?;
+        .find_map(LuaClosureExpr::cast)?;
     let closure_syntax = closure.get_syntax_id();
     let signature = model.type_of_signature(closure_syntax)?;
     let index = signature
@@ -1770,7 +1808,13 @@ fn build_member_hover(
             let ret = if has_named_returns {
                 render_named_returns(model, member_info.value_syntax)
             } else {
-                render_function_params_and_ret_mode(model, fun, is_method, false, show_unknown).1
+                with_unknown_return(
+                    model,
+                    member_info.value_syntax,
+                    fun,
+                    render_function_params_and_ret_mode(model, fun, is_method, false, show_unknown)
+                        .1,
+                )
             };
             let overloads = if call_site_substituted {
                 0
@@ -1820,7 +1864,13 @@ fn build_member_hover(
             let ret = if has_named_returns {
                 render_named_returns(model, member_info.value_syntax)
             } else {
-                render_function_params_and_ret_mode(model, fun, is_method, false, show_unknown).1
+                with_unknown_return(
+                    model,
+                    member_info.value_syntax,
+                    fun,
+                    render_function_params_and_ret_mode(model, fun, is_method, false, show_unknown)
+                        .1,
+                )
             };
             let overloads = member_overload_count(model, &member_info, &LuaType::Unknown);
             let overloads = if overloads > 0 {
@@ -1863,7 +1913,12 @@ fn build_member_hover(
         let ret = if has_named_returns {
             render_named_returns(model, member_info.value_syntax)
         } else {
-            render_function_params_and_ret_mode(model, &fun, is_method, false, show_unknown).1
+            with_unknown_return(
+                model,
+                member_info.value_syntax,
+                &fun,
+                render_function_params_and_ret_mode(model, &fun, is_method, false, show_unknown).1,
+            )
         };
         if let (Some(owner_ty), Some(owner_name)) = (owner_ty, owner_name) {
             let overloads = if call_site_substituted {

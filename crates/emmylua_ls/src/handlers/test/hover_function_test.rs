@@ -252,6 +252,45 @@ mod tests {
     }
 
     // M3 batch 2 retirement: function signature rendering stack (old HoverBuilder/overload matching/generic substitution); see migration notes §M3.
+    /// A function that returns a value of unknown type shows `-> unknown`; one that returns nothing shows no return.
+    #[gtest]
+    fn test_hover_unknown_return_shown_only_when_function_returns_a_value() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local function pass<??>through(t)
+                    return t
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal function passthrough(t) -> unknown\n```".to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                local function si<??>lent(t)
+                    local _ = t
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal function silent(t)\n```".to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                local M = {}
+                function M.sha<??>re(t)
+                    local inner = function() return t end
+                    return t
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction M.share(t: any) -> unknown\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     #[gtest]
     fn test_return_overload_hover_short_row_keeps_nil() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
