@@ -76,6 +76,7 @@ impl RenderLevel {
 // ─── TypeHumanizer ──────────────────────────────────────────────────────────
 
 const DEFAULT_MAX_DEPTH: u8 = 12;
+const HOVER_MAX_OBJECT_FIELDS: usize = 40;
 
 /// A writer-based humanizer that avoids intermediate `String` allocation and has depth limits plus recursive alias cycle detection.
 pub struct TypeHumanizer<'a> {
@@ -101,6 +102,15 @@ impl<'a> TypeHumanizer<'a> {
             expand_defaults: true,
             open_tables: Vec::new(),
             nested_tables_collapse: false,
+        }
+    }
+
+    /// Fields listed per object; hover lists them all up to a limit that only keeps a runaway module table readable.
+    fn object_field_cap(&self) -> usize {
+        if self.nested_tables_collapse {
+            HOVER_MAX_OBJECT_FIELDS
+        } else {
+            self.level.max_items()
         }
     }
 
@@ -653,7 +663,8 @@ impl<'a> TypeHumanizer<'a> {
         let saved = self.level;
         self.level = self.child_level();
 
-        for (i, (key, ty)) in field_vec.iter().take(self.level.max_items()).enumerate() {
+        let max_fields = self.object_field_cap();
+        for (i, (key, ty)) in field_vec.iter().take(max_fields).enumerate() {
             if i > 0 {
                 w.write_str(", ")?;
             }
@@ -662,7 +673,7 @@ impl<'a> TypeHumanizer<'a> {
             self.write_type(ty, w)?;
         }
 
-        if fields.len() > self.level.max_items() {
+        if fields.len() > max_fields {
             w.write_str(", ...")?;
         }
 

@@ -1443,6 +1443,21 @@ mod tests {
         Ok(())
     }
 
+    /// Hover lists every field of a table literal instead of cutting the list short.
+    #[gtest]
+    fn test_hover_table_literal_lists_every_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local x<??> = { a = 1, b = 2, c = 3, d = 4, e = 5, f = 6, g = "s", h = true }
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal x: { a: integer = 1, b: integer = 2, c: integer = 3, d: integer = 4, e: integer = 5, f: integer = 6, g: \"s\", h: true }\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     /// A function returning a table literal shows `table`, not the literal's members.
     #[gtest]
     fn test_hover_function_returning_table_literal() -> Result<()> {
