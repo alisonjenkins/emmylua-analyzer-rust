@@ -1632,6 +1632,60 @@ mod tests {
         Ok(())
     }
 
+    /// A parameter declared as a class lists the class members, like a local of that class does.
+    #[gtest]
+    fn test_hover_class_param_expands_members() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@class Entry
+                ---@field a integer
+                ---@field b string
+
+                ---@param e Entry
+                local function f(<??>e)
+                    return e.a
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(parameter) e: Entry {\n    a: integer,\n    b: string,\n}\n```"
+                    .to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                ---@param e Entry
+                local function g(e)
+                    return <??>e.a
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(parameter) e: Entry {\n    a: integer,\n    b: string,\n}\n```"
+                    .to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// A nullable class local lists the members of the class, keeping the `?` on the header.
+    #[gtest]
+    fn test_hover_nullable_class_local_expands_members() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@class Entry
+                ---@field a integer
+
+                ---@type Entry?
+                local <??>o = nil
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal o: Entry? {\n    a: integer,\n}\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     /// Lua coerces a number to a string for the string library, so the subject accepts both.
     #[gtest]
     fn test_hover_string_library_accepts_number_subject() -> Result<()> {
