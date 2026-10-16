@@ -10,3 +10,4 @@ mod references_test;
 mod rename_test;
 mod semantic_token_test;
 mod signature_helper_test;
+mod workspace_symbol_test;
