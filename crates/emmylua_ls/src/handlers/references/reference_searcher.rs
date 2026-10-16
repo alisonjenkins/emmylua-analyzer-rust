@@ -40,7 +40,21 @@ pub fn search_references(
             SemanticId::Decl(_) => {
                 decl_reference_ranges_with_aliases(db, &decl, include_declaration)
             }
-            SemanticId::Member(_) => member_reference_ranges(db, &decl, include_declaration),
+            SemanticId::Member(_) => {
+                let mut ranges = Vec::new();
+                let members = same_slot_members(model, &decl);
+                for member in &members {
+                    for range in
+                        member_reference_ranges_with_require(db, member, include_declaration)
+                    {
+                        push_unique(&mut ranges, range);
+                    }
+                }
+                for range in typed_receiver_uses(db, model, &decl, &members) {
+                    push_unique(&mut ranges, range);
+                }
+                ranges
+            }
             SemanticId::TypeDef(_) => match resolve_type_def_of_id(model, &decl) {
                 Some(def) => type_def_reference_ranges(db, &def, include_declaration),
                 None => Vec::new(),
@@ -57,6 +71,87 @@ pub fn search_references(
 
     // 3. String reference index and fuzzy search retired with the old reference index (no Semantic equivalent).
     Some(Vec::new())
+}
+
+/// Every member sharing the owner and name of `member`, itself included.
+///
+/// `function M.f` in the module and `mod.f = stub` in a test file are separate member identities
+/// for one logical field; use sites are attributed to whichever the resolver meets first.
+fn same_slot_members(model: &SemanticModel<'_>, member: &SemanticId) -> Vec<SemanticId> {
+    let siblings = member_slot(model, member).map(|(owner, name)| {
+        model
+            .members_of_owner_named(&owner, name.as_str())
+            .iter()
+            .map(|sibling| sibling.id.clone())
+            .collect::<Vec<_>>()
+    });
+    let mut out = vec![member.clone()];
+    for sibling in siblings.unwrap_or_default() {
+        if !out.contains(&sibling) {
+            out.push(sibling);
+        }
+    }
+    out
+}
+
+fn member_slot(model: &SemanticModel<'_>, member: &SemanticId) -> Option<(SemanticId, String)> {
+    let SemanticId::Member(key) = member else {
+        return None;
+    };
+    let facts = model.file_facts_of(key.file_id)?;
+    let fact = facts.member_by_id(member)?;
+    let name = model
+        .members_of_owner(&fact.owner)
+        .iter()
+        .find(|candidate| &candidate.id == member)?
+        .name
+        .to_string();
+    Some((fact.owner.clone(), name))
+}
+
+/// Uses of the member whose receiver is only known by type (`local r = M.open(); r:close()`).
+///
+/// The reference index attributes uses by the syntactic owner, which cannot see through a local
+/// initialised from a call. Files whose text never mentions the member name are skipped.
+fn typed_receiver_uses(
+    db: &SemanticDatabase,
+    model: &SemanticModel<'_>,
+    member: &SemanticId,
+    slot: &[SemanticId],
+) -> Vec<(FileId, rowan::TextRange)> {
+    let Some((_, name)) = member_slot(model, member) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for file_id in db.file_ids() {
+        let Some(document) = db.document(file_id) else {
+            continue;
+        };
+        if !document.get_text().contains(name.as_str()) {
+            continue;
+        }
+        let file_model = SemanticModel::new(db, file_id);
+        let Some(chunk) = file_model.chunk() else {
+            continue;
+        };
+        for index_expr in chunk.descendants::<LuaIndexExpr>() {
+            let Some(key) = index_expr.get_index_key() else {
+                continue;
+            };
+            if key.get_path_part() != name {
+                continue;
+            }
+            let resolved = file_model
+                .resolve_member(&index_expr)
+                .and_then(|resolved| resolved.member_id);
+            if resolved.is_some_and(|id| slot.contains(&id))
+                && let Some(range) = key.get_range()
+            {
+                push_unique(&mut out, (file_id, range));
+            }
+        }
+    }
+    out
 }
 
 /// Type definition identity → TypeDef (after `find_decl` returns `SemanticId::TypeDef`, fetch the definition details).
@@ -76,32 +171,7 @@ fn require_index_member(
     model: &SemanticModel<'_>,
     index_expr: &LuaIndexExpr,
 ) -> Option<SemanticId> {
-    let prefix = index_expr.get_prefix_expr()?;
-    let call = match prefix {
-        emmylua_parser::LuaExpr::CallExpr(call) => call,
-        _ => return None,
-    };
-    if !call.is_require() {
-        return None;
-    }
-    let arg = call.get_args_list()?.get_args().next()?;
-    let literal = arg
-        .syntax()
-        .descendants_with_tokens()
-        .filter_map(|it| it.into_token())
-        .find_map(LuaLiteralToken::cast)?;
-    let module_name = match literal {
-        LuaLiteralToken::String(string) => string.get_value(),
-        _ => return None,
-    };
-    let key = index_expr.get_index_key()?.get_path_part();
-    let module_file = model.module_file_of(&module_name)?;
-    let facts = model.file_facts_of(module_file)?;
-    facts
-        .members
-        .iter()
-        .find(|member| member.key.to_path() == key)
-        .map(|member| member.id.clone())
+    model.require_field_member(index_expr)
 }
 
 /// Reference ranges for require module path strings (the legacy reference index also counted the

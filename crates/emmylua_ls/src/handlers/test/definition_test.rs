@@ -27,6 +27,29 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_field_on_inline_require() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "mod_a.lua",
+            r#"
+                local M = {}
+                function M.translate(s) return s end
+                return M
+            "#,
+        );
+        check!(ws.check_definition(
+            r#"
+                local tr = require("mod_a").trans<??>late
+            "#,
+            vec![Expected {
+                file: "mod_a.lua".to_string(),
+                line: 2
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_basic_definition() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(
