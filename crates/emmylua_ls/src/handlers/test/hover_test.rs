@@ -1578,4 +1578,21 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// Lua coerces a number to a string for the string library, so the subject accepts both.
+    #[gtest]
+    fn test_hover_string_library_accepts_number_subject() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        for name in ["lower", "upper", "format", "len", "reverse", "rep", "byte"] {
+            let block = format!("local x = string.{name}<??>");
+            let (content, position) = ProviderVirtualWorkspace::handle_file_content(&block)?;
+            let file_id = ws.def(&content);
+            let hover = crate::handlers::hover::hover(&ws.analysis, file_id, position)
+                .ok_or("no hover")
+                .or_fail()?;
+            let hover_text = format!("{hover:?}");
+            verify_that!(hover_text, contains_substring("(string|number)"))?;
+        }
+        Ok(())
+    }
 }
