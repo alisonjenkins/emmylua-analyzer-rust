@@ -4035,7 +4035,11 @@ pub(crate) fn unify_call_bindings(
                                 .saturating_sub(trailing)
                         };
                         let consume = consume.min(arg_params.len().saturating_sub(arg_index));
-                        let remaining: Vec<LuaType> = arg_params[arg_index..arg_index + consume]
+                        // `arg_index` runs past the end when the actual function has fewer params
+                        // than the expected one; the variadic slot then consumes nothing.
+                        let remaining: Vec<LuaType> = arg_params
+                            .get(arg_index..arg_index + consume)
+                            .unwrap_or_default()
                             .iter()
                             .filter_map(|p| p.1.clone())
                             .collect();

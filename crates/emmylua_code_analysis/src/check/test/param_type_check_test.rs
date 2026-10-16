@@ -2081,6 +2081,23 @@ mod test {
         ));
     }
 
+    /// A callback with fewer params than the expected `fun(...)` type leaves the
+    /// variadic slot with nothing to consume instead of slicing past the end.
+    #[test]
+    fn test_callback_fewer_params_than_variadic_fun_type_no_panic() {
+        let mut ws = VirtualWorkspace::new();
+        assert!(ws.has_no_diagnostic(
+            DiagnosticCode::ParamTypeMismatch,
+            r#"
+                ---@generic V1, V...
+                ---@param f fun(acc: integer, v: V1, ...: V...)
+                local function fold(f) end
+
+                fold(function(acc) end)
+            "#
+        ));
+    }
+
     /// Full default checker pipeline (the path behind `textDocument/diagnostic`) on the
     /// crashing input: no panic, and the missing named argument is still reported.
     #[test]
