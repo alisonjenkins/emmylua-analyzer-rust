@@ -3,6 +3,9 @@ use crate::check::checker::generic_constraint_mismatch::resolved_call_signatures
 use crate::check::checker::param_count::callable_functions;
 use crate::check::checker::param_type_check::callable_candidates_uncached;
 
+/// Owner placeholder for a member access whose receiver is not a name chain (`open():close()`).
+const EXPR_OWNER: &str = "<expr>";
+
 impl<'db> SemanticModel<'db> {
     /// Currently configured runtime version (used for `---@version` visibility checks).
     pub fn lua_version(&self) -> Option<LuaVersionNumber> {
@@ -745,9 +748,27 @@ impl<'db> SemanticModel<'db> {
         result
     }
     pub(crate) fn resolve_member_impl(&self, index_expr: &LuaIndexExpr) -> Option<ResolvedMember> {
-        let (owner, name) = self
+        // A receiver that is not a name chain (`open():close()`, `lazy().f`) has no syntactic owner;
+        // only the receiver's type can find the member, so use a placeholder owner that matches nothing.
+        let (owner, name) = match self
             .analysis()
-            .member_ref_of_index(self.view.file_id(), index_expr.get_syntax_id())?;
+            .member_ref_of_index(self.view.file_id(), index_expr.get_syntax_id())
+        {
+            Some(owner_and_name) => owner_and_name,
+            None => {
+                // `require("m").f` is resolved through the module's exports instead.
+                if let Some(LuaExpr::CallExpr(call)) = index_expr.get_prefix_expr()
+                    && call.is_require()
+                {
+                    return None;
+                }
+                (
+                    SemanticId::name(SmolStr::new(EXPR_OWNER)),
+                    SmolStr::new(index_expr.get_index_key()?.get_path_part()),
+                )
+            }
+        };
+        let is_expr_owner = matches!(&owner, SemanticId::Name(name) if name.as_str() == EXPR_OWNER);
 
         // 1. Same-file members (owner key). Members with explicit `---@type` take priority over purely inferred runtime members;
         // if only runtime members exist and the prefix type is a named type with a same-named `@field`, skip this step --
@@ -1039,6 +1060,20 @@ impl<'db> SemanticModel<'db> {
             if is_class {
                 let key = LuaMemberKey::Name(name.clone());
                 if let Some(info) = self.member_info(prefix_ty, &key)
+                    && let Some(id) = info.id
+                    && let Some(file_id) = info.file_id
+                {
+                    return Some(self.resolved_member(Some(id), Some(file_id), owner, name));
+                }
+            }
+        }
+
+        // A call result typed as a union (`require("m")` is the module class plus its table) has no
+        // flow narrowing to defer to, so take the first component that has the member.
+        if is_expr_owner && let Some(LuaType::Union(union)) = &prefix_ty {
+            let key = LuaMemberKey::Name(name.clone());
+            for component in union.into_vec() {
+                if let Some(info) = self.member_info(&component, &key)
                     && let Some(id) = info.id
                     && let Some(file_id) = info.file_id
                 {
