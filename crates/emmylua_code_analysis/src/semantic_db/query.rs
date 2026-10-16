@@ -2814,6 +2814,24 @@ pub(crate) fn param_type(
     lower_doc_type(db, file, *type_syntax, &docs.generic_params)
 }
 
+/// Return type of `require 'x'(a)` / `f(a)` where `f` is a required function-valued module.
+pub(crate) fn required_call_return(
+    db: &SemanticDatabase,
+    file: FileId,
+    config: &Emmyrc,
+    call_syntax: LuaSyntaxId,
+) -> Option<TypeShell> {
+    let facts = file_facts(db, file);
+    let tree = syntax_tree(db, file);
+    let LuaExpr::CallExpr(call) = find_expr_by_syntax_id(&tree, &call_syntax)? else {
+        return None;
+    };
+    let prefix = call.get_prefix_expr()?;
+    let (module_input, closure_syntax) =
+        required_module_closure(db, &facts, file, config, &prefix)?;
+    Some(signature_return(db, module_input, config, closure_syntax))
+}
+
 /// A callee that is a `require`d module exporting a function (`require("m")(...)`, or a local set
 /// to `require("m")`): the module's file and the exported function's body.
 fn required_module_closure(

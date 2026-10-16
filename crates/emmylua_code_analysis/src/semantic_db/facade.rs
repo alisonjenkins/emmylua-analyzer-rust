@@ -571,6 +571,17 @@ impl<'db> AnalysisView<'db> {
         Some(self.project_shell(file_id, &shell))
     }
 
+    /// Result of calling a required module that exports a function (`require 'x'(a)`, `local f = require 'x'; f(a)`).
+    pub fn required_call_return_lua(
+        &self,
+        file_id: FileId,
+        call_syntax: LuaSyntaxId,
+    ) -> Option<LuaType> {
+        let (file, config) = file_and_config(self.db, file_id)?;
+        let shell = query::required_call_return(self.db, file, config, call_syntax)?;
+        Some(self.project_shell(file_id, &shell))
+    }
+
     /// Project a `TypeShell` to a concrete `LuaType` (for semantic_model type checks).
     pub fn type_shell_lua(&self, file_id: FileId, shell: &TypeShell) -> LuaType {
         self.project_shell(file_id, shell)

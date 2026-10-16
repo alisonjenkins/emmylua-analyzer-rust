@@ -1732,4 +1732,25 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_method_of_table_returned_by_a_required_function() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "block_factory.lua",
+            "local function create(busted)\n    local block = {}\n    function block.reject(element) return element end\n    return block\nend\n\nreturn create\n",
+        );
+        check!(ws.check_definition(
+            r#"
+                local create = require("block_factory")
+                local block = create({})
+                block.rej<??>ect(1)
+            "#,
+            vec![Expected {
+                file: "block_factory.lua".to_string(),
+                line: 2
+            }]
+        ));
+        Ok(())
+    }
 }
