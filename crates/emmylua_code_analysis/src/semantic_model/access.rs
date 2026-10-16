@@ -800,7 +800,7 @@ impl<'db> SemanticModel<'db> {
         // must not repeatedly infer the same prefix expression (3 / 3.5 / inherited fallback).
         let prefix_ty = index_expr
             .get_prefix_expr()
-            .map(|prefix| self.prefix_type_for_member_resolution(&prefix));
+            .map(|prefix| without_nil_member(self.prefix_type_for_member_resolution(&prefix)));
 
         // 3. Prefix type is a named type -> its `@field` members (cross-file, e.g. `c.secret` where c: C).
         //    Also look up the runtime value declaration for that type (`---@class Game` + `local Game = {}`),
@@ -1206,5 +1206,20 @@ impl<'db> SemanticModel<'db> {
             }
             _ => None,
         }
+    }
+}
+
+/// Member lookup on `T?` resolves against `T`; a union of several non-nil types stays a union.
+fn without_nil_member(ty: LuaType) -> LuaType {
+    let LuaType::Union(union) = &ty else {
+        return ty;
+    };
+    let mut non_nil = union
+        .into_vec()
+        .into_iter()
+        .filter(|member| !member.is_nil());
+    match (non_nil.next(), non_nil.next()) {
+        (Some(only), None) => only,
+        _ => ty,
     }
 }
