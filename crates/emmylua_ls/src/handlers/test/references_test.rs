@@ -324,4 +324,98 @@ mod tests {
         assert!(lines.contains(&4));
         Ok(())
     }
+
+    #[gtest]
+    fn test_references_of_member_of_undefined_global_table() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            r#"
+                local a = vim.fn.std<??>path("data")
+                local b = other.fn.stdpath("data")
+                local c = vim.api.stdpath("data")
+                local d = vim.fn.stdpath("cache")
+            "#,
+            vec![(
+                "b.lua",
+                r#"
+                    vim.fn.stdpath("config")
+                    local obj = make()
+                    obj:stdpath()
+                "#,
+            )],
+            vec![
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 1,
+                },
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 4,
+                },
+                VirtualLocation {
+                    file: "b.lua".to_string(),
+                    line: 1,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_references_of_declared_member_ignore_same_name_on_undeclared_receiver() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            r#"
+                local M = {}
+                function M.fi<??>nd() end
+                M.find()
+                other.find()
+                vim.fn.find()
+            "#,
+            vec![],
+            vec![
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 2,
+                },
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 3,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_references_of_member_of_unresolved_local() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            r#"
+                local h = dofile("harness.lua")
+                h.che<??>ck(1)
+                h:check(2)
+                local g = dofile("harness.lua")
+                g.check(3)
+            "#,
+            vec![(
+                "b.lua",
+                r#"
+                    local h = dofile("harness.lua")
+                    h.check(4)
+                "#,
+            )],
+            vec![
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 2,
+                },
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 3,
+                },
+            ],
+        ));
+        Ok(())
+    }
 }

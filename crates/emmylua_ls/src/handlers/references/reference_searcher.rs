@@ -35,7 +35,7 @@ pub fn search_references(
     }
 
     // 2. Semantic declaration references (decl / member / typedef).
-    if let Some(decl) = model.find_decl(token.into()) {
+    if let Some(decl) = model.find_decl(token.clone().into()) {
         let ranges = match &decl {
             SemanticId::Decl(_) => {
                 decl_reference_ranges_with_aliases(db, &decl, include_declaration)
@@ -55,8 +55,38 @@ pub fn search_references(
         );
     }
 
-    // 3. String reference index and fuzzy search retired with the old reference index (no Semantic equivalent).
+    // 3. Field of a receiver that nothing declares and no type explains (`vim.fn.stdpath`, `h.check`):
+    // the other accesses of the same field on the same variable.
+    if let Some(ranges) = unresolved_member_uses(model, db, &token) {
+        return Some(
+            ranges
+                .into_iter()
+                .filter_map(|(file_id, range)| location_of(db, file_id, range))
+                .collect(),
+        );
+    }
+
+    // 4. String reference index and fuzzy search retired with the old reference index (no Semantic equivalent).
     Some(Vec::new())
+}
+
+fn unresolved_member_uses(
+    model: &SemanticModel<'_>,
+    db: &SemanticDatabase,
+    token: &LuaSyntaxToken,
+) -> Option<Vec<(FileId, rowan::TextRange)>> {
+    let index_expr = token.parent()?.ancestors().find_map(LuaIndexExpr::cast)?;
+    let key_range = index_expr.get_index_key()?.get_range()?;
+    if key_range != token.text_range() {
+        return None;
+    }
+    let key = model.unresolved_member_key(&index_expr)?;
+    let mut out = Vec::new();
+    for range in db.unresolved_member_reference_ranges(&key) {
+        push_unique(&mut out, range);
+    }
+    push_unique(&mut out, (model.file_id(), key_range));
+    Some(out)
 }
 
 /// Type definition identity → TypeDef (after `find_decl` returns `SemanticId::TypeDef`, fetch the definition details).
