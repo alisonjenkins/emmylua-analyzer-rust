@@ -1085,4 +1085,24 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_member_of_a_table_returned_by_an_iife() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local M = {}
+                M.path = (function()
+                    local function iterate_parents(p) return p end
+                    return { iterate_parents = iterate_parents }
+                end)()
+                print(M.path.iterate_<??>parents(1))
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 4,
+            }],
+        ));
+        Ok(())
+    }
 }
