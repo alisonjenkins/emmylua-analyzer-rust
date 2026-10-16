@@ -4,7 +4,7 @@
 //! The old DbIndex-based version (decl_tree hierarchy and type cache details) is retired; see migration notes §M4.
 
 use emmylua_code_analysis::{DeclKind, LuaType, SemanticModel};
-use emmylua_parser::{LuaAst, LuaAstNode, LuaAstToken, LuaTableField, PathTrait};
+use emmylua_parser::{LuaAst, LuaAstNode, LuaAstToken, LuaSyntaxKind, LuaTableField, PathTrait};
 use lsp_types::{
     ClientCapabilities, DocumentSymbol, DocumentSymbolOptions, DocumentSymbolParams,
     DocumentSymbolResponse, OneOf, ServerCapabilities, SymbolKind,
@@ -115,6 +115,13 @@ fn build_document_symbol(
                 })
             }
             LuaAst::LuaLocalName(local_name) => {
+                if local_name
+                    .syntax()
+                    .parent()
+                    .is_some_and(|parent| parent.kind() == LuaSyntaxKind::LocalFuncStat.into())
+                {
+                    continue;
+                }
                 let Some(name_token) = local_name.get_name_token() else {
                     continue;
                 };
@@ -207,5 +214,30 @@ impl RegisterCapabilities for DocumentSymbolCapabilities {
             label: None,
             work_done_progress_options: Default::default(),
         }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_document_symbol;
+    use crate::handlers::test_lib::ProviderVirtualWorkspace;
+    use lsp_types::{DocumentSymbol, SymbolKind};
+
+    fn symbols(source: &str) -> Vec<DocumentSymbol> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let file_id = ws.def(source);
+        let model = ws.analysis.semantic_model(file_id);
+        let document = ws.analysis.db.document(file_id).expect("document");
+        build_document_symbol(&model, &document)
+    }
+
+    fn names(symbols: &[DocumentSymbol]) -> Vec<(String, SymbolKind)> {
+        symbols.iter().map(|s| (s.name.clone(), s.kind)).collect()
+    }
+
+    #[test]
+    fn local_function_is_one_symbol() {
+        let got = names(&symbols("local function foo(a) return a end\n"));
+        assert_eq!(got, vec![("foo".to_string(), SymbolKind::FUNCTION)]);
     }
 }
