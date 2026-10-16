@@ -27,6 +27,23 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_undeclared_global_ignores_names_in_a_broken_assignment() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "broken.lua",
+            "nothing here, it should just fail when it is being compiled.\n",
+        );
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                i<??>t("works", function() end)
+            "#
+        ));
+        let file_id = ws.def(&content);
+        let result = crate::handlers::definition::definition(&ws.analysis, file_id, position);
+        verify_that!(result, none())
+    }
+
+    #[gtest]
     fn test_definition_of_global_function_declared_in_several_files() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         ws.def_file("a.lua", "function shared() end");
