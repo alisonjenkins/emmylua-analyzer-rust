@@ -2130,4 +2130,26 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_string_method_on_result_of_function_with_param_docs() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_definition(
+            r#"
+                ---@param n integer
+                local function to_hex(n)
+                    local hex = string.format("%x", n)
+                    return hex
+                end
+
+                local value = to_hex(1)
+                local head = value:su<??>b(1, 2)
+            "#,
+            vec![Expected {
+                file: "string.lua".to_string(),
+                line: 317,
+            }],
+        ));
+        Ok(())
+    }
 }
