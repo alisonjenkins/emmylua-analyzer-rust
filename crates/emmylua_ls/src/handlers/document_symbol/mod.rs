@@ -7,9 +7,9 @@ use std::collections::HashMap;
 
 use emmylua_code_analysis::{LuaType, SemanticModel};
 use emmylua_parser::{
-    LuaAssignStat, LuaAst, LuaAstNode, LuaAstToken, LuaCallExpr, LuaExpr, LuaIndexKey,
-    LuaLiteralToken, LuaLocalStat, LuaSyntaxKind, LuaTableExpr, LuaTableField, LuaVarExpr,
-    PathTrait,
+    LuaAssignStat, LuaAst, LuaAstNode, LuaAstToken, LuaCallExpr, LuaExpr, LuaIndexExpr,
+    LuaIndexKey, LuaLiteralToken, LuaLocalStat, LuaSyntaxKind, LuaTableExpr, LuaTableField,
+    LuaVarExpr, PathTrait,
 };
 use lsp_types::{
     ClientCapabilities, DocumentSymbol, DocumentSymbolOptions, DocumentSymbolParams,
@@ -84,6 +84,12 @@ fn value_kind(value: Option<&LuaExpr>) -> SymbolKind {
     }
 }
 
+/// Only `a.b = v` names a field; LuaLS treats `a["b"] = v` like any other
+/// index assignment, which names nothing.
+fn is_field_target(index_expr: &LuaIndexExpr) -> bool {
+    matches!(index_expr.get_index_key(), Some(LuaIndexKey::Name(_)))
+}
+
 /// LuaLS sends blank text for a table or closure that nothing names.
 const BLANK_NAME: &str = " ";
 
@@ -106,10 +112,7 @@ fn anonymous_head(expr: &LuaExpr) -> Option<String> {
                 .position(|value| value.syntax() == expr.syntax())?;
             let named = match vars.get(index) {
                 Some(LuaVarExpr::NameExpr(_)) => true,
-                Some(LuaVarExpr::IndexExpr(index_expr)) => matches!(
-                    index_expr.get_index_key(),
-                    Some(LuaIndexKey::Name(_) | LuaIndexKey::String(_))
-                ),
+                Some(LuaVarExpr::IndexExpr(index_expr)) => is_field_target(index_expr),
                 None => false,
             };
             (!named).then(String::new)
@@ -372,10 +375,7 @@ fn build_assign_symbols(
                 name_expr.get_access_path()
             }
             LuaVarExpr::IndexExpr(index_expr) => {
-                if !matches!(
-                    index_expr.get_index_key(),
-                    Some(LuaIndexKey::Name(_) | LuaIndexKey::String(_))
-                ) {
+                if !is_field_target(index_expr) {
                     continue;
                 }
                 index_expr.get_access_path()
@@ -726,6 +726,15 @@ mod tests {
             got,
             ["t", "  ['a b']", "  [\"c\"]", "  [3]", "  [k]", "  d"]
         );
+    }
+
+    #[test]
+    fn string_index_assignment_is_not_a_field() {
+        let value = names(&symbols("local M = {}\nM['x'] = 1\n"));
+        assert_eq!(value, [("M".to_string(), SymbolKind::OBJECT)]);
+
+        let closure = names(&symbols("M['y'] = function() end\n"));
+        assert_eq!(closure, [(" ".to_string(), SymbolKind::FUNCTION)]);
     }
 
     #[test]
