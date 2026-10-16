@@ -354,8 +354,8 @@ fn nest_by_range(symbols: Vec<DocumentSymbol>) -> Vec<DocumentSymbol> {
     roots
 }
 
-/// One symbol per `a.b = v` / global `G = v` target. A plain name that is not
-/// a declaration is a reassignment of a local and adds nothing to the outline.
+/// One symbol per `a.b = v` / `name = v` target, reassignments of locals and
+/// undeclared globals included.
 fn build_assign_symbols(
     model: &SemanticModel<'_>,
     document: &emmylua_code_analysis::LuaDocument,
@@ -368,12 +368,7 @@ fn build_assign_symbols(
     let mut symbols = Vec::new();
     for (index, var) in vars.iter().enumerate() {
         let name = match var {
-            LuaVarExpr::NameExpr(name_expr) => {
-                if model.decl_by_offset(name_expr.get_position()).is_none() {
-                    continue;
-                }
-                name_expr.get_access_path()
-            }
+            LuaVarExpr::NameExpr(name_expr) => name_expr.get_access_path(),
             LuaVarExpr::IndexExpr(index_expr) => {
                 if !is_field_target(index_expr) {
                     continue;
@@ -599,9 +594,16 @@ mod tests {
     }
 
     #[test]
-    fn local_reassignment_is_not_a_new_symbol() {
-        let got = names(&symbols("local i = 1\ni = i + 1\n"));
-        assert_eq!(got, [("i".to_string(), SymbolKind::NUMBER)]);
+    fn local_reassignment_is_listed_like_luals() {
+        let got = names(&symbols("local i = 1\ni = i + 1\nj = {}\n"));
+        assert_eq!(
+            got,
+            [
+                ("i".to_string(), SymbolKind::NUMBER),
+                ("i".to_string(), SymbolKind::VARIABLE),
+                ("j".to_string(), SymbolKind::OBJECT),
+            ]
+        );
     }
 
     #[test]
