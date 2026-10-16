@@ -7,7 +7,7 @@ use emmylua_code_analysis::{DeclKind, LuaType, SemanticModel};
 use emmylua_parser::{LuaAst, LuaAstNode, LuaAstToken, LuaTableField, PathTrait};
 use lsp_types::{
     ClientCapabilities, DocumentSymbol, DocumentSymbolOptions, DocumentSymbolParams,
-    DocumentSymbolResponse, OneOf, ServerCapabilities, SymbolKind,
+    DocumentSymbolResponse, OneOf, Range, ServerCapabilities, SymbolKind,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -80,7 +80,9 @@ fn build_document_symbol(
                     name,
                     detail: None,
                     kind: SymbolKind::FUNCTION,
-                    range: lsp_range,
+                    range: document
+                        .to_lsp_range(func_stat.get_range())
+                        .unwrap_or(lsp_range),
                     selection_range: lsp_range,
                     children: None,
                     tags: None,
@@ -106,7 +108,9 @@ fn build_document_symbol(
                     name,
                     detail: None,
                     kind: SymbolKind::FUNCTION,
-                    range: lsp_range,
+                    range: document
+                        .to_lsp_range(local_func_stat.get_range())
+                        .unwrap_or(lsp_range),
                     selection_range: lsp_range,
                     children: None,
                     tags: None,
@@ -137,7 +141,11 @@ fn build_document_symbol(
                         }
                         _ => SymbolKind::VARIABLE,
                     },
-                    range: lsp_range,
+                    range: local_name
+                        .syntax()
+                        .parent()
+                        .and_then(|stat| document.to_lsp_range(stat.text_range()))
+                        .unwrap_or(lsp_range),
                     selection_range: lsp_range,
                     children: None,
                     tags: None,
@@ -154,7 +162,61 @@ fn build_document_symbol(
             symbols.push(symbol);
         }
     }
-    symbols
+    nest_by_range(symbols)
+}
+
+/// Moves each symbol under the closest earlier symbol whose range strictly
+/// contains it. `symbols` must be in document (pre-order) order.
+fn nest_by_range(symbols: Vec<DocumentSymbol>) -> Vec<DocumentSymbol> {
+    let contains = |outer: &Range, inner: &Range| {
+        outer != inner
+            && (outer.start.line, outer.start.character)
+                <= (inner.start.line, inner.start.character)
+            && (inner.end.line, inner.end.character) <= (outer.end.line, outer.end.character)
+    };
+
+    let mut parents: Vec<Option<usize>> = Vec::with_capacity(symbols.len());
+    let mut open: Vec<usize> = Vec::new();
+    for (index, symbol) in symbols.iter().enumerate() {
+        while let Some(&top) = open.last() {
+            if symbols
+                .get(top)
+                .is_some_and(|t| contains(&t.range, &symbol.range))
+            {
+                break;
+            }
+            open.pop();
+        }
+        parents.push(open.last().copied());
+        open.push(index);
+    }
+
+    // Children always sit after their parent, so walking backwards finishes a
+    // symbol's children before the symbol itself is attached to its parent.
+    let mut slots: Vec<Option<DocumentSymbol>> = symbols.into_iter().map(Some).collect();
+    let mut children: Vec<Vec<DocumentSymbol>> = slots.iter().map(|_| Vec::new()).collect();
+    let mut roots = Vec::new();
+    for index in (0..slots.len()).rev() {
+        let Some(mut symbol) = slots.get_mut(index).and_then(Option::take) else {
+            continue;
+        };
+        let mut own = children
+            .get_mut(index)
+            .map(std::mem::take)
+            .unwrap_or_default();
+        own.reverse();
+        symbol.children = (!own.is_empty()).then_some(own);
+        match parents.get(index).copied().flatten() {
+            Some(parent) => {
+                if let Some(siblings) = children.get_mut(parent) {
+                    siblings.push(symbol);
+                }
+            }
+            None => roots.push(symbol),
+        }
+    }
+    roots.reverse();
+    roots
 }
 
 fn decl_kind(
@@ -190,7 +252,9 @@ fn build_table_field_symbol(
         } else {
             SymbolKind::FIELD
         },
-        range,
+        range: document
+            .to_lsp_range(table_field.get_range())
+            .unwrap_or(range),
         selection_range: range,
         children: None,
         tags: None,
@@ -207,5 +271,77 @@ impl RegisterCapabilities for DocumentSymbolCapabilities {
             label: None,
             work_done_progress_options: Default::default(),
         }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_document_symbol;
+    use crate::handlers::test_lib::ProviderVirtualWorkspace;
+    use lsp_types::{DocumentSymbol, Position, Range};
+
+    fn symbols(source: &str) -> Vec<DocumentSymbol> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let file_id = ws.def(source);
+        let model = ws.analysis.semantic_model(file_id);
+        let document = ws.analysis.db.document(file_id).expect("document");
+        build_document_symbol(&model, &document)
+    }
+
+    fn outline(symbols: &[DocumentSymbol], depth: usize, out: &mut Vec<String>) {
+        for symbol in symbols {
+            out.push(format!("{}{}", "  ".repeat(depth), symbol.name));
+            outline(
+                symbol.children.as_deref().unwrap_or_default(),
+                depth + 1,
+                out,
+            );
+        }
+    }
+
+    fn outline_of(source: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        outline(&symbols(source), 0, &mut out);
+        out
+    }
+
+    fn contains(outer: Range, inner: Range) -> bool {
+        let before = |a: Position, b: Position| (a.line, a.character) <= (b.line, b.character);
+        before(outer.start, inner.start) && before(inner.end, outer.end)
+    }
+
+    fn check_selection_inside_range(symbols: &[DocumentSymbol]) {
+        for symbol in symbols {
+            assert!(
+                contains(symbol.range, symbol.selection_range),
+                "{}: selection {:?} outside range {:?}",
+                symbol.name,
+                symbol.selection_range,
+                symbol.range
+            );
+            check_selection_inside_range(symbol.children.as_deref().unwrap_or_default());
+        }
+    }
+
+    #[test]
+    fn locals_nest_under_their_function() {
+        let got = outline_of(
+            "function outer()\n  local a = 1\n  function inner()\n    local b = 2\n  end\nend\nlocal top = 3\n",
+        );
+        assert_eq!(got, ["outer", "  a", "  inner", "    b", "top"]);
+    }
+
+    #[test]
+    fn table_fields_nest_under_their_table() {
+        let got = outline_of("local t = {\n  a = 1,\n  b = function() local x = 1 end,\n}\n");
+        assert_eq!(got, ["t", "  a", "  b", "    x"]);
+    }
+
+    #[test]
+    fn selection_range_is_inside_range() {
+        let symbols = symbols(
+            "local M = {}\nfunction M.f(a)\n  local x = a\nend\nlocal t = { k = 1 }\nlocal p, q = 1, 2\n",
+        );
+        check_selection_inside_range(&symbols);
     }
 }
