@@ -291,6 +291,19 @@ mod tests {
         Ok(())
     }
 
+    // LuaLS stops at 1000 results; a one-letter query on a large workspace
+    // otherwise returns tens of thousands of symbols.
+    #[gtest]
+    fn test_results_are_capped_at_one_thousand() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let source: String = (0..1100)
+            .map(|i| format!("local cap_{i} = {i}\n"))
+            .collect();
+        ws.def(&source);
+        expect_that!(query(&ws, "cap_").len(), eq(1000));
+        Ok(())
+    }
+
     #[gtest]
     fn test_unmatched_query_returns_nothing() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
