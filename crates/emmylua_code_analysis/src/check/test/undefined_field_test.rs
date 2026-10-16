@@ -5,6 +5,22 @@ mod test {
     use crate::{DiagnosticCode, VirtualWorkspace};
 
     #[test]
+    fn test_field_of_generic_alias_that_does_not_expand_terminates() {
+        let mut ws = VirtualWorkspace::new();
+        let _ = ws.has_no_diagnostic(
+            DiagnosticCode::UndefinedField,
+            r#"
+                ---@alias std.NotNull<T> T - ?
+
+                ---@type std.NotNull<string|table>
+                local x
+
+                print(x.a)
+            "#,
+        );
+    }
+
+    #[test]
     fn test_1() {
         let mut ws = VirtualWorkspace::new();
         assert!(ws.has_no_diagnostic(

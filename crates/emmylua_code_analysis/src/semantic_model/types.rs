@@ -582,6 +582,8 @@ impl<'db> SemanticModel<'db> {
         let generic_params = &docs.generic_params;
         let (key_id, value_id) = match generic_params.len() {
             n if n >= 2 => (GenericTplId::Type(0), GenericTplId::Type(1)),
+            // `ipairs` declares only the value parameter `V`; its key is always an integer.
+            1 if name.as_str() == "ipairs" => (GenericTplId::Type(1), GenericTplId::Type(0)),
             _ => return None,
         };
         // alias expansion (`MatchersObject` -> object).
@@ -763,6 +765,14 @@ impl<'db> SemanticModel<'db> {
         }
         let slot = slots.get(index)?;
         let substituted = infer::unify::substitute(slot, &bindings);
+        // An alias that cannot be expanded (`std.NotNull<V>` declared as `T - ?`) has no members to look up.
+        if let LuaType::Generic(generic) = &substituted
+            && let Some(def) = self.type_def_of(&generic.get_base_type_id())
+            && def.kind == TypeDefKind::Alias
+            && self.alias_target(&def).is_none()
+        {
+            return None;
+        }
         (!matches!(substituted, LuaType::Unknown)).then_some(substituted)
     }
     /// Infers `ipairs` slots directly from integer-index members of named types (does not depend on global pairs/ipairs signatures).

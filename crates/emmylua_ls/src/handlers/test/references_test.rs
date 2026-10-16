@@ -909,6 +909,28 @@ mod tests {
     }
 
     #[gtest]
+    fn test_references_of_field_through_ipairs_over_a_typed_array() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Result
+                ---@field sour<??>ce string
+
+                ---@param results Result[]
+                local function show(results)
+                    for _, r in ipairs(results) do
+                        print(r.source)
+                    end
+                    for k, r in pairs(results) do
+                        print(r.source)
+                    end
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 7, 10])
+    }
+
+    #[gtest]
     fn test_references_of_self_field_across_methods_of_an_unannotated_table() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
