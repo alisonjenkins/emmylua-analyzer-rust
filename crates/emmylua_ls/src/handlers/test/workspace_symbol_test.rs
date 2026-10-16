@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use googletest::prelude::*;
-    use lsp_types::{SymbolKind, WorkspaceSymbol, WorkspaceSymbolResponse};
+    use lsp_types::{SymbolKind, SymbolTag, WorkspaceSymbol, WorkspaceSymbolResponse};
     use tokio_util::sync::CancellationToken;
 
     use crate::handlers::test_lib::ProviderVirtualWorkspace;
@@ -98,6 +98,35 @@ mod tests {
             .find(|symbol| symbol.name == "bar")
             .and_then(|symbol| symbol.container_name.as_deref());
         expect_that!(container, some(eq("Foo")));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_deprecated_member_is_tagged() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+            local M = {}
+
+            ---@deprecated
+            function M.old_api() end
+
+            function M.new_api() end
+
+            return M
+        "#,
+        );
+        let tags_of = |name: &str| {
+            query(&ws, name)
+                .into_iter()
+                .find(|symbol| symbol.name == name)
+                .map(|symbol| symbol.tags)
+        };
+        expect_that!(
+            tags_of("old_api"),
+            some(some(eq(&vec![SymbolTag::DEPRECATED])))
+        );
+        expect_that!(tags_of("new_api"), some(none()));
         Ok(())
     }
 
