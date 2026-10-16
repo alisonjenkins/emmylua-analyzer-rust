@@ -3485,6 +3485,64 @@ pub(crate) fn unresolved_member_key(
     Some((root, SmolStr::new(segments.join("."))))
 }
 
+/// The global path a local stands for: `local api = vim.api` is `vim.api`, `local ngx = ngx` is `ngx`.
+/// Only a plain name chain counts, and a chain through other such locals is followed.
+pub(crate) fn aliased_global_path<'a>(
+    lookup: DeclLookup<'a>,
+    root: &emmylua_parser::LuaSyntaxNode,
+    decl: &Decl,
+    depth: usize,
+) -> Option<Vec<SmolStr>> {
+    if depth > 4
+        || decl.is_implicit_self
+        || decl.multi_return_index.is_some_and(|slot| slot > 0)
+        || decl.doc_type_syntax.is_some()
+        || matches!(decl.kind, DeclKind::Global)
+    {
+        return None;
+    }
+    // An annotated local (`---@class A` over `local mt = G`) is its own thing.
+    if let Some(node) = decl
+        .owner_syntax
+        .and_then(|owner| owner.to_node_from_root(root))
+        && let Some(stat) = emmylua_parser::LuaLocalStat::cast(node)
+        && !emmylua_parser::LuaCommentOwner::get_comments(&stat).is_empty()
+    {
+        return None;
+    }
+    let value = decl.value_expr_syntax?.to_node_from_root(root)?;
+    global_path_of_expr(lookup, root, LuaExpr::cast(value)?, depth)
+}
+
+/// Looks a name up as seen at an offset (`FileFacts` after the build, the builder during it).
+pub(crate) type DeclLookup<'a> = &'a dyn Fn(&str, TextSize) -> Option<&'a Decl>;
+
+fn global_path_of_expr<'a>(
+    lookup: DeclLookup<'a>,
+    root: &emmylua_parser::LuaSyntaxNode,
+    expr: LuaExpr,
+    depth: usize,
+) -> Option<Vec<SmolStr>> {
+    match expr {
+        LuaExpr::NameExpr(name_expr) => {
+            let name = name_expr.get_name_text()?;
+            match lookup(&name, name_expr.get_position()) {
+                Some(decl) if !matches!(decl.kind, DeclKind::Global) => {
+                    aliased_global_path(lookup, root, decl, depth + 1)
+                }
+                _ => Some(vec![SmolStr::new(name)]),
+            }
+        }
+        LuaExpr::IndexExpr(index_expr) => {
+            let key = index_expr.get_index_key()?.get_path_part();
+            let mut path = global_path_of_expr(lookup, root, index_expr.get_prefix_expr()?, depth)?;
+            path.push(SmolStr::new(key));
+            Some(path)
+        }
+        _ => None,
+    }
+}
+
 fn resolve_expr_root(
     facts: &FileFacts,
     expr: LuaExpr,
@@ -3515,7 +3573,19 @@ fn resolve_expr_root(
                 if let Some(decl) = facts.find_visible_decl_before_offset(&name, offset)
                     && !matches!(decl.kind, DeclKind::Global)
                 {
-                    decl.id.clone()
+                    // `local api = vim.api`: `api.f` is `vim.api.f`.
+                    match aliased_global_path(
+                        &|name, offset| facts.find_visible_decl_before_offset(name, offset),
+                        &name_expr.get_root(),
+                        decl,
+                        0,
+                    ) {
+                        Some(path) => {
+                            segments.extend(path[1..].iter().rev().cloned());
+                            SemanticId::name(path[0].clone())
+                        }
+                        None => decl.id.clone(),
+                    }
                 } else {
                     SemanticId::name(SmolStr::new(name))
                 }

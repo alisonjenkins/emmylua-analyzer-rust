@@ -1007,4 +1007,23 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![1, 2, 3])
     }
+
+    #[gtest]
+    fn test_references_of_undeclared_field_through_locals_aliasing_a_global_path() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "other.lua",
+            "\n\n\n\n\n\n\nlocal api = foo.bar\nlocal ngx = ngx\n\nprint(api.status)\nprint(ngx.status)\n",
+        );
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local lib = foo
+                lib.bar.stat<??>us = 1
+                local ngx = ngx
+                ngx.status = 2
+                foo.bar.status = 3
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 5, 10])
+    }
 }
