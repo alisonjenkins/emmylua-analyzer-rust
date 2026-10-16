@@ -1182,6 +1182,25 @@ impl<'db> SemanticModel<'db> {
             }
         }
 
+        // A named receiver (`opts`) whose type is a union where exactly one component has the member
+        // (`Opts|fun()|table`): the member is that one's.
+        if let Some(LuaType::Union(union)) = &prefix_ty {
+            let key = LuaMemberKey::Name(name.clone());
+            let mut found: Vec<(SemanticId, FileId)> = Vec::new();
+            for component in union.into_vec() {
+                if let Some(info) = self.member_info(&component, &key)
+                    && let Some(id) = info.id
+                    && let Some(file_id) = info.file_id
+                    && !found.iter().any(|(known, _)| known == &id)
+                {
+                    found.push((id, file_id));
+                }
+            }
+            if let [(id, file_id)] = found.as_slice() {
+                return Some(self.resolved_member(Some(id.clone()), Some(*file_id), owner, name));
+            }
+        }
+
         Some(self.resolved_member(None, None, owner, name))
     }
     /// Owner named by the initializer of the local that prefixes `index_expr`

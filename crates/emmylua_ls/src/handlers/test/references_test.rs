@@ -1026,4 +1026,23 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 5, 10])
     }
+
+    #[gtest]
+    fn test_references_of_class_field_through_a_receiver_unioned_with_a_function() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Opts
+                ---@field out<??>path? string
+
+                ---@param opts Opts|fun()|table
+                local function request(opts)
+                    if opts.outpath then
+                        return opts.outpath
+                    end
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 6, 7])
+    }
 }
