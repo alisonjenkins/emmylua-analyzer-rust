@@ -43,7 +43,9 @@ pub fn search_references(
             SemanticId::Member(_) => {
                 let mut ranges = Vec::new();
                 for member in same_slot_members(model, &decl) {
-                    for range in member_reference_ranges(db, &member, include_declaration) {
+                    for range in
+                        member_reference_ranges_with_require(db, &member, include_declaration)
+                    {
                         push_unique(&mut ranges, range);
                     }
                 }
@@ -120,32 +122,7 @@ fn require_index_member(
     model: &SemanticModel<'_>,
     index_expr: &LuaIndexExpr,
 ) -> Option<SemanticId> {
-    let prefix = index_expr.get_prefix_expr()?;
-    let call = match prefix {
-        emmylua_parser::LuaExpr::CallExpr(call) => call,
-        _ => return None,
-    };
-    if !call.is_require() {
-        return None;
-    }
-    let arg = call.get_args_list()?.get_args().next()?;
-    let literal = arg
-        .syntax()
-        .descendants_with_tokens()
-        .filter_map(|it| it.into_token())
-        .find_map(LuaLiteralToken::cast)?;
-    let module_name = match literal {
-        LuaLiteralToken::String(string) => string.get_value(),
-        _ => return None,
-    };
-    let key = index_expr.get_index_key()?.get_path_part();
-    let module_file = model.module_file_of(&module_name)?;
-    let facts = model.file_facts_of(module_file)?;
-    facts
-        .members
-        .iter()
-        .find(|member| member.key.to_path() == key)
-        .map(|member| member.id.clone())
+    model.require_field_member(index_expr)
 }
 
 /// Reference ranges for require module path strings (the legacy reference index also counted the
