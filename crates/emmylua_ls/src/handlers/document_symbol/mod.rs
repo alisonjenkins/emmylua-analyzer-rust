@@ -4,7 +4,9 @@
 //! The old DbIndex-based version (decl_tree hierarchy and type cache details) is retired; see migration notes §M4.
 
 use emmylua_code_analysis::{DeclKind, LuaType, SemanticModel};
-use emmylua_parser::{LuaAst, LuaAstNode, LuaAstToken, LuaSyntaxKind, LuaTableField, PathTrait};
+use emmylua_parser::{
+    LuaAst, LuaAstNode, LuaAstToken, LuaSyntaxKind, LuaTableField, LuaVarExpr, PathTrait,
+};
 use lsp_types::{
     ClientCapabilities, DocumentSymbol, DocumentSymbolOptions, DocumentSymbolParams,
     DocumentSymbolResponse, OneOf, ServerCapabilities, SymbolKind,
@@ -72,7 +74,15 @@ fn build_document_symbol(
                 let Some(lsp_range) = document.to_lsp_range(func_name.get_range()) else {
                     continue;
                 };
-                let raw_name = func_name.get_access_path().unwrap_or_default();
+                let mut raw_name = func_name.get_access_path().unwrap_or_default();
+                if let LuaVarExpr::IndexExpr(index_expr) = &func_name
+                    && index_expr
+                        .get_index_token()
+                        .is_some_and(|token| token.is_colon())
+                    && let Some(dot) = raw_name.rfind('.')
+                {
+                    raw_name.replace_range(dot..=dot, ":");
+                }
                 let name = non_empty_symbol_name(raw_name, || {
                     func_name.syntax().text().to_string().trim().to_string()
                 });
@@ -242,5 +252,20 @@ mod tests {
     fn local_with_unknown_type_is_listed() {
         let got = names(&symbols("local c = unknown_global_call()\n"));
         assert_eq!(got, vec![("c".to_string(), SymbolKind::VARIABLE)]);
+    }
+
+    #[test]
+    fn colon_method_keeps_colon_in_name() {
+        let got = names(&symbols(
+            "local Reader = {}\nfunction Reader:close() end\nfunction Reader.open() end\n",
+        ));
+        assert!(
+            got.contains(&("Reader:close".to_string(), SymbolKind::FUNCTION)),
+            "{got:?}"
+        );
+        assert!(
+            got.contains(&("Reader.open".to_string(), SymbolKind::FUNCTION)),
+            "{got:?}"
+        );
     }
 }
