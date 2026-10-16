@@ -293,6 +293,28 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_local_alias_of_a_required_stdlib_function() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_definition(
+            r#"
+                local format = require("string").format
+                local s = for<??>mat("%d", 1)
+            "#,
+            vec![
+                Expected {
+                    file: "string.lua".to_string(),
+                    line: 118,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 1,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_definition_of_unreassigned_local_stays_single() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(

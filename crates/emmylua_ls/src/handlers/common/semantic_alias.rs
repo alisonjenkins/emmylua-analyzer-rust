@@ -264,18 +264,31 @@ fn resolve_require_index_member(
     }
     let arg = call.get_args_list()?.get_args().next()?;
     let module_name = string_literal_of(&arg)?;
-    let module_file = model.module_file_of(&module_name)?;
-    let module_facts = model.file_facts_of(module_file)?;
-    let owner = match &module_facts.module_export {
-        ModuleExport::Decl { decl, .. } => decl.clone(),
-        ModuleExport::Expr { value_syntax } => {
-            SemanticId::member(module_file, value_syntax.get_range())
+    let key = index_expr.get_index_key()?.get_path_part().to_string();
+    // `require("math").random`: the standard library table, whose members hang on the global name.
+    let stdlib = matches!(
+        module_name.as_str(),
+        "string" | "table" | "math" | "os" | "io" | "debug" | "coroutine" | "utf8" | "package"
+    );
+    let module_file = model.module_file_of(&module_name);
+    let module_export = module_file
+        .and_then(|file| model.file_facts_of(file))
+        .map(|facts| facts.module_export.clone());
+    let (owner, owner_model) = match (module_file, &module_export) {
+        (Some(file), Some(ModuleExport::Decl { decl, .. })) => {
+            (decl.clone(), model.model_for(file))
         }
+        (Some(file), Some(ModuleExport::Expr { value_syntax })) => (
+            SemanticId::member(file, value_syntax.get_range()),
+            model.model_for(file),
+        ),
+        _ if stdlib => (
+            SemanticId::name(module_name.as_str().into()),
+            model.model_for(model.file_id()),
+        ),
         _ => return None,
     };
-    let key = index_expr.get_index_key()?.get_path_part().to_string();
-    let module_model = model.model_for(module_file);
-    module_model
+    owner_model
         .members_of_owner(&owner)
         .into_iter()
         .find(|member| member.name.as_str() == key)
