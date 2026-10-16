@@ -8,9 +8,9 @@ use lsp_types::{
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     path::{Path, PathBuf},
-    sync::mpsc::channel,
     time::Duration,
 };
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use crate::{
     context::{ClientProxy, ServerContextSnapshot},
@@ -165,7 +165,7 @@ async fn register_files_watch_use_fsnotify(
     watch_roots: Vec<PathBuf>,
     match_file_pattern: WorkspaceFileMatcher,
 ) -> bool {
-    let (tx, rx) = channel();
+    let (tx, rx) = unbounded_channel();
     let config = Config::default().with_poll_interval(Duration::from_secs(5));
     let mut watcher = match RecommendedWatcher::new(
         move |res| {
@@ -204,45 +204,63 @@ async fn register_files_watch_use_fsnotify(
     workspace_manager.watcher = Some(watcher);
     drop(workspace_manager);
 
-    tokio::spawn(async move {
-        loop {
-            match rx.recv() {
-                Ok(event) => {
-                    let typ = match event.kind {
-                        notify::event::EventKind::Create(_) => lsp_types::FileChangeType::CREATED,
-                        notify::event::EventKind::Modify(_) => lsp_types::FileChangeType::CHANGED,
-                        notify::event::EventKind::Remove(_) => lsp_types::FileChangeType::DELETED,
-                        _ => {
-                            continue;
-                        }
-                    };
-                    let mut file_events = vec![];
-                    for path in event.paths.iter() {
-                        if is_watched_path(&match_file_pattern, path) {
-                            if let Some(uri) = file_path_to_uri(path) {
-                                file_events.push(FileEvent { uri, typ });
-                            }
-                        }
-                    }
-
-                    if file_events.is_empty() {
-                        continue;
-                    }
-                    let params = DidChangeWatchedFilesParams {
-                        changes: file_events,
-                    };
-                    on_did_change_watched_files(context.clone(), params).await;
-                }
-                Err(e) => {
-                    warn!("watch files notify error: {:?}", e);
-                    break;
-                }
+    tokio::spawn(forward_notify_events(
+        rx,
+        match_file_pattern,
+        move |params| {
+            let context = context.clone();
+            async move {
+                on_did_change_watched_files(context, params).await;
             }
-        }
-    });
+        },
+    ));
 
     info!("watch files use notify success: {:?}", watched_roots);
     true
+}
+
+async fn forward_notify_events<F, Fut>(
+    mut rx: UnboundedReceiver<notify::Event>,
+    match_file_pattern: WorkspaceFileMatcher,
+    mut forward: F,
+) where
+    F: FnMut(DidChangeWatchedFilesParams) -> Fut,
+    Fut: Future<Output = ()>,
+{
+    loop {
+        match rx.recv().await {
+            Some(event) => {
+                let typ = match event.kind {
+                    notify::event::EventKind::Create(_) => lsp_types::FileChangeType::CREATED,
+                    notify::event::EventKind::Modify(_) => lsp_types::FileChangeType::CHANGED,
+                    notify::event::EventKind::Remove(_) => lsp_types::FileChangeType::DELETED,
+                    _ => {
+                        continue;
+                    }
+                };
+                let mut file_events = vec![];
+                for path in event.paths.iter() {
+                    if is_watched_path(&match_file_pattern, path) {
+                        if let Some(uri) = file_path_to_uri(path) {
+                            file_events.push(FileEvent { uri, typ });
+                        }
+                    }
+                }
+
+                if file_events.is_empty() {
+                    continue;
+                }
+                forward(DidChangeWatchedFilesParams {
+                    changes: file_events,
+                })
+                .await;
+            }
+            None => {
+                warn!("watch files notify channel closed");
+                break;
+            }
+        }
+    }
 }
 
 fn is_watched_path(match_file_pattern: &WorkspaceFileMatcher, path: &Path) -> bool {
@@ -280,4 +298,41 @@ where
     }
 
     reduced_roots
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn idle_forwarder_does_not_block_other_tasks() {
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap();
+            let ran = runtime.block_on(async {
+                let (_event_tx, event_rx) = unbounded_channel();
+                tokio::spawn(forward_notify_events(
+                    event_rx,
+                    WorkspaceFileMatcher::default(),
+                    |_| async {},
+                ));
+                let ran = Arc::new(AtomicBool::new(false));
+                let flag = ran.clone();
+                tokio::spawn(async move { flag.store(true, Ordering::SeqCst) });
+                tokio::task::yield_now().await;
+                tokio::task::yield_now().await;
+                ran.load(Ordering::SeqCst)
+            });
+            let _ = done_tx.send(ran);
+        });
+
+        let ran = done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the idle notify forwarder blocked the runtime thread");
+        assert!(ran);
+    }
 }
