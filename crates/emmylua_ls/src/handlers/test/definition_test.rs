@@ -1824,4 +1824,24 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_an_undeclared_global_ignores_prose_the_parser_took_for_assignments()
+    -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "notes.lua",
+            "-- a fixture that is not Lua\n\n\n\n\n\nnothing here, it should just fail to compile.\n",
+        );
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                i<??>t("works", function() end)
+            "#,
+        ));
+        let file_id = ws.def(&content);
+        verify_that!(
+            crate::handlers::definition::definition(&ws.analysis, file_id, position),
+            none()
+        )
+    }
 }
