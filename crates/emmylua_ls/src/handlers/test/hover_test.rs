@@ -50,6 +50,27 @@ mod tests {
         Ok(())
     }
 
+    /// `M.__index = M` makes the table contain itself; the field renders it once, not nested.
+    #[gtest]
+    fn test_hover_self_referencing_table_field_is_not_nested() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local M = {}
+                M.__index = M
+
+                function M.new() end
+
+                local x = M.__<??>index
+            "#,
+            VirtualHoverResult {
+                value:
+                    "```lua\n(field) __index: { __index: table, new: function }\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     // M3 batch 2 retirement: depends on the old humanize rendering stack (constant value / alias / keyof / overloaded attributes / narrowing / cross-file declared type projection, etc.); see migration notes §M3.
     #[gtest]
     fn test_hover_class_index_signature() -> Result<()> {
