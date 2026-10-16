@@ -186,4 +186,59 @@ mod tests {
         ));
         Ok(())
     }
+
+    const UTIL_MODULE: &str = r#"
+        local _M = {}
+        local function deepcopy(x) return x end
+        _M.deepcopy = deepcopy
+        local function make()
+            return function() end
+        end
+        _M.hook = make()
+        return _M
+    "#;
+
+    #[gtest]
+    fn test_references_of_alias_field_include_the_local_function() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            r#"
+                local util = require('util')
+                util.deep<??>copy(1)
+                util.deepcopy(2)
+            "#,
+            vec![("util.lua", UTIL_MODULE)],
+            vec![at("", 2), at("util.lua", 2), at("util.lua", 3), at("", 3)]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_references_of_local_alias_include_the_origin_function() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            r#"
+                local util = require('util')
+                local dc = util.deepcopy
+                d<??>c(1)
+            "#,
+            vec![("util.lua", UTIL_MODULE)],
+            vec![at("", 2), at("", 3), at("util.lua", 2)]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_references_of_field_set_from_a_call_include_the_returned_closure() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            r#"
+                local util = require('util')
+                util.ho<??>ok()
+            "#,
+            vec![("util.lua", UTIL_MODULE)],
+            vec![at("", 2), at("util.lua", 5), at("util.lua", 7)]
+        ));
+        Ok(())
+    }
 }

@@ -491,7 +491,7 @@ fn push_unique(out: &mut Vec<(FileId, rowan::TextRange)>, item: (FileId, rowan::
     }
 }
 
-fn location_of(
+pub(crate) fn location_of(
     db: &SemanticDatabase,
     file_id: FileId,
     range: rowan::TextRange,

@@ -1,12 +1,13 @@
 pub(crate) mod reference_searcher;
 
 use crate::context::{RequestOutcome, ServerContextSnapshot, analysis_query};
+use crate::handlers::common::value_origin_sites;
 use emmylua_code_analysis::{EmmyLuaAnalysis, FileId};
 use emmylua_parser::{LuaAstNode, LuaTokenKind};
 use lsp_types::{
     ClientCapabilities, Location, OneOf, Position, ReferenceParams, ServerCapabilities,
 };
-use reference_searcher::search_references;
+use reference_searcher::{location_of, search_references};
 // Legacy DbIndex reference search (temporarily reused before the M3 batch 3 migration of call_hierarchy / implementation / code_lens;
 use rowan::TokenAtOffset;
 use tokio_util::sync::CancellationToken;
@@ -68,7 +69,17 @@ pub fn references(
         }
     };
 
-    let locations = search_references(&model, &analysis.db, token, include_declaration)?;
+    let mut locations =
+        search_references(&model, &analysis.db, token.clone(), include_declaration)?;
+    if include_declaration && let Some(decl) = model.find_decl(token.into()) {
+        for (origin_file, range) in value_origin_sites(&model, &decl) {
+            if let Some(location) = location_of(&analysis.db, origin_file, range)
+                && !locations.contains(&location)
+            {
+                locations.push(location);
+            }
+        }
+    }
     if model.is_std_file(file_id) {
         return Some(locations);
     }

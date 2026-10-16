@@ -106,7 +106,7 @@ pub fn definition(
         response
     };
     Some(goto_value_origin::with_value_origin(
-        analysis, &model, &decl, &token, response,
+        analysis, &model, &decl, response,
     ))
 }
 

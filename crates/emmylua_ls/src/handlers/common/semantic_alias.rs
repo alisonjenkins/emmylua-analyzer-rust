@@ -100,6 +100,28 @@ pub fn resolve_alias_origin(model: &SemanticModel<'_>, decl: &SemanticId) -> Opt
     }
 }
 
+/// Where the function a declaration or field stands for is defined, when it is not the declaration
+/// itself: the function a field/alias is set to, and the closure a called function returns.
+/// LuaLS lists these beside the declaration in both go-to-definition and find-references.
+pub fn value_origin_sites(
+    model: &SemanticModel<'_>,
+    decl: &SemanticId,
+) -> Vec<(emmylua_code_analysis::FileId, rowan::TextRange)> {
+    let mut sites = Vec::new();
+    if let Some(origin) = resolve_alias_origin(model, decl)
+        && origin != *decl
+        && is_function_valued(model, &origin)
+    {
+        match &origin {
+            SemanticId::Decl(key) => sites.push((key.file_id, key.name_range)),
+            SemanticId::Member(key) => sites.push((key.file_id, key.key_range)),
+            _ => {}
+        }
+    }
+    sites.extend(call_value_function(model, decl));
+    sites
+}
+
 /// The function a declaration's value evaluates to when that value is a call (`x = make()`,
 /// `{ key = make() }`): the closure the callee returns. LuaLS lists it beside the assignment.
 ///
