@@ -2020,4 +2020,95 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_self_field_in_class_built_by_factory_call() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local function make_class()
+                    local class = setmetatable({}, {})
+                    class.__index = class
+                    return class
+                end
+
+                local Cache = make_class()
+
+                function Cache:__init(dir)
+                    self._dir = dir
+                end
+
+                function Cache:put()
+                    return self._d<??>ir
+                end
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 10
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_self_method_call_in_class_built_by_factory_call() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local function make_class()
+                    local class = setmetatable({}, {})
+                    class.__index = class
+                    return class
+                end
+
+                local Cache = make_class()
+
+                function Cache:helper()
+                end
+
+                function Cache:put()
+                    self:hel<??>per()
+                end
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 9
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_self_field_in_class_extended_by_method_call() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local Object = {}
+                Object.__index = Object
+
+                function Object:extend()
+                    local cls = {}
+                    cls.__index = cls
+                    setmetatable(cls, self)
+                    return cls
+                end
+
+                local M = Object:extend()
+
+                function M:init(options)
+                    self.options = options or {}
+                    self:set_separator()
+                end
+
+                function M:set_separator()
+                    return self.opt<??>ions
+                end
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 14
+            }]
+        ));
+        Ok(())
+    }
 }
