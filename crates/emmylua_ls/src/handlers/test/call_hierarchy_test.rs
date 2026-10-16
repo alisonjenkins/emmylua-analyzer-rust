@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[gtest]
-    fn test_outgoing_handles_methods_callbacks_and_nested_functions() -> Result<()> {
+    fn test_outgoing_includes_calls_in_callbacks_and_nested_functions() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         let got = check!(outgoing(
             &mut ws,
@@ -233,6 +233,7 @@ mod tests {
                 ("oth".to_string(), vec![7]),
                 ("each".to_string(), vec![8]),
                 ("in_callback".to_string(), vec![9]),
+                ("inner_only".to_string(), vec![12]),
             ]
         )
     }

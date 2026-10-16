@@ -332,11 +332,6 @@ pub fn build_outgoing_hierarchy(
         let Some(callee) = callee_name_token(&call) else {
             continue;
         };
-        let owned_here = enclosing_function(&callee)
-            .is_some_and(|f| f.name_token.text_range() == name_token.text_range());
-        if !owned_here {
-            continue;
-        }
         let Some(target) = model.find_decl(callee.clone().into()) else {
             continue;
         };
