@@ -5,7 +5,9 @@ use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaAstToken, LuaCallExpr, LuaClosureExpr, LuaExpr, LuaFuncStat,
     LuaLocalFuncStat, LuaLocalStat, LuaSyntaxToken, LuaTokenKind, LuaVarExpr, PathTrait,
 };
-use lsp_types::{CallHierarchyIncomingCall, CallHierarchyItem, SymbolKind};
+use lsp_types::{
+    CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, SymbolKind,
+};
 use rowan::TextRange;
 use serde::{Deserialize, Serialize};
 
@@ -314,6 +316,97 @@ fn var_name_token(var: &LuaVarExpr) -> Option<LuaSyntaxToken> {
     match var {
         LuaVarExpr::NameExpr(name) => name.get_name_token().map(|t| t.syntax().clone()),
         LuaVarExpr::IndexExpr(index) => index.get_name_token().map(|t| t.syntax().clone()),
+    }
+}
+
+/// Calls made by the function whose name sits at `position`, grouped per callee.
+pub fn build_outgoing_hierarchy(
+    db: &SemanticDatabase,
+    file_id: FileId,
+    position: lsp_types::Position,
+) -> Option<Vec<CallHierarchyOutgoingCall>> {
+    let model = SemanticModel::new(db, file_id);
+    let document = db.document(file_id)?;
+    let chunk = model.chunk()?;
+    let offset = document.get_offset(position.line as usize, position.character as usize)?;
+    let name_token = chunk.syntax().token_at_offset(offset).right_biased()?;
+    let body = function_body_named_by(&name_token)?;
+
+    let mut slots: HashMap<SemanticIdData, usize> = HashMap::new();
+    let mut calls: Vec<CallHierarchyOutgoingCall> = Vec::new();
+    for call in body.descendants::<LuaCallExpr>() {
+        let Some(callee) = callee_name_token(&call) else {
+            continue;
+        };
+        let owned_here = enclosing_function(&callee)
+            .is_some_and(|f| f.name_token.text_range() == name_token.text_range());
+        if !owned_here {
+            continue;
+        }
+        let Some(target) = model.find_decl(callee.clone().into()) else {
+            continue;
+        };
+        let Some(from_range) = document.to_lsp_range(callee.text_range()) else {
+            continue;
+        };
+        let key = SemanticIdData::from(&target);
+        if let Some(&slot) = slots.get(&key) {
+            calls[slot].from_ranges.push(from_range);
+            continue;
+        }
+        let Some(to) = build_call_hierarchy_item(&model, db, &target) else {
+            continue;
+        };
+        slots.insert(key, calls.len());
+        calls.push(CallHierarchyOutgoingCall {
+            to,
+            from_ranges: vec![from_range],
+        });
+    }
+    Some(calls)
+}
+
+/// The closure of the function named by `name_token` (the `f` of `function f`,
+/// `local function f`, `M.f = function` or `local f = function`).
+fn function_body_named_by(name_token: &LuaSyntaxToken) -> Option<LuaClosureExpr> {
+    for node in name_token.parent_ancestors() {
+        if let Some(stat) = LuaFuncStat::cast(node.clone()) {
+            return stat.get_closure();
+        }
+        if let Some(stat) = LuaLocalFuncStat::cast(node.clone()) {
+            return stat.get_closure();
+        }
+        if let Some(assign) = LuaAssignStat::cast(node.clone()) {
+            let (vars, exprs) = assign.get_var_and_expr_list();
+            let slot = vars.iter().position(|var| {
+                var_name_token(var).is_some_and(|t| t.text_range() == name_token.text_range())
+            })?;
+            return match exprs.get(slot)? {
+                LuaExpr::ClosureExpr(closure) => Some(closure.clone()),
+                _ => None,
+            };
+        }
+        if let Some(local) = LuaLocalStat::cast(node) {
+            let names: Vec<_> = local.get_local_name_list().collect();
+            let slot = names.iter().position(|name| {
+                name.get_name_token()
+                    .is_some_and(|t| t.syntax().text_range() == name_token.text_range())
+            })?;
+            return match local.get_value_exprs().nth(slot)? {
+                LuaExpr::ClosureExpr(closure) => Some(closure),
+                _ => None,
+            };
+        }
+    }
+    None
+}
+
+/// The name token a call is made through (`f()` -> `f`, `a.b:f()` -> `f`).
+fn callee_name_token(call: &LuaCallExpr) -> Option<LuaSyntaxToken> {
+    match call.get_prefix_expr()? {
+        LuaExpr::NameExpr(name) => name.get_name_token().map(|t| t.syntax().clone()),
+        LuaExpr::IndexExpr(index) => index.get_name_token().map(|t| t.syntax().clone()),
+        _ => None,
     }
 }
 
