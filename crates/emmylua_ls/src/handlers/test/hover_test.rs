@@ -1832,7 +1832,7 @@ mod tests {
                 local shuffle = require("shuffle_mod").shu<??>ffle
             "#,
             VirtualHoverResult {
-                value: "```lua\nfunction shuffle(t: any, seed: any)\n```".to_string(),
+                value: "```lua\nfunction shuffle(t: any, seed: any) -> unknown\n```".to_string(),
             },
         ));
         Ok(())

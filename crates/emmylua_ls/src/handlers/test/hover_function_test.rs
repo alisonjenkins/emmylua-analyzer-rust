@@ -267,7 +267,7 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\n(async) function Core.fetch(x: any)\n```".to_string(),
+                value: "```lua\n(async) function Core.fetch(x: any) -> unknown\n```".to_string(),
             },
         ));
         check!(ws.check_hover(
@@ -281,7 +281,7 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\n(async) (method) Core2:sleep(x: any)\n```".to_string(),
+                value: "```lua\n(async) (method) Core2:sleep(x: any) -> unknown\n```".to_string(),
             },
         ));
         Ok(())
@@ -301,7 +301,7 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\nfunction Core.prepare(self: Core, opts: any)\n```"
+                value: "```lua\nfunction Core.prepare(self: Core, opts: any) -> unknown\n```"
                     .to_string(),
             },
         ));
