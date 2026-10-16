@@ -132,7 +132,7 @@ pub fn outgoing_calls(
     item: &CallHierarchyItem,
 ) -> Option<Vec<CallHierarchyOutgoingCall>> {
     let file_id = analysis.get_file_id(&item.uri)?;
-    build_outgoing_hierarchy(&analysis.db, file_id, item.selection_range.start)
+    build_outgoing_hierarchy(analysis, file_id, item.selection_range.start)
 }
 
 pub struct CallHierarchyCapabilities;

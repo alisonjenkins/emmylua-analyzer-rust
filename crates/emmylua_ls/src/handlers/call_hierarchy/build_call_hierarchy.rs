@@ -1,16 +1,17 @@
 use std::collections::{HashMap, HashSet};
 
-use emmylua_code_analysis::{FileId, SemanticDatabase, SemanticId, SemanticModel};
+use emmylua_code_analysis::{EmmyLuaAnalysis, FileId, SemanticDatabase, SemanticId, SemanticModel};
+
+use crate::handlers::definition::definition;
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaAstToken, LuaCallExpr, LuaClosureExpr, LuaExpr, LuaFuncStat,
     LuaLocalFuncStat, LuaLocalStat, LuaSyntaxToken, LuaTokenKind, LuaVarExpr, PathTrait,
 };
+use lsp_types::GotoDefinitionResponse;
 use lsp_types::{
     CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, SymbolKind,
 };
 use rowan::TextRange;
-
-use crate::handlers::common::value_origin_sites;
 use serde::{Deserialize, Serialize};
 
 /// Serializable encoding for `SemanticId` (identity = file + range).
@@ -317,10 +318,11 @@ fn var_name_token(var: &LuaVarExpr) -> Option<LuaSyntaxToken> {
 
 /// Calls made by the function whose name sits at `position`, grouped per callee.
 pub fn build_outgoing_hierarchy(
-    db: &SemanticDatabase,
+    analysis: &EmmyLuaAnalysis,
     file_id: FileId,
     position: lsp_types::Position,
 ) -> Option<Vec<CallHierarchyOutgoingCall>> {
+    let db = &analysis.db;
     let model = SemanticModel::new(db, file_id);
     let document = db.document(file_id)?;
     let chunk = model.chunk()?;
@@ -341,7 +343,7 @@ pub fn build_outgoing_hierarchy(
             continue;
         };
         let mut targets = vec![target.clone()];
-        for origin in origin_targets(db, &model, &target) {
+        for origin in definition_targets(analysis, file_id, from_range.start) {
             if !targets.contains(&origin) {
                 targets.push(origin);
             }
@@ -365,26 +367,35 @@ pub fn build_outgoing_hierarchy(
     Some(calls)
 }
 
-/// The functions a called field or alias is set to (`M.f = local_fn`); LuaLS lists them as
-/// definitions of the call beside the field itself.
-fn origin_targets(
-    db: &SemanticDatabase,
-    model: &SemanticModel<'_>,
-    target: &SemanticId,
+/// Where go-to-definition at the call's callee lands, as declarations: LuaLS lists each of these
+/// as a definition of the call (the field and the function it is set to, every file assigning a
+/// global).
+fn definition_targets(
+    analysis: &EmmyLuaAnalysis,
+    file_id: FileId,
+    position: lsp_types::Position,
 ) -> Vec<SemanticId> {
-    value_origin_sites(model, target)
-        .into_iter()
-        .filter_map(|(file_id, range)| {
-            let origin_model = SemanticModel::new(db, file_id);
-            let token = origin_model
+    let locations = match definition(analysis, file_id, position) {
+        Some(GotoDefinitionResponse::Scalar(location)) => vec![location],
+        Some(GotoDefinitionResponse::Array(locations)) => locations,
+        _ => Vec::new(),
+    };
+    locations
+        .iter()
+        .filter_map(|location| {
+            let target_file = analysis.get_file_id(&location.uri)?;
+            let document = analysis.db.document(target_file)?;
+            let offset = document.to_rowan_range(location.range)?.start();
+            let target_model = SemanticModel::new(&analysis.db, target_file);
+            let token = target_model
                 .chunk()?
                 .syntax()
-                .token_at_offset(range.start())
+                .token_at_offset(offset)
                 .right_biased()?;
             if token.kind() != LuaTokenKind::TkName.into() {
                 return None;
             }
-            origin_model.find_decl(token.into())
+            target_model.find_decl(token.into())
         })
         .collect()
 }
