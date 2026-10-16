@@ -219,6 +219,22 @@ impl<'db> SemanticModel<'db> {
     ) -> Vec<(LuaType, TextRange)> {
         infer::infer_expr_list_types(self, exprs, var_count)
     }
+    /// Return type read off the function body, for a signature whose docs name no return
+    /// (`---@param` alone must not hide what `return` statements give).
+    pub(crate) fn body_return_type(
+        &self,
+        closure_syntax: LuaSyntaxId,
+        signature: &Signature,
+    ) -> Option<LuaType> {
+        if let Some(docs) = signature.docs.as_ref()
+            && (!docs.returns.is_empty() || !docs.return_overloads.is_empty())
+        {
+            return None;
+        }
+        let inferred = infer::closure_return_lua(self, closure_syntax);
+        (!matches!(inferred, LuaType::Unknown | LuaType::Any)).then_some(inferred)
+    }
+
     /// Unified signature return type projection: TypeShell takes priority, with rich projection as fallback for Unknown.
     pub(crate) fn signature_return_type(
         &self,
@@ -401,11 +417,10 @@ impl<'db> SemanticModel<'db> {
         {
             ret = expected_fun.get_ret().clone();
         }
-        if matches!(ret, LuaType::Unknown) && signature.docs.is_none() {
-            let inferred = infer::closure_return_lua(self, closure_syntax);
-            if !matches!(inferred, LuaType::Unknown | LuaType::Any) {
-                ret = inferred;
-            }
+        if matches!(ret, LuaType::Unknown)
+            && let Some(inferred) = self.body_return_type(closure_syntax, signature)
+        {
+            ret = inferred;
         }
         let is_variadic = signature.is_variadic;
         // `---@async` -> AsyncState::Async (consumed by await_in_sync checks).
