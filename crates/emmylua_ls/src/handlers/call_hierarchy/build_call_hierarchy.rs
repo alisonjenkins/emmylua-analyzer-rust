@@ -336,17 +336,18 @@ pub fn build_outgoing_hierarchy(
         let Some(callee) = callee_name_token(&call) else {
             continue;
         };
-        let Some(target) = model.find_decl(callee.clone().into()) else {
-            continue;
-        };
         let Some(from_range) = document.to_lsp_range(callee.text_range()) else {
             continue;
         };
-        let mut targets = vec![target.clone()];
+        let mut targets: Vec<SemanticId> =
+            model.find_decl(callee.clone().into()).into_iter().collect();
         for origin in definition_targets(analysis, file_id, from_range.start) {
             if !targets.contains(&origin) {
                 targets.push(origin);
             }
+        }
+        if targets.is_empty() {
+            targets = self_method_targets(&model, &call, &callee);
         }
         for target in targets {
             let key = SemanticIdData::from(&target);
@@ -365,6 +366,44 @@ pub fn build_outgoing_hierarchy(
         }
     }
     Some(calls)
+}
+
+/// The members `self:name()` / `self.name()` can reach when go-to-definition finds nothing: the
+/// fields named `name` of the table the enclosing method is defined on. The type of `self` is not
+/// needed, so classes built by a factory call or annotated more than once still resolve.
+fn self_method_targets(
+    model: &SemanticModel<'_>,
+    call: &LuaCallExpr,
+    callee: &LuaSyntaxToken,
+) -> Vec<SemanticId> {
+    let Some(LuaExpr::IndexExpr(index)) = call.get_prefix_expr() else {
+        return Vec::new();
+    };
+    let Some(LuaExpr::NameExpr(receiver)) = index.get_prefix_expr() else {
+        return Vec::new();
+    };
+    if receiver.get_name_text().as_deref() != Some("self") {
+        return Vec::new();
+    }
+    let Some(receiver_token) = receiver.get_name_token() else {
+        return Vec::new();
+    };
+    let Some(self_id) = model.find_decl(receiver_token.syntax().clone().into()) else {
+        return Vec::new();
+    };
+    let Some(owner) = model
+        .decls()
+        .and_then(|decls| decls.iter().find(|decl| decl.id == self_id))
+        .and_then(|decl| decl.self_owner.clone())
+    else {
+        return Vec::new();
+    };
+    model
+        .members_of_owner_named(&owner, callee.text())
+        .as_slice()
+        .iter()
+        .map(|member| member.id.clone())
+        .collect()
 }
 
 /// Where go-to-definition at the call's callee lands, as declarations: LuaLS lists each of these
