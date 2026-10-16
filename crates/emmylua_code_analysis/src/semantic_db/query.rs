@@ -439,49 +439,50 @@ pub(crate) fn resolve_member_id(
     index_expr: &LuaIndexExpr,
 ) -> Option<SemanticId> {
     let (owner, name) = member_ref_from_index_expr(facts, index_expr)?;
-    let related = self_related_owners(db, &owner);
-    for resolved in resolve_owner_set(db, owner).into_iter().chain(
-        related
-            .into_iter()
-            .flat_map(|owner| resolve_owner_set(db, owner)),
-    ) {
-        for member in members_of_owner(db, resolved).iter().cloned() {
-            if member.name == name {
-                return Some(member.id);
-            }
-        }
-    }
-    None
+    let find = |owners: Vec<SemanticId>| {
+        owners.into_iter().find_map(|resolved| {
+            members_of_owner(db, resolved)
+                .iter()
+                .find(|member| member.name == name)
+                .map(|member| member.id.clone())
+        })
+    };
+    find(resolve_owner_set(db, owner.clone())).or_else(|| {
+        find(
+            self_related_owners(db, &owner)
+                .into_iter()
+                .flat_map(|related| resolve_owner_set(db, related))
+                .collect(),
+        )
+    })
 }
 
-/// Owners that share fields with `owner` through `self`: for the implicit `self` of `function M:f()`
-/// the table `M` and the `self` of the other methods of `M` in the same file; for `M` itself, those `self`s.
+/// Owners that share fields with `owner` through `self`: the implicit `self` of `function M:f()`
+/// shares them with the table `M` (and its class) and with the `self` of every other method of `M`.
 pub(crate) fn self_related_owners(db: &SemanticDatabase, owner: &SemanticId) -> Vec<SemanticId> {
-    let SemanticId::Decl(key) = owner else {
-        return Vec::new();
-    };
-    let Some(facts) = db.file_facts_of(key.file_id) else {
-        return Vec::new();
-    };
-    let Some(decl) = facts.decl_by_id(owner) else {
-        return Vec::new();
-    };
-    let base = if decl.is_implicit_self {
-        match &decl.self_owner {
-            Some(base) => base.clone(),
-            None => return Vec::new(),
-        }
-    } else {
-        owner.clone()
-    };
-    let mut out = Vec::new();
-    if &base != owner {
-        out.push(base.clone());
-    }
-    for other in &facts.decls {
-        if other.is_implicit_self && other.self_owner.as_ref() == Some(&base) && &other.id != owner
+    let mut out: Vec<SemanticId> = Vec::new();
+    let mut pending = vec![owner.clone()];
+    while let Some(current) = pending.pop() {
+        let mut found: Vec<SemanticId> = Vec::new();
+        if let SemanticId::Decl(key) = &current
+            && let Some(facts) = db.file_facts_of(key.file_id)
         {
-            out.push(other.id.clone());
+            if let Some(decl) = facts.decl_by_id(&current)
+                && decl.is_implicit_self
+                && let Some(table) = &decl.self_owner
+            {
+                found.push(table.clone());
+            }
+            found.extend(facts.selves_of_owner(&current).map(|decl| decl.id.clone()));
+        }
+        if matches!(current, SemanticId::TypeDef(_) | SemanticId::Decl(_)) {
+            found.extend(resolve_owner_set(db, current.clone()));
+        }
+        for related in found {
+            if &related != owner && !out.contains(&related) {
+                out.push(related.clone());
+                pending.push(related);
+            }
         }
     }
     out

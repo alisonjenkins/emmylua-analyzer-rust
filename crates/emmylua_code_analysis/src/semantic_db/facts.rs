@@ -116,6 +116,8 @@ pub struct FileFacts {
     members_by_owner: HashMap<SemanticId, Vec<usize>>,
     members_by_owner_name: HashMap<(SemanticId, SmolStr), Vec<usize>>,
     members_by_name: HashMap<SmolStr, Vec<usize>>,
+    /// Implicit `self` declarations by the table their method is defined on.
+    selves_by_owner: HashMap<SemanticId, Vec<usize>>,
     type_def_by_full_name: HashMap<SmolStr, usize>,
     type_def_by_name: HashMap<SmolStr, usize>,
     type_defs_by_lower_name: HashMap<SmolStr, Vec<usize>>,
@@ -214,6 +216,15 @@ impl FileFacts {
     pub fn member_by_value_syntax(&self, syntax: LuaSyntaxId) -> Option<&Member> {
         let index = self.member_by_value_syntax.get(&syntax)?;
         self.members.get(*index)
+    }
+
+    /// The implicit `self` declarations of the methods defined on `owner` (in this file).
+    pub fn selves_of_owner(&self, owner: &SemanticId) -> impl Iterator<Item = &Decl> {
+        self.selves_by_owner
+            .get(owner)
+            .into_iter()
+            .flat_map(|indices| indices.iter())
+            .filter_map(move |&index| self.decls.get(index))
     }
 
     /// Members whose owner is `SemanticId` (in this file).
@@ -931,6 +942,17 @@ impl FactsBuilder {
             .map(|(i, def)| (def.id.clone(), i))
             .collect();
 
+        let mut selves_by_owner: HashMap<SemanticId, Vec<usize>> = HashMap::new();
+        for (index, decl) in self.decls.iter().enumerate() {
+            if decl.is_implicit_self
+                && let Some(owner) = &decl.self_owner
+            {
+                selves_by_owner
+                    .entry(owner.clone())
+                    .or_default()
+                    .push(index);
+            }
+        }
         let mut members_by_owner: HashMap<SemanticId, Vec<usize>> = HashMap::new();
         let mut members_by_name: HashMap<SmolStr, Vec<usize>> = HashMap::new();
         let mut field_member_by_type_name: HashMap<(SemanticId, SmolStr), usize> = HashMap::new();
@@ -1093,6 +1115,7 @@ impl FactsBuilder {
             members_by_owner,
             members_by_owner_name,
             members_by_name,
+            selves_by_owner,
             type_def_by_full_name,
             type_def_by_name,
             type_defs_by_lower_name,

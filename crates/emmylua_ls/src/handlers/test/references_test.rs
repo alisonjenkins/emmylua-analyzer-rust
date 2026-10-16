@@ -922,4 +922,33 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 3, 4])
     }
+
+    #[gtest]
+    fn test_references_of_class_field_assigned_through_self() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Task
+                ---@field package _closing boolean
+                local Task = {}
+
+                function Task:close()
+                    if not self._closing then
+                        self._clos<??>ing = true
+                    end
+                end
+
+                function Task:check() return self._closing end
+
+                ---@param task Task
+                local function peek(task)
+                    return task._closing
+                end
+            "#,
+        ));
+        verify_eq!(
+            reference_lines(&content, position, &mut ws),
+            vec![2, 6, 7, 11, 15]
+        )
+    }
 }
