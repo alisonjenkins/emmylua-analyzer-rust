@@ -1882,4 +1882,33 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_forward_declared_local_lists_its_function_statement() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local execute
+
+                local function run(text)
+                    exe<??>cute(text)
+                end
+
+                function execute(text)
+                    return text
+                end
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 1
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 7
+                },
+            ]
+        ));
+        Ok(())
+    }
 }

@@ -120,6 +120,12 @@ fn is_assignment_target(
     else {
         return false;
     };
+    // `function execute() end` assigns the local declared earlier.
+    if let Some(func_stat) = name_expr.get_parent::<emmylua_parser::LuaFuncStat>() {
+        return func_stat.get_func_name().is_some_and(|name| {
+            matches!(name, emmylua_parser::LuaVarExpr::NameExpr(func_name) if func_name.get_range() == name_expr.get_range())
+        });
+    }
     let Some(assign) = name_expr.get_parent::<LuaAssignStat>() else {
         return false;
     };
