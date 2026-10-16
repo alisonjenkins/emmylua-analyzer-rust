@@ -4,10 +4,13 @@
 //! The old DbIndex-based version (decl_tree hierarchy and type cache details) is retired; see migration notes §M4.
 
 use emmylua_code_analysis::{DeclKind, LuaType, SemanticModel};
-use emmylua_parser::{LuaAst, LuaAstNode, LuaAstToken, LuaTableField, PathTrait};
+use emmylua_parser::{
+    LuaAssignStat, LuaAst, LuaAstNode, LuaAstToken, LuaExpr, LuaIndexKey, LuaSyntaxKind,
+    LuaTableField, LuaVarExpr, PathTrait,
+};
 use lsp_types::{
     ClientCapabilities, DocumentSymbol, DocumentSymbolOptions, DocumentSymbolParams,
-    DocumentSymbolResponse, OneOf, ServerCapabilities, SymbolKind,
+    DocumentSymbolResponse, OneOf, Range, ServerCapabilities, SymbolKind,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -72,7 +75,15 @@ fn build_document_symbol(
                 let Some(lsp_range) = document.to_lsp_range(func_name.get_range()) else {
                     continue;
                 };
-                let raw_name = func_name.get_access_path().unwrap_or_default();
+                let mut raw_name = func_name.get_access_path().unwrap_or_default();
+                if let LuaVarExpr::IndexExpr(index_expr) = &func_name
+                    && index_expr
+                        .get_index_token()
+                        .is_some_and(|token| token.is_colon())
+                    && let Some(dot) = raw_name.rfind('.')
+                {
+                    raw_name.replace_range(dot..=dot, ":");
+                }
                 let name = non_empty_symbol_name(raw_name, || {
                     func_name.syntax().text().to_string().trim().to_string()
                 });
@@ -80,7 +91,9 @@ fn build_document_symbol(
                     name,
                     detail: None,
                     kind: SymbolKind::FUNCTION,
-                    range: lsp_range,
+                    range: document
+                        .to_lsp_range(func_stat.get_range())
+                        .unwrap_or(lsp_range),
                     selection_range: lsp_range,
                     children: None,
                     tags: None,
@@ -106,7 +119,9 @@ fn build_document_symbol(
                     name,
                     detail: None,
                     kind: SymbolKind::FUNCTION,
-                    range: lsp_range,
+                    range: document
+                        .to_lsp_range(local_func_stat.get_range())
+                        .unwrap_or(lsp_range),
                     selection_range: lsp_range,
                     children: None,
                     tags: None,
@@ -115,6 +130,13 @@ fn build_document_symbol(
                 })
             }
             LuaAst::LuaLocalName(local_name) => {
+                if local_name
+                    .syntax()
+                    .parent()
+                    .is_some_and(|parent| parent.kind() == LuaSyntaxKind::LocalFuncStat.into())
+                {
+                    continue;
+                }
                 let Some(name_token) = local_name.get_name_token() else {
                     continue;
                 };
@@ -122,9 +144,6 @@ fn build_document_symbol(
                     continue;
                 };
                 let ty = model.type_of_decl(&decl).unwrap_or(LuaType::Unknown);
-                if matches!(ty, LuaType::Unknown) {
-                    continue;
-                }
                 let Some(lsp_range) = document.to_lsp_range(name_token.get_range()) else {
                     continue;
                 };
@@ -137,7 +156,11 @@ fn build_document_symbol(
                         }
                         _ => SymbolKind::VARIABLE,
                     },
-                    range: lsp_range,
+                    range: local_name
+                        .syntax()
+                        .parent()
+                        .and_then(|stat| document.to_lsp_range(stat.text_range()))
+                        .unwrap_or(lsp_range),
                     selection_range: lsp_range,
                     children: None,
                     tags: None,
@@ -148,11 +171,130 @@ fn build_document_symbol(
             LuaAst::LuaTableField(table_field) => {
                 build_table_field_symbol(model, document, table_field)
             }
+            LuaAst::LuaAssignStat(assign_stat) => {
+                symbols.extend(build_assign_symbols(model, document, assign_stat));
+                continue;
+            }
             _ => continue,
         };
         if let Some(symbol) = symbol {
             symbols.push(symbol);
         }
+    }
+    nest_by_range(symbols)
+}
+
+/// Moves each symbol under the closest earlier symbol whose range strictly
+/// contains it. `symbols` must be in document (pre-order) order.
+fn nest_by_range(symbols: Vec<DocumentSymbol>) -> Vec<DocumentSymbol> {
+    let contains = |outer: &Range, inner: &Range| {
+        outer != inner
+            && (outer.start.line, outer.start.character)
+                <= (inner.start.line, inner.start.character)
+            && (inner.end.line, inner.end.character) <= (outer.end.line, outer.end.character)
+    };
+
+    let mut parents: Vec<Option<usize>> = Vec::with_capacity(symbols.len());
+    let mut open: Vec<usize> = Vec::new();
+    for (index, symbol) in symbols.iter().enumerate() {
+        while let Some(&top) = open.last() {
+            if symbols
+                .get(top)
+                .is_some_and(|t| contains(&t.range, &symbol.range))
+            {
+                break;
+            }
+            open.pop();
+        }
+        parents.push(open.last().copied());
+        open.push(index);
+    }
+
+    // Children always sit after their parent, so walking backwards finishes a
+    // symbol's children before the symbol itself is attached to its parent.
+    let mut slots: Vec<Option<DocumentSymbol>> = symbols.into_iter().map(Some).collect();
+    let mut children: Vec<Vec<DocumentSymbol>> = slots.iter().map(|_| Vec::new()).collect();
+    let mut roots = Vec::new();
+    for index in (0..slots.len()).rev() {
+        let Some(mut symbol) = slots.get_mut(index).and_then(Option::take) else {
+            continue;
+        };
+        let mut own = children
+            .get_mut(index)
+            .map(std::mem::take)
+            .unwrap_or_default();
+        own.reverse();
+        symbol.children = (!own.is_empty()).then_some(own);
+        match parents.get(index).copied().flatten() {
+            Some(parent) => {
+                if let Some(siblings) = children.get_mut(parent) {
+                    siblings.push(symbol);
+                }
+            }
+            None => roots.push(symbol),
+        }
+    }
+    roots.reverse();
+    roots
+}
+
+/// One symbol per `a.b = v` / global `G = v` target. A plain name that is not
+/// a declaration is a reassignment of a local and adds nothing to the outline.
+fn build_assign_symbols(
+    model: &SemanticModel<'_>,
+    document: &emmylua_code_analysis::LuaDocument,
+    assign_stat: &LuaAssignStat,
+) -> Vec<DocumentSymbol> {
+    let Some(stat_range) = document.to_lsp_range(assign_stat.get_range()) else {
+        return Vec::new();
+    };
+    let (vars, values) = assign_stat.get_var_and_expr_list();
+    let mut symbols = Vec::new();
+    for (index, var) in vars.iter().enumerate() {
+        let name = match var {
+            LuaVarExpr::NameExpr(name_expr) => {
+                if model.decl_by_offset(name_expr.get_position()).is_none() {
+                    continue;
+                }
+                name_expr.get_access_path()
+            }
+            LuaVarExpr::IndexExpr(index_expr) => {
+                if !matches!(
+                    index_expr.get_index_key(),
+                    Some(LuaIndexKey::Name(_) | LuaIndexKey::String(_))
+                ) {
+                    continue;
+                }
+                index_expr.get_access_path()
+            }
+        };
+        let Some(name) = name else {
+            continue;
+        };
+        let Some(selection_range) = document.to_lsp_range(var.get_range()) else {
+            continue;
+        };
+        let value = values.get(index);
+        let ty = value
+            .map(|expr| model.type_of_expr(expr.get_syntax_id()))
+            .unwrap_or(LuaType::Unknown);
+        let is_function = matches!(value, Some(LuaExpr::ClosureExpr(_)))
+            || matches!(ty, LuaType::DocFunction(_) | LuaType::Function);
+        symbols.push(DocumentSymbol {
+            name,
+            detail: (!matches!(ty, LuaType::Unknown)).then(|| humanize(model, &ty)),
+            kind: if is_function {
+                SymbolKind::FUNCTION
+            } else {
+                SymbolKind::FIELD
+            },
+            range: stat_range,
+            selection_range,
+            children: None,
+            tags: None,
+            #[allow(deprecated)]
+            deprecated: None,
+        });
     }
     symbols
 }
@@ -190,7 +332,9 @@ fn build_table_field_symbol(
         } else {
             SymbolKind::FIELD
         },
-        range,
+        range: document
+            .to_lsp_range(table_field.get_range())
+            .unwrap_or(range),
         selection_range: range,
         children: None,
         tags: None,
@@ -207,5 +351,148 @@ impl RegisterCapabilities for DocumentSymbolCapabilities {
             label: None,
             work_done_progress_options: Default::default(),
         }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_document_symbol;
+    use crate::handlers::test_lib::ProviderVirtualWorkspace;
+    use lsp_types::{DocumentSymbol, Position, Range, SymbolKind};
+
+    fn symbols(source: &str) -> Vec<DocumentSymbol> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let file_id = ws.def(source);
+        let model = ws.analysis.semantic_model(file_id);
+        let document = ws.analysis.db.document(file_id).expect("document");
+        build_document_symbol(&model, &document)
+    }
+
+    fn names(symbols: &[DocumentSymbol]) -> Vec<(String, SymbolKind)> {
+        symbols.iter().map(|s| (s.name.clone(), s.kind)).collect()
+    }
+
+    #[test]
+    fn local_function_is_one_symbol() {
+        let got = names(&symbols("local function foo(a) return a end\n"));
+        assert_eq!(got, vec![("foo".to_string(), SymbolKind::FUNCTION)]);
+    }
+
+    #[test]
+    fn local_with_unknown_type_is_listed() {
+        let got = names(&symbols("local c = unknown_global_call()\n"));
+        assert_eq!(got, vec![("c".to_string(), SymbolKind::VARIABLE)]);
+    }
+
+    #[test]
+    fn colon_method_keeps_colon_in_name() {
+        let got = names(&symbols(
+            "local Reader = {}\nfunction Reader:close() end\nfunction Reader.open() end\n",
+        ));
+        assert!(
+            got.contains(&("Reader:close".to_string(), SymbolKind::FUNCTION)),
+            "{got:?}"
+        );
+        assert!(
+            got.contains(&("Reader.open".to_string(), SymbolKind::FUNCTION)),
+            "{got:?}"
+        );
+    }
+
+    fn outline(symbols: &[DocumentSymbol], depth: usize, out: &mut Vec<String>) {
+        for symbol in symbols {
+            out.push(format!("{}{}", "  ".repeat(depth), symbol.name));
+            outline(
+                symbol.children.as_deref().unwrap_or_default(),
+                depth + 1,
+                out,
+            );
+        }
+    }
+
+    fn outline_of(source: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        outline(&symbols(source), 0, &mut out);
+        out
+    }
+
+    fn contains(outer: Range, inner: Range) -> bool {
+        let before = |a: Position, b: Position| (a.line, a.character) <= (b.line, b.character);
+        before(outer.start, inner.start) && before(inner.end, outer.end)
+    }
+
+    fn check_selection_inside_range(symbols: &[DocumentSymbol]) {
+        for symbol in symbols {
+            assert!(
+                contains(symbol.range, symbol.selection_range),
+                "{}: selection {:?} outside range {:?}",
+                symbol.name,
+                symbol.selection_range,
+                symbol.range
+            );
+            check_selection_inside_range(symbol.children.as_deref().unwrap_or_default());
+        }
+    }
+
+    #[test]
+    fn locals_nest_under_their_function() {
+        let got = outline_of(
+            "function outer()\n  local a = 1\n  function inner()\n    local b = 2\n  end\nend\nlocal top = 3\n",
+        );
+        assert_eq!(got, ["outer", "  a", "  inner", "    b", "top"]);
+    }
+
+    #[test]
+    fn table_fields_nest_under_their_table() {
+        let got = outline_of("local t = {\n  a = 1,\n  b = function() local x = 1 end,\n}\n");
+        assert_eq!(got, ["t", "  a", "  b", "    x"]);
+    }
+
+    #[test]
+    fn selection_range_is_inside_range() {
+        let symbols = symbols(
+            "local M = {}\nfunction M.f(a)\n  local x = a\nend\nlocal t = { k = 1 }\nlocal p, q = 1, 2\n",
+        );
+        check_selection_inside_range(&symbols);
+    }
+
+    #[test]
+    fn field_assignments_are_listed() {
+        let got = names(&symbols(
+            "local M = {}\nM.f = function() end\nM.x = 1\nfunction M.g() end\n",
+        ));
+        assert_eq!(
+            got,
+            [
+                ("M".to_string(), SymbolKind::VARIABLE),
+                ("M.f".to_string(), SymbolKind::FUNCTION),
+                ("M.x".to_string(), SymbolKind::FIELD),
+                ("M.g".to_string(), SymbolKind::FUNCTION),
+            ]
+        );
+    }
+
+    #[test]
+    fn global_assignment_is_listed() {
+        let got = names(&symbols("G = function() end\n"));
+        assert_eq!(got, [("G".to_string(), SymbolKind::FUNCTION)]);
+    }
+
+    #[test]
+    fn local_reassignment_is_not_a_new_symbol() {
+        let got = names(&symbols("local i = 1\ni = i + 1\n"));
+        assert_eq!(got, [("i".to_string(), SymbolKind::VARIABLE)]);
+    }
+
+    #[test]
+    fn dynamic_index_assignment_is_skipped() {
+        let got = names(&symbols("local t = {}\nlocal k = 'a'\nt[k] = 1\n"));
+        assert_eq!(
+            got,
+            [
+                ("t".to_string(), SymbolKind::VARIABLE),
+                ("k".to_string(), SymbolKind::VARIABLE),
+            ]
+        );
     }
 }
