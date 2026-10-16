@@ -35,6 +35,63 @@ mod tests {
 
     // M3 batch 2 retirement: module export alias following (`export.flush = flush` → `require("mod").flush`
     // binding chain) requires cross-file alias chain queries at the semantic layer; see migration notes §M3.
+    fn lines(lines: &[u32]) -> Vec<VirtualLocation> {
+        lines
+            .iter()
+            .map(|&line| VirtualLocation {
+                file: "".to_string(),
+                line,
+            })
+            .collect()
+    }
+
+    #[gtest]
+    fn test_param_references_exclude_fields_it_is_stored_in() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.check_references(
+            r#"
+                local config = {}
+                local function toggle(va<??>lue)
+                    config.sign = value
+                    return config.sign
+                end
+            "#,
+            vec![],
+            lines(&[2, 3]),
+        )
+    }
+
+    #[gtest]
+    fn test_param_references_exclude_fields_stored_from_its_members() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.check_references(
+            r#"
+                local handler = {}
+                local function finish(sui<??>te)
+                    handler.tick = suite.tick
+                    return handler.tick
+                end
+            "#,
+            vec![],
+            lines(&[2, 3]),
+        )
+    }
+
+    #[gtest]
+    fn test_local_function_references_follow_the_field_it_is_exported_as() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.check_references(
+            r#"
+                local export = {}
+                local function fl<??>ush() end
+                export.flush = flush
+                export.flush()
+            "#,
+            vec![],
+            lines(&[2, 3, 3, 4]),
+        )
+    }
+
     #[gtest]
     fn test_function_references() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
