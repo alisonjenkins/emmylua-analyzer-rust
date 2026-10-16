@@ -1207,4 +1207,46 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_a_required_field_assigned_inside_a_callback() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "flag_mod.lua",
+            r#"
+                local M = {
+                    flag = false,
+                }
+                return M
+            "#,
+        );
+        check!(ws.check_definition(
+            r#"
+                local m = require("flag_mod")
+                describe("x", function()
+                    before_each(function()
+                        m.flag = true
+                    end)
+                    after_each(function()
+                        m.fl<??>ag = false
+                    end)
+                end)
+            "#,
+            vec![
+                Expected {
+                    file: "flag_mod.lua".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 4
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 7
+                },
+            ]
+        ));
+        Ok(())
+    }
 }
