@@ -230,23 +230,7 @@ async fn forward_notify_events<F, Fut>(
     loop {
         match rx.recv().await {
             Some(event) => {
-                let typ = match event.kind {
-                    notify::event::EventKind::Create(_) => lsp_types::FileChangeType::CREATED,
-                    notify::event::EventKind::Modify(_) => lsp_types::FileChangeType::CHANGED,
-                    notify::event::EventKind::Remove(_) => lsp_types::FileChangeType::DELETED,
-                    _ => {
-                        continue;
-                    }
-                };
-                let mut file_events = vec![];
-                for path in event.paths.iter() {
-                    if is_watched_path(&match_file_pattern, path) {
-                        if let Some(uri) = file_path_to_uri(path) {
-                            file_events.push(FileEvent { uri, typ });
-                        }
-                    }
-                }
-
+                let file_events = notify_event_to_file_events(&event, &match_file_pattern);
                 if file_events.is_empty() {
                     continue;
                 }
@@ -261,6 +245,32 @@ async fn forward_notify_events<F, Fut>(
             }
         }
     }
+}
+
+fn notify_event_to_file_events(
+    event: &notify::Event,
+    match_file_pattern: &WorkspaceFileMatcher,
+) -> Vec<FileEvent> {
+    let typ = match event.kind {
+        notify::event::EventKind::Create(_) => lsp_types::FileChangeType::CREATED,
+        notify::event::EventKind::Modify(_) => lsp_types::FileChangeType::CHANGED,
+        notify::event::EventKind::Remove(_) => lsp_types::FileChangeType::DELETED,
+        _ => return Vec::new(),
+    };
+    event
+        .paths
+        .iter()
+        .filter(|path| is_watched_path(match_file_pattern, path))
+        .filter_map(|path| {
+            // A rename reports Modify(Name) for the vanished old path; treat a missing file as deleted.
+            let typ = if typ != lsp_types::FileChangeType::DELETED && !path.exists() {
+                lsp_types::FileChangeType::DELETED
+            } else {
+                typ
+            };
+            Some(FileEvent::new(file_path_to_uri(path)?, typ))
+        })
+        .collect()
 }
 
 fn is_watched_path(match_file_pattern: &WorkspaceFileMatcher, path: &Path) -> bool {
@@ -305,6 +315,36 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn rename_away_from_a_watched_path_reports_deleted() {
+        let root = std::env::temp_dir().join(format!("emmylua_ls_watch_{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let old_path = root.join("old.lua");
+        let new_path = root.join("new.lua");
+        std::fs::write(&new_path, "").unwrap();
+        let matcher = WorkspaceFileMatcher::new(
+            &[WorkspaceFolder::new(root.clone(), false)],
+            &emmylua_code_analysis::Emmyrc::default(),
+        );
+
+        let from = notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Name(
+            notify::event::RenameMode::From,
+        )))
+        .add_path(old_path.clone());
+        let to = notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Name(
+            notify::event::RenameMode::To,
+        )))
+        .add_path(new_path.clone());
+        let from_events = notify_event_to_file_events(&from, &matcher);
+        let to_events = notify_event_to_file_events(&to, &matcher);
+        std::fs::remove_dir_all(&root).unwrap();
+
+        assert_eq!(from_events.len(), 1);
+        assert_eq!(from_events[0].typ, lsp_types::FileChangeType::DELETED);
+        assert_eq!(to_events.len(), 1);
+        assert_eq!(to_events[0].typ, lsp_types::FileChangeType::CHANGED);
+    }
 
     #[test]
     fn idle_forwarder_does_not_block_other_tasks() {
