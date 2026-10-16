@@ -15,7 +15,7 @@ use emmylua_parser::{
 use lsp_types::{GotoDefinitionResponse, Location};
 use rowan::TextSize;
 
-use crate::handlers::common::resolve_alias_origin;
+use crate::handlers::common::{call_value_function, resolve_alias_origin};
 use crate::util::parse_desc;
 
 pub fn goto_def_definition(
@@ -30,7 +30,8 @@ pub fn goto_def_definition(
             let mut locations = Vec::new();
             // Value alias: `local f = t.func` / `local a = b` list the real function/member definition
             // and the alias itself, as LuaLS does.
-            if let Some(origin) = resolve_alias_origin(model, decl)
+            if call_value_function(model, decl).is_none()
+                && let Some(origin) = resolve_alias_origin(model, decl)
                 && origin != *decl
                 && let Some(response) = goto_def_definition(model, db, &origin, token)
             {
@@ -328,7 +329,7 @@ fn type_has_field_accessor(
     })
 }
 
-fn location_of(
+pub(super) fn location_of(
     db: &SemanticDatabase,
     file_id: emmylua_code_analysis::FileId,
     range: rowan::TextRange,
