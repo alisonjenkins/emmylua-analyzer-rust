@@ -27,6 +27,52 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_field_on_call_returning_require() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "mod_a.lua",
+            r#"
+                local M = {}
+                function M.translate(s) return s end
+                return M
+            "#,
+        );
+        check!(ws.check_definition(
+            r#"
+                local function lazy() return require("mod_a") end
+                lazy().trans<??>late("x")
+            "#,
+            vec![Expected {
+                file: "mod_a.lua".to_string(),
+                line: 2
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_method_on_call_result() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Reader
+                local Reader = {}
+                function Reader:close() end
+
+                ---@return Reader
+                local function open() return Reader end
+
+                open():cl<??>ose()
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 3
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_basic_definition() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(
