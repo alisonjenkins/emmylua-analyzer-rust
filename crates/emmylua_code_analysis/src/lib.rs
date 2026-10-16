@@ -48,6 +48,7 @@ pub use semantic_model::member::MemberInfo;
 pub use semantic_model::render::{
     humanize_type as humanize_semantic_type,
     humanize_type_detailed as humanize_semantic_type_detailed,
+    humanize_type_hover as humanize_semantic_type_hover,
     humanize_type_with_level as humanize_semantic_type_with_level,
 };
 pub use semantic_model::{ResolvedMember, SemanticInfo};

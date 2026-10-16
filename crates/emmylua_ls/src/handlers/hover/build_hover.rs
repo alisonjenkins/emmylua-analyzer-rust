@@ -602,6 +602,14 @@ fn member_type_at_token(model: &SemanticModel<'_>, token: &LuaSyntaxToken) -> Op
 
 /// Render function parameters/returns (`is_method=true` strips the implicit self first parameter).
 /// `show_unknown=true` is used for field/member type-surface display: still render explicitly when unbound generics become `unknown`.
+/// A returned table literal is shown as `table`; its members are listed where the value is bound.
+fn humanize_return(model: &SemanticModel<'_>, ty: &LuaType) -> String {
+    match ty {
+        LuaType::TableConst(_) => "table".to_string(),
+        _ => humanize(model, ty),
+    }
+}
+
 fn render_function_params_and_ret_mode(
     model: &SemanticModel<'_>,
     func: &LuaFunctionType,
@@ -646,12 +654,12 @@ fn render_function_params_and_ret_mode(
         LuaType::Variadic(variadic) => match variadic.as_ref() {
             VariadicType::Multi(types) => types
                 .iter()
-                .map(|ty| humanize(model, ty))
+                .map(|ty| humanize_return(model, ty))
                 .collect::<Vec<_>>()
                 .join(", "),
-            VariadicType::Base(ty) | VariadicType::Repeat(ty) => humanize(model, ty),
+            VariadicType::Base(ty) | VariadicType::Repeat(ty) => humanize_return(model, ty),
         },
-        ty => humanize(model, ty),
+        ty => humanize_return(model, ty),
     };
 
     let ret = if ret_text.is_empty() {

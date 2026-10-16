@@ -1427,4 +1427,36 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// A table literal inside a table literal is a plain `table`; only the outer level is expanded.
+    #[gtest]
+    fn test_hover_nested_table_literal_field_is_table() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local x<??> = { a = { b = 1 }, c = 2, d = { 1, 2 } }
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal x: { a: table, c: integer = 2, d: table }\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// A function returning a table literal shows `table`, not the literal's members.
+    #[gtest]
+    fn test_hover_function_returning_table_literal() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local function m<??>k()
+                    return { a = 1, b = "x" }
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal function mk() -> table\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
