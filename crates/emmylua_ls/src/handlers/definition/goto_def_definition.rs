@@ -9,13 +9,15 @@ use emmylua_code_analysis::{
     Emmyrc, LuaMemberKey, MemberInfo, SemanticDatabase, SemanticId, SemanticModel, WorkspaceId,
 };
 use emmylua_parser::{
-    LuaAssignStat, LuaAstNode, LuaAstToken, LuaComment, LuaDocDescription, LuaExpr, LuaIndexExpr,
-    LuaLocalStat, LuaNameExpr, LuaSyntaxToken, LuaTableExpr, LuaTableField, LuaTokenKind,
+    LuaAssignStat, LuaAstNode, LuaComment, LuaDocDescription, LuaExpr, LuaIndexExpr, LuaNameExpr,
+    LuaSyntaxToken, LuaTableExpr, LuaTableField, LuaTokenKind,
 };
 use lsp_types::{GotoDefinitionResponse, Location};
 use rowan::TextSize;
 
-use crate::handlers::common::{call_value_function, expected_class_of_table, resolve_alias_origin};
+use crate::handlers::common::{
+    call_value_function, expected_classes_of_table, resolve_alias_origin,
+};
 use crate::handlers::references::reference_searcher::same_name_global_decls;
 use crate::util::parse_desc;
 
@@ -161,22 +163,9 @@ fn goto_member_definition(
     } else if let Some(table_field) = parent.as_ref().and_then(|p| LuaTableField::cast(p.clone()))
         && let Some(table) = table_field.get_parent::<LuaTableExpr>()
     {
-        // `---@type T local t = { ... }`: @field member of declared type T.
-        if let Some(local_name) = table
-            .get_parent::<LuaLocalStat>()
-            .and_then(|stat| stat.get_local_name_list().next())
-            && let Some(name_token) = local_name.get_name_token()
-            && let Some(decl_id) = model.decl_by_offset(name_token.get_position())
-            && let Some(ty) = model.type_of_decl(&decl_id)
-        {
-            prefix_types.push(ty);
-        }
-        // `set(1, { key = v })`: the class the parameter (or the enclosing literal's field) names.
-        if prefix_types.is_empty()
-            && let Some(class) = expected_class_of_table(model, &table)
-        {
-            prefix_types.push(class);
-        }
+        // `---@type T local t = { ... }`, `set(1, { key = v })`, a nested literal: the class the
+        // declared local, parameter or enclosing literal's field names.
+        prefix_types.extend(expected_classes_of_table(model, &table));
     }
 
     let mut member_ids = vec![decl.clone()];

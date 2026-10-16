@@ -1503,4 +1503,168 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_key_in_nested_literal_of_typed_local_lists_class_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class WinOpts
+                ---@field scrolloff? integer
+                ---@class Win
+                ---@field completion? WinOpts
+                ---@class Schema
+                ---@field window? Win
+
+                ---@type Schema
+                local config = { window = { completion = { scroll<??>off = 0 } } }
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 9
+                },
+            ]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_key_in_literal_nested_under_a_union_typed_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Rng
+                ---@field start integer
+
+                ---@class TextEdit
+                ---@field range Rng|nil
+
+                ---@class Replace
+                ---@field replace Rng
+
+                ---@class Item
+                ---@field edit? TextEdit|Replace
+
+                ---@param item Item
+                local function confirm(item) end
+
+                confirm({
+                    edit = {
+                        ra<??>nge = { start = 1 },
+                    },
+                })
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 5
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 18
+                },
+            ]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_key_in_literal_inside_a_string_keyed_table_of_classes() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Elem
+                ---@field kind string
+                ---@field default any
+
+                local M = {}
+
+                ---@type table<string, Elem>
+                M.schema = {
+                    base = {
+                        ki<??>nd = 'string',
+                        default = 1,
+                    },
+                }
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 10
+                },
+            ]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_key_in_literal_inside_an_array_of_classes() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Elem
+                ---@field kind string
+
+                ---@type Elem[]
+                local list = {
+                    { ki<??>nd = 'y' },
+                }
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 6
+                },
+            ]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_key_in_literal_assigned_to_a_class_field_through_explicit_self()
+    -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Rng
+                ---@field start integer
+
+                ---@class Entry
+                ---@field range Rng
+                local Entry = {}
+
+                Entry.fill = function(self)
+                    if not self.range then
+                        self.range = {
+                            sta<??>rt = 1,
+                        }
+                    end
+                end
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 11
+                },
+            ]
+        ));
+        Ok(())
+    }
 }
