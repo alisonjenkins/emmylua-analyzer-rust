@@ -1848,3 +1848,20 @@ fn test_call_with_non_function_for_callback_param_stays_unknown() {
     let h = decl_of(&model, "h");
     assert_eq!(model.type_of_decl(&h), Some(LuaType::Unknown));
 }
+
+/// `{x: integer}[]` keeps the inline object as the element type instead of flattening it to `table`.
+#[test]
+fn test_doc_array_of_inline_object_keeps_the_object() {
+    let env = model_of("---@type {x: integer}[]\nlocal d\n---@type {x: integer}?\nlocal n");
+    let model = env.model();
+    let array = model.type_of_decl(&decl_of(&model, "d"));
+    assert!(
+        matches!(&array, Some(LuaType::Array(a)) if matches!(a.get_base(), LuaType::Object(_))),
+        "{array:?}"
+    );
+    let nullable = model.type_of_decl(&decl_of(&model, "n"));
+    assert!(
+        matches!(&nullable, Some(LuaType::Union(u)) if u.into_vec().iter().any(|t| matches!(t, LuaType::Object(_)))),
+        "{nullable:?}"
+    );
+}
