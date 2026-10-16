@@ -10,7 +10,8 @@ use emmylua_code_analysis::{
     FileId, LuaMemberKey, LuaType, SemanticDatabase, SemanticId, SemanticModel, TypeDef,
 };
 use emmylua_parser::{
-    LuaAstNode, LuaAstToken, LuaCallExpr, LuaIndexExpr, LuaLiteralToken, LuaSyntaxToken,
+    LuaAstNode, LuaAstToken, LuaCallExpr, LuaIndexExpr, LuaLiteralToken, LuaNameExpr,
+    LuaSyntaxToken,
 };
 use lsp_types::Location;
 
@@ -81,6 +82,17 @@ pub fn search_references(
     // 3. Field of a receiver that nothing declares and no type explains (`vim.fn.stdpath`, `h.check`):
     // the other accesses of the same field on the same variable.
     if let Some(ranges) = unresolved_member_uses(model, db, &token) {
+        return Some(
+            ranges
+                .into_iter()
+                .filter_map(|(file_id, range)| location_of(db, file_id, range))
+                .collect(),
+        );
+    }
+
+    // 3b. A global nothing declares (`before_each`, `describe` supplied by a test runner): every
+    // use of the name in the workspace.
+    if let Some(ranges) = undeclared_global_uses(model, db, &token) {
         return Some(
             ranges
                 .into_iter()
@@ -232,6 +244,33 @@ fn unresolved_member_uses(
         push_unique(&mut out, range);
     }
     push_unique(&mut out, (model.file_id(), key_range));
+    Some(out)
+}
+
+/// Uses of the undeclared global `token` names, in every file where the name also resolves to nothing.
+fn undeclared_global_uses(
+    model: &SemanticModel<'_>,
+    db: &SemanticDatabase,
+    token: &LuaSyntaxToken,
+) -> Option<Vec<(FileId, rowan::TextRange)>> {
+    let name_expr = token.parent().and_then(LuaNameExpr::cast)?;
+    if model.resolve_name(token.text_range().start()).is_some() {
+        return None;
+    }
+    let name = name_expr.get_name_text()?;
+    let mut out = Vec::new();
+    for file_id in db.file_ids() {
+        let file_model = SemanticModel::new(db, file_id);
+        let Some(uses) = file_model.name_uses() else {
+            continue;
+        };
+        for name_use in uses.iter().filter(|name_use| name_use.name == name) {
+            let range = name_use.syntax.get_range();
+            if file_model.resolve_name(range.start()).is_none() {
+                push_unique(&mut out, (file_id, range));
+            }
+        }
+    }
     Some(out)
 }
 
