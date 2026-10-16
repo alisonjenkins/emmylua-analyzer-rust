@@ -89,11 +89,11 @@ mod tests {
                     line: 1,
                 },
                 VirtualLocation {
-                    file: "1.lua".to_string(),
+                    file: "2.lua".to_string(),
                     line: 2,
                 },
                 VirtualLocation {
-                    file: "2.lua".to_string(),
+                    file: "1.lua".to_string(),
                     line: 2,
                 }
             ],
