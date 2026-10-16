@@ -827,9 +827,10 @@ impl<'db> SemanticModel<'db> {
 
         // Compute the prefix type once for the remaining slow-path stages. `resolve_member`
         // must not repeatedly infer the same prefix expression (3 / 3.5 / inherited fallback).
-        let prefix_ty = index_expr
-            .get_prefix_expr()
-            .map(|prefix| self.prefix_type_for_member_resolution(&prefix));
+        // `nil` has no members: a `T|nil` receiver (`local f = io.open(p)`) resolves through `T`.
+        let prefix_ty = index_expr.get_prefix_expr().map(|prefix| {
+            super::types::remove_nil_from_type(self.prefix_type_for_member_resolution(&prefix))
+        });
 
         // 3. Prefix type is a named type -> its `@field` members (cross-file, e.g. `c.secret` where c: C).
         //    Also look up the runtime value declaration for that type (`---@class Game` + `local Game = {}`),
@@ -1074,6 +1075,15 @@ impl<'db> SemanticModel<'db> {
                     return Some(self.resolved_member(Some(id), Some(file_id), owner, name));
                 }
             }
+        }
+
+        // Anonymous table whose metatable `__index` is a class table (`setmetatable({}, M)`).
+        if let Some(prefix_ty @ LuaType::TableConst(_)) = &prefix_ty
+            && let Some(info) = self.member_info(prefix_ty, &LuaMemberKey::Name(name.clone()))
+            && let Some(id) = info.id
+            && let Some(file_id) = info.file_id
+        {
+            return Some(self.resolved_member(Some(id), Some(file_id), owner, name));
         }
 
         Some(self.resolved_member(None, None, owner, name))
