@@ -1060,4 +1060,37 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// A module-level `local conn` assigned in another function is seen by later functions as
+    /// the type of those assignments.
+    #[gtest]
+    fn test_hover_method_on_upvalue_assigned_in_another_function() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@class Conn
+                local Conn = {}
+
+                ---@return string
+                function Conn:name() end
+
+                ---@return Conn
+                local function connect() end
+
+                local conn
+                local function setup()
+                    conn = connect()
+                end
+
+                local function use()
+                    assert(conn)
+                    local n<??> = conn:name()
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal n: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }

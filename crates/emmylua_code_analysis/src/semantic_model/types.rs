@@ -419,7 +419,7 @@ impl<'db> SemanticModel<'db> {
         let mut types = Vec::new();
         for assign in chunk.descendants::<LuaAssignStat>() {
             let (vars, values) = assign.get_var_and_expr_list();
-            for (var, value) in vars.into_iter().zip(values) {
+            for (var_index, var) in vars.into_iter().enumerate() {
                 let emmylua_parser::LuaVarExpr::NameExpr(name_expr) = var else {
                     continue;
                 };
@@ -433,7 +433,21 @@ impl<'db> SemanticModel<'db> {
                 if self.resolve_name(offset) != Some(decl.id.clone()) {
                     continue;
                 }
-                let ty = infer::vm::widen_const(&self.type_of_expr(value.get_syntax_id()));
+                // `a, b = f()`: targets past the last expression take that call's later results.
+                let (value, slot) = match values.get(var_index) {
+                    Some(value) => (value, 0),
+                    None => match values.last() {
+                        Some(last) => (last, var_index + 1 - values.len()),
+                        None => continue,
+                    },
+                };
+                let Some(ty) = self
+                    .type_of_expr(value.get_syntax_id())
+                    .get_result_slot_type(slot)
+                else {
+                    continue;
+                };
+                let ty = infer::vm::widen_const(&ty);
                 if !matches!(ty, LuaType::Unknown | LuaType::Any) && !types.contains(&ty) {
                     types.push(ty);
                 }
@@ -444,6 +458,40 @@ impl<'db> SemanticModel<'db> {
             1 => types.pop(),
             _ => Some(LuaType::from_vec(types)),
         }
+    }
+    /// `local x` with no initializer, annotation or class association: its type comes from the
+    /// assignments elsewhere (`local client` set in `M.setup`).
+    pub(crate) fn is_uninitialized_plain_local(&self, decl: &SemanticId) -> bool {
+        let Some(facts) = self.file_facts() else {
+            return false;
+        };
+        let Some(info) = facts.decl_by_id(decl) else {
+            return false;
+        };
+        matches!(info.kind, DeclKind::Local { is_iter: false, .. })
+            && info.value_expr_syntax.is_none()
+            && info.doc_type_syntax.is_none()
+            && info.module_path.is_none()
+            && !info.delayed_definition
+            && !info.owner_syntax.is_some_and(|owner| {
+                facts
+                    .type_defs
+                    .iter()
+                    .any(|def| def.owner_syntax == Some(owner))
+            })
+    }
+    /// Whether `offset` sits in a function nested inside the one that declares `decl`.
+    pub(crate) fn is_read_in_nested_closure(&self, decl: &SemanticId, offset: TextSize) -> bool {
+        let Some(info) = self.file_facts().and_then(|facts| facts.decl_by_id(decl)) else {
+            return false;
+        };
+        let read = self
+            .enclosing_closure_at(offset)
+            .map(|closure| closure.get_syntax_id());
+        let declared = self
+            .enclosing_closure_at(info.name_offset())
+            .map(|closure| closure.get_syntax_id());
+        read != declared
     }
     /// Iteration variable types for `for k, v in pairs(x)`:
     /// taken from the return function slots of the iteration expression's callee (pairs/ipairs/next or custom `__pairs` members).
