@@ -28,7 +28,7 @@ string = {}
 --- `string.sub`.
 ---
 --- Note that numerical codes are not necessarily portable across platforms.
---- @param s  string
+--- @param s  string | number
 --- @param i? integer
 --- @param j? integer
 --- @return integer
@@ -112,7 +112,7 @@ function string.find(s, pattern, init, plain) end
 --- converted to one following the same rules of `tostring`. If the option
 --- has any modifier (flags, width, length), the string argument should not
 --- contain embedded zeros.
---- @param fmt string
+--- @param fmt string | number
 --- @param ... any
 --- @return string
 --- @nodiscard
@@ -142,8 +142,8 @@ function string.format(fmt, ...) end
 ---
 --- For this function, a caret '`^`' at the start of a pattern does not work as
 --- an anchor, as this would prevent the iteration.
---- @param s       string
---- @param pattern string
+--- @param s       string | number
+--- @param pattern string | number
 --- @return fun(): string?...
 function string.gmatch(s, pattern) end
 
@@ -174,8 +174,8 @@ function string.gmatch(s, pattern) end
 --- For this function, a caret '`^`' at the start of a pattern does not work as
 --- an anchor, as this would prevent the iteration.
 --- @version >5.4
---- @param s       string
---- @param pattern string
+--- @param s       string | number
+--- @param pattern string | number
 --- @param init?   integer
 --- @return fun():string?...
 function string.gmatch(s, pattern, init) end
@@ -234,7 +234,7 @@ function string.gsub(s, pattern, repl, n) end
 ---
 --- Receives a string and returns its length. The empty string `""` has
 --- length 0. Embedded zeros are counted, so `"a\000bc\000"` has length 5.
---- @param s string
+--- @param s string | number
 --- @return integer
 function string.len(s) end
 
@@ -242,7 +242,7 @@ function string.len(s) end
 --- Receives a string and returns a copy of this string with all uppercase
 --- letters changed to lowercase. All other characters are left unchanged. The
 --- definition of what an uppercase letter is depends on the current locale.
---- @param s string
+--- @param s string | number
 --- @return string
 function string.lower(s) end
 
@@ -252,8 +252,8 @@ function string.lower(s) end
 --- it returns **nil**. If `pattern` specifies no captures, then the whole match
 --- is returned. A third, optional numerical argument `init` specifies where
 --- to start the search; its default value is 1 and can be negative.
---- @param s       string
---- @param pattern string
+--- @param s       string | number
+--- @param pattern string | number
 --- @param init?   integer
 --- @return string?...
 function string.match(s, pattern, init) end
@@ -286,15 +286,15 @@ function string.packsize(fmt) end
 ---
 --- Note that it is very easy to exhaust the memory of your machine with a
 --- single call to this function.
---- @param s    string
+--- @param s    string | number
 --- @param n    integer
---- @param sep? string
+--- @param sep? string | number
 --- @return string
 function string.rep(s, n, sep) end
 
 ---
 --- Returns a string that is the string `s` reversed.
---- @param s string
+--- @param s string | number
 --- @return string
 function string.reverse(s) end
 
@@ -334,6 +334,6 @@ function string.unpack(fmt, s, pos) end
 --- Receives a string and returns a copy of this string with all lowercase
 --- letters changed to uppercase. All other characters are left unchanged. The
 --- definition of what a lowercase letter is depends on the current locale.
---- @param s string
+--- @param s string | number
 --- @return string
 function string.upper(s) end
