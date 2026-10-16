@@ -1577,4 +1577,39 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_key_in_literal_assigned_to_a_class_field_through_explicit_self()
+    -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Rng
+                ---@field start integer
+
+                ---@class Entry
+                ---@field range Rng
+                local Entry = {}
+
+                Entry.fill = function(self)
+                    if not self.range then
+                        self.range = {
+                            sta<??>rt = 1,
+                        }
+                    end
+                end
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 11
+                },
+            ]
+        ));
+        Ok(())
+    }
 }

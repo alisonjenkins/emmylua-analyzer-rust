@@ -4,8 +4,8 @@
 
 use emmylua_code_analysis::{LuaMemberKey, LuaType, SemanticId, SemanticModel};
 use emmylua_parser::{
-    LuaAssignStat, LuaAstNode, LuaAstToken, LuaCallArgList, LuaCallExpr, LuaExpr, LuaIndexKey,
-    LuaLocalStat, LuaTableExpr, LuaTableField,
+    LuaAssignStat, LuaAstNode, LuaAstToken, LuaCallArgList, LuaCallExpr, LuaExpr, LuaIndexExpr,
+    LuaIndexKey, LuaLocalStat, LuaTableExpr, LuaTableField,
 };
 
 /// The classes a table literal stands for, with `nil` stripped (`Opts?` -> `Opts`). A union
@@ -60,7 +60,11 @@ fn expected_types_of_table(model: &SemanticModel<'_>, table: &LuaTableExpr) -> V
             .position(|value| value.get_syntax_id() == table.get_syntax_id())
             && let Some(var) = vars.get(index)
         {
-            push_named_types(&model.type_of_expr(var.to_expr().get_syntax_id()), &mut out);
+            let target = var.to_expr();
+            push_named_types(&model.type_of_expr(target.get_syntax_id()), &mut out);
+            if let LuaExpr::IndexExpr(index_expr) = &target {
+                push_declared_field_types(model, index_expr, &mut out);
+            }
         }
         return out;
     }
@@ -135,6 +139,32 @@ pub fn class_fields_of_table_key(
         );
     }
     out
+}
+
+/// The types the receiver's class declares for `receiver.key`, whatever the assignment gives it.
+fn push_declared_field_types(
+    model: &SemanticModel<'_>,
+    index_expr: &LuaIndexExpr,
+    out: &mut Vec<LuaType>,
+) {
+    let (Some(prefix), Some(key)) = (index_expr.get_prefix_expr(), index_expr.get_index_key())
+    else {
+        return;
+    };
+    let member_key = LuaMemberKey::Name(key.get_path_part().into());
+    let mut receivers = Vec::new();
+    if let LuaExpr::NameExpr(name_expr) = &prefix
+        && let Some(decl) = model.resolve_name(name_expr.get_position())
+        && let Some(ty) = model.type_of_decl(&decl)
+    {
+        push_named_types(&ty, &mut receivers);
+    }
+    push_named_types(&model.type_of_expr(prefix.get_syntax_id()), &mut receivers);
+    for receiver in receivers.iter().filter(|ty| is_class_type(ty)) {
+        for member in model.member_infos_with_key_all(receiver, &member_key) {
+            push_named_types(&member.typ, out);
+        }
+    }
 }
 
 fn is_class_type(ty: &LuaType) -> bool {
