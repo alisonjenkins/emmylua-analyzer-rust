@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[gtest]
-    fn test_outgoing_handles_methods_callbacks_and_nested_functions() -> Result<()> {
+    fn test_outgoing_includes_calls_in_callbacks_and_nested_functions() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         let got = check!(outgoing(
             &mut ws,
@@ -233,8 +233,57 @@ mod tests {
                 ("oth".to_string(), vec![7]),
                 ("each".to_string(), vec![8]),
                 ("in_callback".to_string(), vec![9]),
+                ("inner_only".to_string(), vec![12]),
             ]
         )
+    }
+
+    #[gtest]
+    fn test_outgoing_lists_function_a_field_is_set_to() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(outgoing(
+            &mut ws,
+            r#"
+                local function impl() end
+                local M = { work = impl }
+                local function r<??>un()
+                    M.work()
+                end
+            "#
+        ));
+        let mut names: Vec<String> = got.iter().map(|(name, _)| name.clone()).collect();
+        names.sort();
+        verify_eq!(names, vec!["impl".to_string(), "work".to_string()])
+    }
+
+    #[gtest]
+    fn test_outgoing_lists_every_file_defining_a_global_function() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file("a.lua", "function shared() end");
+        ws.def_file("b.lua", "function shared() end");
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local function r<??>un()
+                    shared()
+                end
+            "#
+        ));
+        let file_id = ws.def(&content);
+        let items = prepare_call_hierarchy(&ws.analysis, file_id, position)
+            .ok_or("prepare failed")
+            .or_fail()?;
+        let calls = outgoing_calls(&ws.analysis, &items[0])
+            .ok_or("outgoing failed")
+            .or_fail()?;
+        let mut uris: Vec<String> = calls
+            .iter()
+            .map(|call| {
+                let path = call.to.uri.path();
+                path.rsplit('/').next().unwrap_or(path).to_string()
+            })
+            .collect();
+        uris.sort();
+        verify_eq!(uris, vec!["a.lua".to_string(), "b.lua".to_string()])
     }
 
     #[gtest]

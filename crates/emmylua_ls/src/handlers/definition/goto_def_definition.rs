@@ -49,6 +49,11 @@ pub fn goto_def_definition(
                     locations.push(location);
                 }
             }
+            for location in sibling_global_definitions(model, db, decl, token) {
+                if !locations.contains(&location) {
+                    locations.push(location);
+                }
+            }
             Some(match locations.len() {
                 1 => GotoDefinitionResponse::Scalar(locations.remove(0)),
                 _ => GotoDefinitionResponse::Array(locations),
@@ -66,6 +71,34 @@ pub fn goto_def_definition(
         }
         _ => None,
     }
+}
+
+/// The other declarations of a global the workspace declares in several files (`function f` in
+/// each of them); LuaLS lists every one.
+fn sibling_global_definitions(
+    model: &SemanticModel<'_>,
+    db: &SemanticDatabase,
+    decl: &SemanticId,
+    token: &LuaSyntaxToken,
+) -> Vec<Location> {
+    if token.kind() != LuaTokenKind::TkName.into() {
+        return Vec::new();
+    }
+    let SemanticId::Decl(key) = decl else {
+        return Vec::new();
+    };
+    let siblings = model.global_decls_named_for_file(key.file_id, token.text());
+    if !siblings.contains(decl) {
+        return Vec::new();
+    }
+    siblings
+        .iter()
+        .filter(|sibling| *sibling != decl)
+        .filter_map(|sibling| match sibling {
+            SemanticId::Decl(key) => location_of(db, key.file_id, key.name_range),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Where a variable is assigned (`x = v`), in source order.
