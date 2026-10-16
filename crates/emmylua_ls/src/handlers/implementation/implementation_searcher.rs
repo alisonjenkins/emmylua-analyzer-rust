@@ -2,8 +2,8 @@ use std::sync::Mutex;
 
 use emmylua_code_analysis::{DeclKind, SemanticDatabase, SemanticId, SemanticModel};
 use emmylua_parser::{
-    LuaAssignStat, LuaAstNode, LuaDocTagField, LuaExpr, LuaFuncStat, LuaIndexExpr, LuaStat,
-    LuaSyntaxToken, LuaTableField,
+    LuaAssignStat, LuaAstNode, LuaDocTagField, LuaExpr, LuaFuncStat, LuaIndexExpr, LuaLiteralExpr,
+    LuaStat, LuaSyntaxToken, LuaTableField,
 };
 use lsp_types::Location;
 
@@ -83,15 +83,27 @@ fn search_member_implementations(
     Some(())
 }
 
+/// The node a member key position belongs to: the index expression or table field, looking through
+/// the literal of a string key (`t["x"]`, `["x"] = v`).
+fn key_owner(
+    model: &SemanticModel<'_>,
+    range: rowan::TextRange,
+) -> Option<emmylua_parser::LuaSyntaxNode> {
+    let chunk = model.chunk()?;
+    let token = chunk
+        .syntax()
+        .token_at_offset(range.start())
+        .right_biased()?;
+    let parent = token.parent()?;
+    if LuaLiteralExpr::can_cast(parent.kind().into()) {
+        return parent.parent();
+    }
+    Some(parent)
+}
+
 /// Whether a position is an implementation position: an index key that is a `function T:m()` method name or a `T.x = v` lvalue.
 fn is_implementation_position(model: &SemanticModel<'_>, range: rowan::TextRange) -> bool {
-    let Some(chunk) = model.chunk() else {
-        return false;
-    };
-    let Some(token) = chunk.syntax().token_at_offset(range.start()).right_biased() else {
-        return false;
-    };
-    let Some(parent) = token.parent() else {
+    let Some(parent) = key_owner(model, range) else {
         return false;
     };
     if let Some(index_expr) = LuaIndexExpr::cast(parent.clone()) {
@@ -123,13 +135,7 @@ fn is_implementation_position(model: &SemanticModel<'_>, range: rowan::TextRange
 
 /// Whether this is a method signature definition (a function member definition position).
 fn is_signature_position(model: &SemanticModel<'_>, range: rowan::TextRange) -> bool {
-    let Some(chunk) = model.chunk() else {
-        return false;
-    };
-    let Some(token) = chunk.syntax().token_at_offset(range.start()).right_biased() else {
-        return false;
-    };
-    let Some(parent) = token.parent() else {
+    let Some(parent) = key_owner(model, range) else {
         return false;
     };
     if let Some(index_expr) = LuaIndexExpr::cast(parent.clone()) {
