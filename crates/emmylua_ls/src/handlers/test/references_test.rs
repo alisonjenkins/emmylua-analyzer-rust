@@ -301,6 +301,117 @@ mod tests {
     }
 
     #[gtest]
+    fn test_module_function_references_survive_monkey_patching() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            r#"
+                local M = {}
+                function M.open_reader(path)
+                end
+                local function use()
+                    return M.op<??>en_reader("a")
+                end
+                return M
+            "#,
+            vec![
+                (
+                    "a.lua",
+                    r#"
+
+
+
+
+                        local sv = require("virtual_0")
+                        sv.open_reader("b")
+                    "#,
+                ),
+                (
+                    "patch.lua",
+                    r#"
+
+
+
+
+
+
+                        local sv = require("virtual_0")
+                        local real = sv.open_reader
+                        sv.open_reader = function() end
+                        sv.open_reader = real
+                    "#,
+                ),
+            ],
+            vec![
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 2,
+                },
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 5,
+                },
+                VirtualLocation {
+                    file: "a.lua".to_string(),
+                    line: 6,
+                },
+                VirtualLocation {
+                    file: "patch.lua".to_string(),
+                    line: 8,
+                },
+                VirtualLocation {
+                    file: "patch.lua".to_string(),
+                    line: 9,
+                },
+                VirtualLocation {
+                    file: "patch.lua".to_string(),
+                    line: 10,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_references_of_field_on_inline_require() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "mod_a.lua",
+            r#"
+                local M = {}
+                function M.translate(s) return s end
+                return M
+            "#,
+        );
+        check!(ws.check_references(
+            r#"
+                local tr = require("mod_a").trans<??>late
+            "#,
+            vec![(
+                "b.lua",
+                r#"
+                    local x = require("mod_a")
+                    x.translate("s")
+                "#,
+            )],
+            vec![
+                VirtualLocation {
+                    file: "mod_a.lua".to_string(),
+                    line: 2,
+                },
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 1,
+                },
+                VirtualLocation {
+                    file: "b.lua".to_string(),
+                    line: 2,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_member_references_alias_cycle_does_not_stack_overflow() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
 
