@@ -36,6 +36,7 @@ mod semantic_generic_test;
 mod semantic_infer_test;
 mod static_cal_cmp;
 mod syntax_error_test;
+mod table_generic_index_test;
 mod tuple_test;
 mod type_check_test;
 mod unpack_test;

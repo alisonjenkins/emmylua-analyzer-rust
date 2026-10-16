@@ -801,7 +801,28 @@ impl<'a> InferVm<'a> {
         model.is_std_file(file_id)
     }
 
+    /// `table<K, V>` indexed by a key of type `key`: `V` when `K` accepts the key.
+    fn table_generic_value(&self, owner: &LuaType, key: &LuaType) -> Option<LuaType> {
+        let params: &[LuaType] = match owner {
+            LuaType::TableGeneric(params) => params.as_slice(),
+            LuaType::Generic(generic) if generic.get_base_type_id_ref().get_name() == "table" => {
+                generic.get_params()
+            }
+            _ => return None,
+        };
+        let [key_type, value_type] = params else {
+            return None;
+        };
+        let accepted = matches!(key, LuaType::Unknown | LuaType::Any)
+            || matches!(key_type, LuaType::Unknown | LuaType::Any)
+            || self.model.type_check(key_type, key);
+        accepted.then(|| value_type.clone())
+    }
+
     fn index_member_dynamic(&mut self, owner: Value, key: Value) -> Value {
+        if let Some(value) = self.table_generic_value(&owner.ty, &key.ty) {
+            return Value::plain(value);
+        }
         match &key.ty {
             LuaType::StringConst(s) | LuaType::DocStringConst(s) => {
                 self.index_member(owner, &LuaMemberKey::Name(SmolStr::new(s.as_str())))
@@ -1031,6 +1052,16 @@ impl<'a> InferVm<'a> {
     }
 
     fn index_member(&mut self, mut owner: Value, key: &LuaMemberKey) -> Value {
+        let key_type = match key {
+            LuaMemberKey::Name(_) => Some(LuaType::String),
+            LuaMemberKey::Integer(_) => Some(LuaType::Integer),
+            _ => None,
+        };
+        if let Some(key_type) = key_type
+            && let Some(value) = self.table_generic_value(&owner.ty, &key_type)
+        {
+            return Value::plain(value);
+        }
         let receiver_ty = Some(owner.ty.clone());
         // On `any` (including alias cycles that converge to any), any field is still any.
         if owner.ty.is_any() {

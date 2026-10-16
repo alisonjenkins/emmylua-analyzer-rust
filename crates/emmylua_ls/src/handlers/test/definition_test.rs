@@ -27,6 +27,28 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_field_on_value_of_a_generic_table() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class State
+                ---@field version? integer
+
+                ---@param states table<integer, State>
+                local function reset(states, id)
+                    local state = states[id]
+                    print(state.vers<??>ion)
+                end
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 2,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_basic_definition() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(
