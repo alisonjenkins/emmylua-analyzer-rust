@@ -99,9 +99,11 @@ pub fn search_references(
 /// for one logical field; use sites are attributed to whichever the resolver meets first.
 fn same_slot_members(model: &SemanticModel<'_>, member: &SemanticId) -> Vec<SemanticId> {
     let siblings = member_slot(model, member).map(|(owner, name)| {
-        model
-            .members_of_owner_named(&owner, name.as_str())
+        let mut owners = vec![owner.clone()];
+        owners.extend(model.self_related_owners(&owner));
+        owners
             .iter()
+            .flat_map(|owner| model.members_of_owner_named(owner, name.as_str()).to_vec())
             .map(|sibling| sibling.id.clone())
             .collect::<Vec<_>>()
     });

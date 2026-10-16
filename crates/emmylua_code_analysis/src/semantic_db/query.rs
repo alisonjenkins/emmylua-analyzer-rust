@@ -439,14 +439,53 @@ pub(crate) fn resolve_member_id(
     index_expr: &LuaIndexExpr,
 ) -> Option<SemanticId> {
     let (owner, name) = member_ref_from_index_expr(facts, index_expr)?;
-    for resolved in resolve_owner_set(db, owner) {
-        for member in members_of_owner(db, resolved).iter().cloned() {
-            if member.name == name {
-                return Some(member.id);
+    let find = |owners: Vec<SemanticId>| {
+        owners.into_iter().find_map(|resolved| {
+            members_of_owner(db, resolved)
+                .iter()
+                .find(|member| member.name == name)
+                .map(|member| member.id.clone())
+        })
+    };
+    find(resolve_owner_set(db, owner.clone())).or_else(|| {
+        find(
+            self_related_owners(db, &owner)
+                .into_iter()
+                .flat_map(|related| resolve_owner_set(db, related))
+                .collect(),
+        )
+    })
+}
+
+/// Owners that share fields with `owner` through `self`: the implicit `self` of `function M:f()`
+/// shares them with the table `M` (and its class) and with the `self` of every other method of `M`.
+pub(crate) fn self_related_owners(db: &SemanticDatabase, owner: &SemanticId) -> Vec<SemanticId> {
+    let mut out: Vec<SemanticId> = Vec::new();
+    let mut pending = vec![owner.clone()];
+    while let Some(current) = pending.pop() {
+        let mut found: Vec<SemanticId> = Vec::new();
+        if let SemanticId::Decl(key) = &current
+            && let Some(facts) = db.file_facts_of(key.file_id)
+        {
+            if let Some(decl) = facts.decl_by_id(&current)
+                && decl.is_implicit_self
+                && let Some(table) = &decl.self_owner
+            {
+                found.push(table.clone());
+            }
+            found.extend(facts.selves_of_owner(&current).map(|decl| decl.id.clone()));
+        }
+        if matches!(current, SemanticId::TypeDef(_) | SemanticId::Decl(_)) {
+            found.extend(resolve_owner_set(db, current.clone()));
+        }
+        for related in found {
+            if &related != owner && !out.contains(&related) {
+                out.push(related.clone());
+                pending.push(related);
             }
         }
     }
-    None
+    out
 }
 
 /// Canonical module owner for a raw file-local owner identity.
