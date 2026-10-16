@@ -1060,21 +1060,26 @@ fn call_stat_returns_never(
     model: &SemanticModel,
     call_stat_ptr: &emmylua_parser::LuaAstPtr<LuaCallExprStat>,
 ) -> bool {
+    // Resolving the callee goes through declaration facts and the signature query only, never
+    // through the model's in-progress inference, so the verdict is a function of the call alone.
+    let key = (model.file_id(), call_stat_ptr.get_syntax_id());
+    if let Some(never) = model.cache.borrow().call_stat_never.get(&key) {
+        return *never;
+    }
+    #[cfg(test)]
+    flow_metrics::record_call_stat_evaluation();
     let Some(chunk) = model.chunk() else {
         return false;
     };
-    let Some(call_stat) = call_stat_ptr.to_node(&chunk) else {
-        return false;
-    };
-    let Some(call_expr) = call_stat.get_call_expr() else {
-        return false;
-    };
-    // Prefer signature projection; do not fall back to the VM when there is no signature. For many ordinary calls in large linear fragments,
-    // VM evaluation repeatedly recurses into member reads in table arguments, causing nested flow backtracks.
-    if let Some(ty) = call_signature_return(model, &call_expr) {
-        return ty.is_never();
-    }
-    false
+    let never = call_stat_ptr
+        .to_node(&chunk)
+        .and_then(|call_stat| call_stat.get_call_expr())
+        // Prefer signature projection; do not fall back to the VM when there is no signature. For many ordinary calls in large linear fragments,
+        // VM evaluation repeatedly recurses into member reads in table arguments, causing nested flow backtracks.
+        .and_then(|call_expr| call_signature_return(model, &call_expr))
+        .is_some_and(|ty| ty.is_never());
+    model.cache.borrow_mut().call_stat_never.insert(key, never);
+    never
 }
 
 /// Whether a condition branch is unreachable: the call returns `never`, or a `false`/`true` constant makes one side unreachable.
@@ -5302,6 +5307,7 @@ pub(crate) mod flow_metrics {
         fast_member_hits: u64,
         fast_target_hits: u64,
         trace_decl_entries: u64,
+        call_stat_evaluations: u64,
     }
 
     impl FlowCounters {
@@ -5311,6 +5317,7 @@ pub(crate) mod flow_metrics {
             fast_member_hits: 0,
             fast_target_hits: 0,
             trace_decl_entries: 0,
+            call_stat_evaluations: 0,
         };
     }
 
@@ -5344,6 +5351,15 @@ pub(crate) mod flow_metrics {
     /// test run on the wall clock.
     pub(crate) fn record_trace_decl_entry() {
         bump(|c| c.trace_decl_entries += 1);
+    }
+
+    /// Lookups of whether a call statement never returns that were not served from the cache.
+    pub(crate) fn record_call_stat_evaluation() {
+        bump(|c| c.call_stat_evaluations += 1);
+    }
+
+    pub(crate) fn call_stat_evaluations() -> u64 {
+        COUNTERS.with(|c| c.get().call_stat_evaluations)
     }
 
     pub(crate) fn reset() {

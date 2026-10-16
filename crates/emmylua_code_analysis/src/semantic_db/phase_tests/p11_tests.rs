@@ -23,7 +23,7 @@
 
 use crate::semantic_model::flow::flow_metrics;
 use crate::{LuaType, VirtualWorkspace};
-use emmylua_parser::{LuaAstNode, LuaIndexExpr};
+use emmylua_parser::{LuaAstNode, LuaIndexExpr, LuaNameExpr};
 
 /// `n` guard blocks, each repeating one nested index expression in a condition.
 fn repeated_prefix_guard_chain(n: usize) -> String {
@@ -52,6 +52,45 @@ fn read_every_member(fid: crate::FileId, ws: &VirtualWorkspace) {
         };
         let _ = model.type_of_member_at(&member_id, index_expr.get_range().start());
     }
+}
+
+/// Whether a call statement never returns depends on the call alone, so tracing across it
+/// again and again (a loop keeps the declaration trace uncached) must not redo the lookup.
+#[test]
+fn p11_call_stat_never_verdict_is_computed_once_per_call() {
+    let mut ws = VirtualWorkspace::new();
+    let fid = ws.def_file(
+        "never.lua",
+        r#"
+        ---@return never
+        local function fail() end
+
+        local function run(c)
+            local x = 1
+            for _ = 1, 2 do
+                if c then
+                    x = "a"
+                    fail()
+                end
+            end
+            local a = x
+            local b = x
+            local d = x
+            return a, b, d
+        end
+        "#,
+    );
+    let model = ws.analysis.semantic_model(fid);
+    flow_metrics::reset();
+    for name in model
+        .chunk()
+        .expect("chunk")
+        .descendants::<LuaNameExpr>()
+        .filter(|name| name.get_text() == "x")
+    {
+        let _ = model.type_of_expr_at(name.get_syntax_id(), name.get_range().start());
+    }
+    assert_eq!(flow_metrics::call_stat_evaluations(), 1);
 }
 
 /// The shape must resolve consistently for every size.

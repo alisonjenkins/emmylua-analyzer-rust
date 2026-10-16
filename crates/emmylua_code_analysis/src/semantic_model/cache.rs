@@ -60,6 +60,8 @@ pub(crate) struct SemanticLocalCache {
     /// repeatedly resolving callees and scanning signatures for the same call.
     pub(crate) return_cast:
         HashMap<(FileId, LuaSyntaxId), Option<(LuaExpr, LuaType, Option<LuaType>, bool)>>,
+    /// Whether a call statement returns `never`, by the statement's syntax id.
+    pub(crate) call_stat_never: HashMap<(FileId, LuaSyntaxId), bool>,
     pub(crate) callable_candidates: HashMap<(FileId, LuaSyntaxId), Vec<LuaFunctionType>>,
     pub(crate) call_site: HashMap<(FileId, LuaSyntaxId), CallSiteAnalysis>,
     pub(crate) call_site_signatures:
