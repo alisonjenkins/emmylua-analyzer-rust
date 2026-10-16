@@ -1833,9 +1833,9 @@ fn build_member_hover(
 
         let has_named_returns =
             !call_site_substituted && signature_has_named_returns(model, member_info.value_syntax);
-        let (params, _) =
+        let (params, ret) =
             render_function_params_and_ret_mode(model, fun, false, has_named_returns, show_unknown);
-        let code = format!("(field) {}({})", member_name, params);
+        let code = format!("(field) {}({}){}", member_name, params, ret);
         return (code, Some(description));
     }
 
