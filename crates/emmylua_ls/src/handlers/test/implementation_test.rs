@@ -218,4 +218,21 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_string_literal_table_key() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_implementation(
+            r#"
+                local steps = {
+                    ["unt<??>il"] = function() end,
+                }
+            "#,
+            vec![VirtualLocation {
+                file: "".to_string(),
+                line: 2,
+            }],
+        ));
+        Ok(())
+    }
 }
