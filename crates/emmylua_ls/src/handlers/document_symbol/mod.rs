@@ -3,10 +3,13 @@
 //! Syntax-tree traversal (functions / locals / assignments / table fields) plus type projection (`type_of_decl`).
 //! The old DbIndex-based version (decl_tree hierarchy and type cache details) is retired; see migration notes §M4.
 
+use std::collections::HashMap;
+
 use emmylua_code_analysis::{LuaType, SemanticModel};
 use emmylua_parser::{
     LuaAssignStat, LuaAst, LuaAstNode, LuaAstToken, LuaCallExpr, LuaExpr, LuaIndexKey,
-    LuaLiteralToken, LuaLocalStat, LuaSyntaxKind, LuaTableField, LuaVarExpr, PathTrait,
+    LuaLiteralToken, LuaLocalStat, LuaSyntaxKind, LuaTableExpr, LuaTableField, LuaVarExpr,
+    PathTrait,
 };
 use lsp_types::{
     ClientCapabilities, DocumentSymbol, DocumentSymbolOptions, DocumentSymbolParams,
@@ -171,6 +174,7 @@ fn build_document_symbol(
     let Some(chunk) = model.chunk() else {
         return symbols;
     };
+    let mut positional = PositionalIndex::new();
     for node in chunk.descendants::<LuaAst>() {
         let symbol = match &node {
             LuaAst::LuaFuncStat(func_stat) => {
@@ -271,7 +275,7 @@ fn build_document_symbol(
                 })
             }
             LuaAst::LuaTableField(table_field) => {
-                build_table_field_symbol(model, document, table_field)
+                build_table_field_symbol(model, document, table_field, &positional)
             }
             LuaAst::LuaAssignStat(assign_stat) => {
                 symbols.extend(build_assign_symbols(model, document, assign_stat));
@@ -281,6 +285,7 @@ fn build_document_symbol(
                 build_anonymous_symbol(document, LuaExpr::ClosureExpr(closure.clone()))
             }
             LuaAst::LuaTableExpr(table) => {
+                index_positional_fields(table, &mut positional);
                 build_anonymous_symbol(document, LuaExpr::TableExpr(table.clone()))
             }
             _ => continue,
@@ -401,16 +406,43 @@ fn build_assign_symbols(
     symbols
 }
 
+/// Maps the start offset of each positional field to its 1-based index, so a
+/// field's index is not recomputed by scanning its siblings.
+type PositionalIndex = HashMap<u32, usize>;
+
+fn index_positional_fields(table: &LuaTableExpr, positional: &mut PositionalIndex) {
+    let fields = table.get_fields().filter(LuaTableField::is_value_field);
+    for (index, field) in (1..).zip(fields) {
+        positional.insert(u32::from(field.get_position()), index);
+    }
+}
+
 fn build_table_field_symbol(
     model: &SemanticModel<'_>,
     document: &emmylua_code_analysis::LuaDocument,
     table_field: &LuaTableField,
+    positional: &PositionalIndex,
 ) -> Option<DocumentSymbol> {
-    if !table_field.is_assign_field() {
-        return None;
+    if table_field.is_value_field() {
+        let index = positional.get(&u32::from(table_field.get_position()))?;
+        let value = table_field.get_value_expr()?;
+        return Some(DocumentSymbol {
+            name: format!("[{index}]"),
+            detail: None,
+            kind: value_kind(Some(&value)),
+            range: document.to_lsp_range(table_field.get_range())?,
+            selection_range: document.to_lsp_range(value.get_range())?,
+            children: None,
+            tags: None,
+            #[allow(deprecated)]
+            deprecated: None,
+        });
     }
     let key = table_field.get_field_key()?;
-    let name = key.get_path_part();
+    let name = match &key {
+        LuaIndexKey::String(token) => format!("[{}]", token.syntax().text()),
+        _ => key.get_path_part(),
+    };
     let range = document.to_lsp_range(key.get_range()?)?;
     let ty = table_field
         .get_value_expr()
@@ -644,6 +676,56 @@ mod tests {
     fn anonymous_selection_range_is_inside_range() {
         let symbols = symbols("foo(function()\n  local x = 1\nend, { a = 1 })\nreturn {}\n");
         check_selection_inside_range(&symbols);
+    }
+
+    #[test]
+    fn positional_items_are_listed_by_index() {
+        let got = outline_of("local t = { 'a', 2, f = 1, g() }\n");
+        assert_eq!(got, ["t", "  [1]", "  [2]", "  f", "  [3]"]);
+        let kinds = symbols("local t = { 'a', 2, true, {}, { 1 }, function() end, g() }\n");
+        let kinds: Vec<_> = kinds[0]
+            .children
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|symbol| symbol.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                SymbolKind::STRING,
+                SymbolKind::NUMBER,
+                SymbolKind::BOOLEAN,
+                SymbolKind::OBJECT,
+                SymbolKind::ARRAY,
+                SymbolKind::FUNCTION,
+                SymbolKind::VARIABLE,
+            ]
+        );
+    }
+
+    #[test]
+    fn positional_items_nest_their_contents() {
+        let got = outline_of("local t = {\n  { a = 1 },\n  function() local x = 1 end,\n}\n");
+        assert_eq!(got, ["t", "  [1]", "    a", "  [2]", "    x"]);
+    }
+
+    #[test]
+    fn long_positional_list_keeps_counting() {
+        let source = format!("local t = {{ {} }}\n", "'x', ".repeat(3000));
+        let all = symbols(&source);
+        let items = all[0].children.as_deref().unwrap_or_default();
+        assert_eq!(items.len(), 3000);
+        assert_eq!(items.last().map(|s| s.name.as_str()), Some("[3000]"));
+    }
+
+    #[test]
+    fn bracketed_keys_keep_their_source_text() {
+        let got = outline_of("local t = { ['a b'] = 1, [\"c\"] = 2, [3] = 4, [k] = 5, d = 6 }\n");
+        assert_eq!(
+            got,
+            ["t", "  ['a b']", "  [\"c\"]", "  [3]", "  [k]", "  d"]
+        );
     }
 
     #[test]
