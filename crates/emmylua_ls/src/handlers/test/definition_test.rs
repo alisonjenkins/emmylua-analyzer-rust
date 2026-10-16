@@ -1413,4 +1413,39 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_a_field_assigned_through_self_in_a_method() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local Context = {
+                    last_request_time = nil,
+                }
+
+                function Context:reset()
+                    self.last_request_time = nil
+                end
+
+                local function update(now)
+                    Context.last_<??>request_time = now
+                end
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 6
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 10
+                },
+            ]
+        ));
+        Ok(())
+    }
 }

@@ -119,5 +119,9 @@ fn is_assignment_through(
                 .iter()
                 .any(|var| var.get_range() == index_expr.get_range())
         });
-    is_target && receiver_of(model, &index_expr).is_some_and(|site| site == *cursor)
+    // `Context.f = v` and `self.f = v` in a method of `Context` set the same field.
+    is_target
+        && receiver_of(model, &index_expr).is_some_and(|site| {
+            site == *cursor || site.root_name == "self" || cursor.root_name == "self"
+        })
 }
