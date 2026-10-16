@@ -988,7 +988,10 @@ mod tests {
                 print(M.path.iterate_parents(2))
             "#,
         ));
-        verify_eq!(reference_lines(&content, position, &mut ws), vec![4, 6, 7])
+        verify_eq!(
+            reference_lines(&content, position, &mut ws),
+            vec![3, 4, 6, 7]
+        )
     }
 
     #[gtest]

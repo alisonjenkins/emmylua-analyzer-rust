@@ -1098,10 +1098,16 @@ mod tests {
                 end)()
                 print(M.path.iterate_<??>parents(1))
             "#,
-            vec![Expected {
-                file: "".to_string(),
-                line: 4,
-            }],
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 3,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 4,
+                }
+            ],
         ));
         Ok(())
     }
