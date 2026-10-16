@@ -1248,6 +1248,29 @@ mod tests {
         Ok(())
     }
 
+    /// A function literal called in place (`(function() ... end)()`) gives its return type.
+    #[gtest]
+    fn test_hover_member_of_immediately_invoked_function_result() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local M = {}
+                M.path = (function()
+                    return {
+                        join = function()
+                            return "x"
+                        end,
+                    }
+                end)()
+                local r<??> = M.path.join()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal r: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     /// A guard that bails out with `return error(..)` does not make that call the module's export.
     #[gtest]
     fn test_hover_call_of_module_with_early_error_return() -> Result<()> {
@@ -1273,6 +1296,24 @@ mod tests {
         check!(ws.check_hover(
             r#"
                 local r<??> = require("dns").lookup("x")
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal r: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// A function literal in parentheses bound to a local is callable.
+    #[gtest]
+    fn test_hover_call_of_parenthesized_function_literal_local() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local make = (function()
+                    return "s"
+                end)
+                local r<??> = make()
             "#,
             VirtualHoverResult {
                 value: "```lua\nlocal r: string\n```".to_string(),

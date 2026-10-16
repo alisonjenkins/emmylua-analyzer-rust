@@ -286,7 +286,7 @@ impl<'db> SemanticModel<'db> {
             if let Some(value_syntax) = decl.value_expr_syntax
                 && let Some(tree) = self.syntax_tree()
                 && let Some(node) = value_syntax.to_node_from_root(&tree.get_red_root())
-                && let Some(closure) = LuaClosureExpr::cast(node)
+                && let Some(closure) = Self::closure_through_parens(node)
                 && let Some(fun) = self.type_of_signature(closure.get_syntax_id())
             {
                 return Some(flow::apply_expr_casts(
@@ -492,6 +492,17 @@ impl<'db> SemanticModel<'db> {
             .enclosing_closure_at(info.name_offset())
             .map(|closure| closure.get_syntax_id());
         read != declared
+    }
+    /// The function literal an initializer is, possibly wrapped in parentheses (`local f = (function() end)`).
+    fn closure_through_parens(node: LuaSyntaxNode) -> Option<LuaClosureExpr> {
+        let mut expr = LuaExpr::cast(node)?;
+        loop {
+            match expr {
+                LuaExpr::ClosureExpr(closure) => return Some(closure),
+                LuaExpr::ParenExpr(paren) => expr = paren.get_expr()?,
+                _ => return None,
+            }
+        }
     }
     /// Iteration variable types for `for k, v in pairs(x)`:
     /// taken from the return function slots of the iteration expression's callee (pairs/ipairs/next or custom `__pairs` members).
