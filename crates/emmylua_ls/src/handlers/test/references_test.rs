@@ -1277,4 +1277,27 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![1, 2])
     }
+
+    #[gtest]
+    fn test_references_of_field_of_local_reassigned_from_a_typed_call() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Item
+                ---@field icon string|nil
+
+                ---@return Item
+                local function format() end
+
+                local function build(cond)
+                    local item = { icon = "a" }
+                    if cond then
+                        item = format()
+                    end
+                    item.ic<??>on = "b"
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 8, 12])
+    }
 }

@@ -153,10 +153,19 @@ fn goto_member_definition(
         } else {
             None
         };
+        let flow_type = model.type_of_expr(prefix.get_syntax_id());
         match prefix_decl_type {
             // `---@type T` annotation takes priority (mirrors the old `t:func()` behavior of locating only class @field).
-            Some(ty) => prefix_types.push(ty),
-            None => prefix_types.push(model.type_of_expr(prefix.get_syntax_id())),
+            // A local reassigned from a typed call (`item = format(item)`) is also what the assignments gave it.
+            Some(ty) => {
+                let reassigned = flow_type != ty
+                    && !matches!(flow_type, emmylua_code_analysis::LuaType::Unknown);
+                prefix_types.push(ty);
+                if reassigned {
+                    prefix_types.push(flow_type);
+                }
+            }
+            None => prefix_types.push(flow_type),
         }
     } else if let Some(table_field) = parent.as_ref().and_then(|p| LuaTableField::cast(p.clone()))
         && let Some(table) = table_field.get_parent::<LuaTableExpr>()

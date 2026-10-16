@@ -197,28 +197,38 @@ fn class_fields_of_receiver(model: &SemanticModel<'_>, token: &LuaSyntaxToken) -
         return Vec::new();
     };
     let receiver_type = model.type_of_expr(prefix.get_syntax_id());
-    let (LuaType::Ref(type_id) | LuaType::Def(type_id)) = &receiver_type else {
-        return Vec::new();
-    };
-    let Some(class) = model.type_def_of(type_id) else {
-        return Vec::new();
+    // A local reassigned from a typed call (`item = format(item)`) is a union holding the class.
+    let components = match &receiver_type {
+        LuaType::Union(union) => union.into_vec(),
+        other => vec![other.clone()],
     };
     let member_key = LuaMemberKey::Name(key.get_path_part().into());
-    // Only the receiver's own `---@field`s: a parent class's field of the same name is another slot.
-    model
-        .member_infos_with_key_all(&receiver_type, &member_key)
-        .into_iter()
-        .filter_map(|info| info.id)
-        .filter(|id| {
-            let SemanticId::Member(member_key) = id else {
-                return false;
-            };
+    let mut out = Vec::new();
+    for component in components {
+        let (LuaType::Ref(type_id) | LuaType::Def(type_id)) = &component else {
+            continue;
+        };
+        let Some(class) = model.type_def_of(type_id) else {
+            continue;
+        };
+        // Only the receiver's own `---@field`s: a parent class's field of the same name is another slot.
+        out.extend(
             model
-                .file_facts_of(member_key.file_id)
-                .and_then(|facts| facts.member_by_id(id))
-                .is_some_and(|fact| fact.owner == class.id)
-        })
-        .collect()
+                .member_infos_with_key_all(&component, &member_key)
+                .into_iter()
+                .filter_map(|info| info.id)
+                .filter(|id| {
+                    let SemanticId::Member(member_key) = id else {
+                        return false;
+                    };
+                    model
+                        .file_facts_of(member_key.file_id)
+                        .and_then(|facts| facts.member_by_id(id))
+                        .is_some_and(|fact| fact.owner == class.id)
+                }),
+        );
+    }
+    out
 }
 
 /// Uses of the member whose receiver is only known by type (`local r = M.open(); r:close()`).
