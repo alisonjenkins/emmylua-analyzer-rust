@@ -110,3 +110,64 @@ fn p11_flow_repeated_nested_index_guard_chain_is_not_exponential() {
         "cost grew faster than linear in the number of guard blocks: {measurements:?}"
     );
 }
+
+/// `n` sequential `if flag ... else ... end` blocks after a loop; each block narrows
+/// `flag`, so no merge can be skipped.
+fn guard_chain_after_loop(n: usize) -> String {
+    let mut content =
+        String::from("---@type string?\nlocal flag\nlocal function a() end\nfor _ = 1, 2 do end\n");
+    for _ in 0..n {
+        content.push_str("if flag then a() else a() end\n");
+    }
+    content.push_str("local y = flag\n");
+    content
+}
+
+/// In a file with a loop the trace-state memo is off, so a chain of `n` guard blocks
+/// costs 2^n walks per read of the guarded variable. One read must stay bounded.
+#[test]
+fn p11_flow_guard_chain_after_a_loop_has_bounded_work_per_read() {
+    use emmylua_parser::LuaNameExpr;
+
+    for n in [8usize, 16, 20] {
+        let mut ws = VirtualWorkspace::new();
+        let fid = ws.def_file("probe.lua", &guard_chain_after_loop(n));
+        let model = ws.analysis.semantic_model(fid);
+        let chunk = model.chunk().expect("chunk");
+        let reads: Vec<_> = chunk
+            .descendants::<LuaNameExpr>()
+            .filter(|expr| expr.get_text() == "flag")
+            .collect();
+        assert_eq!(reads.len(), n + 1, "reads of flag for n={n}");
+
+        for expr in reads {
+            flow_metrics::reset();
+            let _ = model.type_of_expr_at(expr.get_syntax_id(), expr.get_range().start());
+            let walks = flow_metrics::trace_decl_entries();
+            assert!(
+                walks <= 5_000,
+                "one read of `flag` ran {walks} declaration walks with {n} guard blocks \
+                 after a loop; the per-query walk limit is not bounding the work"
+            );
+        }
+    }
+}
+
+/// A query that stays under the limit keeps its exact, narrowed answer.
+#[test]
+fn p11_flow_guard_chain_after_a_loop_keeps_exact_type_under_the_limit() {
+    let mut ws = VirtualWorkspace::new();
+    let fid = ws.def_file("probe.lua", &guard_chain_after_loop(3));
+    let model = ws.analysis.semantic_model(fid);
+    let chunk = model.chunk().expect("chunk");
+    let last = chunk
+        .descendants::<emmylua_parser::LuaNameExpr>()
+        .filter(|expr| expr.get_text() == "flag")
+        .last()
+        .expect("last read");
+    let ty = model.type_of_expr_at(last.get_syntax_id(), last.get_range().start());
+    assert!(
+        ty.is_nullable(),
+        "flag is `string?` after the guards: {ty:?}"
+    );
+}
