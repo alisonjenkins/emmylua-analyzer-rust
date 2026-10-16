@@ -1084,4 +1084,19 @@ mod tests {
         );
         Ok(())
     }
+
+    /// A string literal fits an optional parameter typed with a named alias of literals.
+    #[gtest]
+    fn test_call_optional_alias_param_with_literal() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_hover(
+            r#"
+                local <??>f = io.open("name", "r")
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal f: file?\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
