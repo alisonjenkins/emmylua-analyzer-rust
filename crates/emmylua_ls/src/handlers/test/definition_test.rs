@@ -27,6 +27,26 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_inside_array_element_closure() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local steps = {
+                    function()
+                        local x = 1
+                        return <??>x + 1
+                    end,
+                }
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 3
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_basic_definition() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(
