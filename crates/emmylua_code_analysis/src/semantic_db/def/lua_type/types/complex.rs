@@ -428,13 +428,17 @@ impl PartialEq for LuaUnionMembers {
         {
             return false;
         }
-        let mut types: HashSet<_> = self.types.iter().collect();
+        let mut counts: HashMap<&LuaType, usize> = HashMap::new();
+        for ty in &self.types {
+            *counts.entry(ty).or_default() += 1;
+        }
         for ty in &other.types {
-            if !types.remove(ty) {
-                return false;
+            match counts.get_mut(ty) {
+                Some(count) if *count > 0 => *count -= 1,
+                _ => return false,
             }
         }
-        types.is_empty()
+        true
     }
 }
 
