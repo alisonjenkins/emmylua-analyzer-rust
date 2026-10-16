@@ -18,9 +18,8 @@ mod tests {
         module_block: &str,
         consumer: &str,
     ) -> Result<Vec<(String, Vec<u32>)>> {
-        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
-            module_block
-        ));
+        let (content, position) =
+            check!(ProviderVirtualWorkspace::handle_file_content(module_block));
         let file_id = ws.def_file("mod.lua", &content);
         ws.def(consumer);
         incoming_at(ws, file_id, position)
@@ -389,6 +388,88 @@ mod tests {
                 ("util".to_string(), vec![7]),
             ]
         )
+    }
+
+    #[gtest]
+    fn test_outgoing_self_calls_on_a_class_built_by_an_unknown_call() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(outgoing(
+            &mut ws,
+            r#"
+                local Cls = make_class()
+
+                function Cls:emit(item) end
+                function Cls.stat(item) end
+
+                function Cls:r<??>un()
+                    self:emit(1)
+                    self.stat(2)
+                    self:emit(3)
+                end
+            "#
+        ));
+        verify_eq!(
+            got,
+            vec![
+                ("emit".to_string(), vec![7, 9]),
+                ("stat".to_string(), vec![8])
+            ]
+        )
+    }
+
+    #[gtest]
+    fn test_outgoing_self_calls_on_a_class_returned_by_a_factory() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(outgoing(
+            &mut ws,
+            r#"
+                local meta = {}
+                local function class()
+                    local c = setmetatable({}, meta)
+                    c.__index = c
+                    return c
+                end
+
+                local Cls = class()
+
+                function Cls:emit(item) end
+
+                function Cls:r<??>un()
+                    self:emit(1)
+                end
+            "#
+        ));
+        verify_eq!(got, vec![("emit".to_string(), vec![13])])
+    }
+
+    #[gtest]
+    fn test_outgoing_self_call_prefers_a_field_of_the_class_over_nothing() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(outgoing(
+            &mut ws,
+            r#"
+                ---@class Dup
+                local M = {}
+                M.__index = M
+
+                ---@return Dup
+                local function create() return setmetatable({}, M) end
+
+                ---@class Dup
+                local made = create()
+
+                function M:check()
+                    return self:path_equal(1)
+                end
+
+                function M:path_equal(a) end
+
+                function M:r<??>un()
+                    return self:check()
+                end
+            "#
+        ));
+        verify_eq!(got, vec![("check".to_string(), vec![18])])
     }
 
     #[gtest]
