@@ -1078,8 +1078,17 @@ impl<'db> SemanticModel<'db> {
             .value_expr_syntax?;
         let model = self.model_for(key.file_id);
         let value_node = value.to_node_from_root(model.chunk()?.syntax())?;
-        let LuaExpr::IndexExpr(init) = LuaExpr::cast(value_node)? else {
-            return None;
+        let init = match LuaExpr::cast(value_node)? {
+            LuaExpr::IndexExpr(init) => init,
+            // `local string = string`: the alias shares the global's members.
+            LuaExpr::NameExpr(init) => {
+                let global = init.get_name_text()?;
+                if model.resolve_local_name(init.get_position()).is_some() {
+                    return None;
+                }
+                return Some(SemanticId::name(SmolStr::new(global)));
+            }
+            _ => return None,
         };
         let (parent, segment) =
             crate::semantic_db::query::member_ref_from_index_expr(facts, &init)?;
