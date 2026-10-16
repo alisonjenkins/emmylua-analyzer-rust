@@ -1085,4 +1085,28 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_require_field_held_in_a_table_constructor() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "util.lua",
+            r#"
+                local M = {}
+                function M.create() end
+                return M
+            "#,
+        );
+        check!(ws.check_definition(
+            r#"
+                local lsp = { util = require 'util' }
+                lsp.util.crea<??>te()
+            "#,
+            vec![Expected {
+                file: "util.lua".to_string(),
+                line: 2
+            }]
+        ));
+        Ok(())
+    }
 }
