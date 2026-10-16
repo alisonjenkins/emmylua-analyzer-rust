@@ -1301,4 +1301,64 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_an_aliased_function_lists_its_overload_lines() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "ov_mod.lua",
+            r#"
+                local M = {}
+
+                ---@param a integer
+                ---@overload fun(a: string): string
+                function M.f(a, b) end
+
+                return M
+            "#,
+        );
+        check!(ws.check_definition(
+            r#"
+                local f = require("ov_mod").<??>f
+            "#,
+            vec![
+                Expected {
+                    file: "ov_mod.lua".to_string(),
+                    line: 4
+                },
+                Expected {
+                    file: "ov_mod.lua".to_string(),
+                    line: 5
+                },
+            ]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_a_called_function_omits_its_overload_lines() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "ov_mod2.lua",
+            r#"
+                local M = {}
+
+                ---@param a integer
+                ---@overload fun(a: string): string
+                function M.f(a, b) end
+
+                return M
+            "#,
+        );
+        check!(ws.check_definition(
+            r#"
+                require("ov_mod2").<??>f(1)
+            "#,
+            vec![Expected {
+                file: "ov_mod2.lua".to_string(),
+                line: 5
+            }]
+        ));
+        Ok(())
+    }
 }

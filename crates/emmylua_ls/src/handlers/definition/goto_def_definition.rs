@@ -197,6 +197,7 @@ fn goto_member_definition(
         }
     }
 
+    let mut member_ids = vec![decl.clone()];
     for prefix_type in &prefix_types {
         let infos = model.member_infos_with_key_all(&prefix_type, &key);
         let infos = filter_overload_infos(model, token, &infos);
@@ -208,6 +209,7 @@ fn goto_member_definition(
                 && !locations.contains(&location)
             {
                 locations.push(location);
+                member_ids.push(id);
             }
         }
     }
@@ -215,6 +217,7 @@ fn goto_member_definition(
     add_field_accessor_locations(model, db, &prefix_types, &key, &mut locations);
     // Usage site: return on type-level member match (old semantics no longer mix in runtime table members).
     if is_usage && !locations.is_empty() {
+        add_overload_sites(model, db, token, &member_ids, &mut locations);
         return Some(GotoDefinitionResponse::Array(locations));
     }
 
@@ -225,8 +228,66 @@ fn goto_member_definition(
     {
         locations.push(location);
     }
+    add_overload_sites(model, db, token, &member_ids, &mut locations);
 
     (!locations.is_empty()).then_some(GotoDefinitionResponse::Array(locations))
+}
+
+/// The call whose callee the token names, when it passes arguments.
+fn callee_call_with_args(token: &LuaSyntaxToken) -> Option<emmylua_parser::LuaCallExpr> {
+    token
+        .parent()
+        .and_then(|parent| {
+            parent
+                .ancestors()
+                .find_map(emmylua_parser::LuaCallExpr::cast)
+        })
+        .filter(|call| {
+            call.get_prefix_expr()
+                .is_some_and(|prefix| prefix.get_range().contains_range(token.text_range()))
+        })
+        .filter(|call| {
+            call.get_args_list()
+                .is_some_and(|args| args.get_args().next().is_some())
+        })
+}
+
+/// LuaLS lists the `---@overload` lines of a function beside the function itself, except where a
+/// call passes arguments (it then answers with the signature those arguments select).
+fn add_overload_sites(
+    model: &SemanticModel<'_>,
+    db: &SemanticDatabase,
+    token: &LuaSyntaxToken,
+    member_ids: &[SemanticId],
+    locations: &mut Vec<Location>,
+) {
+    if callee_call_with_args(token).is_some() {
+        return;
+    }
+    for id in member_ids {
+        let SemanticId::Member(key) = id else {
+            continue;
+        };
+        let file_model = model.model_for(key.file_id);
+        let Some(facts) = file_model.file_facts() else {
+            continue;
+        };
+        let Some(docs) = facts
+            .member_by_id(id)
+            .and_then(|member| member.value_syntax)
+            .and_then(|value| facts.signature_by_closure(value))
+            .and_then(|signature| signature.docs.as_ref())
+        else {
+            continue;
+        };
+        for overload in &docs.overloads {
+            if let Some(location) = location_of(db, key.file_id, overload.get_range())
+                && !locations.contains(&location)
+            {
+                locations.push(location);
+            }
+        }
+    }
 }
 
 fn filter_overload_infos(
