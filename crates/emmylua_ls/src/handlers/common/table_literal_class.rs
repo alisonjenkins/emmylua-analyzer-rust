@@ -65,7 +65,7 @@ pub fn class_fields_of_table_key(
     else {
         return Vec::new();
     };
-    let LuaIndexKey::Name(_) = key else {
+    let (LuaIndexKey::Name(_) | LuaIndexKey::String(_)) = key else {
         return Vec::new();
     };
     let Some(class_type) = expected_class_of_table(model, &table) else {

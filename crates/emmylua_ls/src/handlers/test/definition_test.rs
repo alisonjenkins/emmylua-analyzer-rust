@@ -1448,4 +1448,32 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_string_key_of_a_typed_literal_lists_class_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Span
+                ---@field start integer
+                ---@field end integer
+
+                ---@param s Span
+                local function stop(s) end
+
+                stop({ start = 1, ['e<??>nd'] = 2 })
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 3
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 8
+                },
+            ]
+        ));
+        Ok(())
+    }
 }

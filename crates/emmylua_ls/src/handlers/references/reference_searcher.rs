@@ -53,7 +53,10 @@ pub fn search_references(
             SemanticId::Member(_) => {
                 let mut ranges = Vec::new();
                 let mut members = same_slot_members(model, &decl);
-                for field in class_fields_of_receiver(model, &token) {
+                for field in class_fields_of_receiver(model, &token)
+                    .into_iter()
+                    .chain(class_fields_of_string_key(model, &token))
+                {
                     for member in same_slot_members(model, &field) {
                         if !members.contains(&member) {
                             members.push(member);
@@ -219,6 +222,31 @@ fn class_fields_of_receiver(model: &SemanticModel<'_>, token: &LuaSyntaxToken) -
                 .is_some_and(|fact| fact.owner == class.id)
         })
         .collect()
+}
+
+/// The class fields a `["key"] = v` of a typed literal names: the string sits in a literal
+/// expression inside the table field.
+fn class_fields_of_string_key(
+    model: &SemanticModel<'_>,
+    token: &LuaSyntaxToken,
+) -> Vec<SemanticId> {
+    let Some(literal) = token
+        .parent()
+        .filter(|parent| emmylua_parser::LuaLiteralExpr::can_cast(parent.kind().into()))
+    else {
+        return Vec::new();
+    };
+    let Some(field) = literal.parent().and_then(LuaTableField::cast) else {
+        return Vec::new();
+    };
+    let is_key = matches!(
+        field.get_field_key(),
+        Some(emmylua_parser::LuaIndexKey::String(key)) if key.get_range() == token.text_range()
+    );
+    if !is_key {
+        return Vec::new();
+    }
+    class_fields_of_table_key(model, &field)
 }
 
 /// Uses of the member whose receiver is only known by type (`local r = M.open(); r:close()`).
