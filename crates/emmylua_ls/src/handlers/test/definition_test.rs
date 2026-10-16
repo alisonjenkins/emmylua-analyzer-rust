@@ -1448,4 +1448,48 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_documented_field_lists_only_method_and_same_variable_self_assignments()
+    -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Task
+                ---@field count integer
+                local Task = {}
+
+                function Task.new()
+                    local self = setmetatable({}, Task)
+                    self.count = 0
+                    return self
+                end
+
+                function Task:reset() self.count = 5 end
+
+                Task.bump = function(self) self.count = 7 end
+
+                function Task:inc()
+                    if self.co<??>unt > 3 then
+                        self.count = 0
+                    end
+                end
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 11
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 17
+                },
+            ]
+        ));
+        Ok(())
+    }
 }
