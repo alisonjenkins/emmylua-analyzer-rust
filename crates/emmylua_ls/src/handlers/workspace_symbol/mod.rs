@@ -1,6 +1,6 @@
 mod build_workspace_symbols;
 
-use build_workspace_symbols::build_workspace_symbols;
+pub(crate) use build_workspace_symbols::build_workspace_symbols;
 use lsp_types::{
     ClientCapabilities, OneOf, ServerCapabilities, WorkspaceSymbolParams, WorkspaceSymbolResponse,
 };
