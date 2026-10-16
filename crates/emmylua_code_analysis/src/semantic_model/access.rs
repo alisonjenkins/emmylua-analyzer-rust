@@ -1049,6 +1049,16 @@ impl<'db> SemanticModel<'db> {
         {
             cross_owners.push(module_owner);
         }
+        // `self` of `function Reader:m()` where `Reader` has no type: the methods declared on
+        // `Reader` are the members of `self`.
+        if prefix_ty
+            .as_ref()
+            .is_none_or(|ty| matches!(ty, LuaType::Unknown))
+            && let Some(method_owner) = self.implicit_self_method_owner(&owner)
+            && !cross_owners.contains(&method_owner)
+        {
+            cross_owners.push(method_owner);
+        }
         // Explicit, deterministic preference order (replaces the previous
         // numeric score). The key is intentionally orderable, not weighted:
         //   1. non-resolved owners before the raw owner (`old_owner`);
@@ -1196,6 +1206,21 @@ impl<'db> SemanticModel<'db> {
             )))),
             _ => None,
         }
+    }
+    /// Owner of the method whose implicit `self` parameter is `owner` (`Reader` for the `self`
+    /// of `function Reader:m()`).
+    fn implicit_self_method_owner(&self, owner: &SemanticId) -> Option<SemanticId> {
+        let SemanticId::Decl(key) = owner else {
+            return None;
+        };
+        let file_model = self.model_for(key.file_id);
+        let facts = file_model.file_facts()?;
+        let decl = facts.decl_by_id(owner)?;
+        if decl.name != "self" {
+            return None;
+        }
+        let closure_syntax = file_model.method_closure_for_self_decl(decl)?;
+        Some(facts.member_by_value_syntax(closure_syntax)?.owner.clone())
     }
     /// Whether the prefix type is a named type with a same-named member (avoids runtime inferred members shadowing class `@field`).
     pub(crate) fn prefix_has_named_member(
