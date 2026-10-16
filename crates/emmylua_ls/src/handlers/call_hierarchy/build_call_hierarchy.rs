@@ -1,10 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
-use emmylua_code_analysis::{FileId, SemanticDatabase, SemanticId, SemanticModel};
+use emmylua_code_analysis::{EmmyLuaAnalysis, FileId, SemanticDatabase, SemanticId, SemanticModel};
+
+use crate::handlers::definition::definition;
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaAstToken, LuaCallExpr, LuaClosureExpr, LuaExpr, LuaFuncStat,
     LuaLocalFuncStat, LuaLocalStat, LuaSyntaxToken, LuaTokenKind, LuaVarExpr, PathTrait,
 };
+use lsp_types::GotoDefinitionResponse;
 use lsp_types::{
     CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, SymbolKind,
 };
@@ -315,10 +318,11 @@ fn var_name_token(var: &LuaVarExpr) -> Option<LuaSyntaxToken> {
 
 /// Calls made by the function whose name sits at `position`, grouped per callee.
 pub fn build_outgoing_hierarchy(
-    db: &SemanticDatabase,
+    analysis: &EmmyLuaAnalysis,
     file_id: FileId,
     position: lsp_types::Position,
 ) -> Option<Vec<CallHierarchyOutgoingCall>> {
+    let db = &analysis.db;
     let model = SemanticModel::new(db, file_id);
     let document = db.document(file_id)?;
     let chunk = model.chunk()?;
@@ -332,32 +336,68 @@ pub fn build_outgoing_hierarchy(
         let Some(callee) = callee_name_token(&call) else {
             continue;
         };
-        let owned_here = enclosing_function(&callee)
-            .is_some_and(|f| f.name_token.text_range() == name_token.text_range());
-        if !owned_here {
-            continue;
-        }
         let Some(target) = model.find_decl(callee.clone().into()) else {
             continue;
         };
         let Some(from_range) = document.to_lsp_range(callee.text_range()) else {
             continue;
         };
-        let key = SemanticIdData::from(&target);
-        if let Some(&slot) = slots.get(&key) {
-            calls[slot].from_ranges.push(from_range);
-            continue;
+        let mut targets = vec![target.clone()];
+        for origin in definition_targets(analysis, file_id, from_range.start) {
+            if !targets.contains(&origin) {
+                targets.push(origin);
+            }
         }
-        let Some(to) = build_call_hierarchy_item(&model, db, &target) else {
-            continue;
-        };
-        slots.insert(key, calls.len());
-        calls.push(CallHierarchyOutgoingCall {
-            to,
-            from_ranges: vec![from_range],
-        });
+        for target in targets {
+            let key = SemanticIdData::from(&target);
+            if let Some(&slot) = slots.get(&key) {
+                calls[slot].from_ranges.push(from_range);
+                continue;
+            }
+            let Some(to) = build_call_hierarchy_item(&model, db, &target) else {
+                continue;
+            };
+            slots.insert(key, calls.len());
+            calls.push(CallHierarchyOutgoingCall {
+                to,
+                from_ranges: vec![from_range],
+            });
+        }
     }
     Some(calls)
+}
+
+/// Where go-to-definition at the call's callee lands, as declarations: LuaLS lists each of these
+/// as a definition of the call (the field and the function it is set to, every file assigning a
+/// global).
+fn definition_targets(
+    analysis: &EmmyLuaAnalysis,
+    file_id: FileId,
+    position: lsp_types::Position,
+) -> Vec<SemanticId> {
+    let locations = match definition(analysis, file_id, position) {
+        Some(GotoDefinitionResponse::Scalar(location)) => vec![location],
+        Some(GotoDefinitionResponse::Array(locations)) => locations,
+        _ => Vec::new(),
+    };
+    locations
+        .iter()
+        .filter_map(|location| {
+            let target_file = analysis.get_file_id(&location.uri)?;
+            let document = analysis.db.document(target_file)?;
+            let offset = document.to_rowan_range(location.range)?.start();
+            let target_model = SemanticModel::new(&analysis.db, target_file);
+            let token = target_model
+                .chunk()?
+                .syntax()
+                .token_at_offset(offset)
+                .right_biased()?;
+            if token.kind() != LuaTokenKind::TkName.into() {
+                return None;
+            }
+            target_model.find_decl(token.into())
+        })
+        .collect()
 }
 
 /// The closure of the function named by `name_token` (the `f` of `function f`,
