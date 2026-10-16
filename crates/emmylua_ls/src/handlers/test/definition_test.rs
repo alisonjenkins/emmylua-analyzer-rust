@@ -2020,4 +2020,114 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_field_through_self_param_typed_by_the_declared_function_field()
+    -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Cfg
+                ---@field options? table
+                ---@field args fun(self: Cfg, ctx: string): string
+
+                ---@type Cfg
+                local cfg = {
+                    options = {},
+                    args = function(self, ctx)
+                        return self.opt<??>ions
+                    end,
+                }
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 2
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_field_through_self_param_of_returned_typed_literal() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Cfg
+                ---@field options? table
+                ---@field args fun(self: Cfg, ctx: string): string
+
+                ---@type Cfg
+                return {
+                    options = {},
+                    args = function(self, ctx)
+                        return self.opt<??>ions
+                    end,
+                }
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 2
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_key_of_a_returned_typed_literal_lists_class_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Meta
+                ---@field url string
+
+                ---@class Cfg
+                ---@field command string
+                ---@field meta Meta
+
+                ---@type Cfg
+                return {
+                    comm<??>and = "x",
+                    meta = { url = "u" },
+                }
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 5
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 10
+                },
+            ]
+        ));
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Meta
+                ---@field url string
+
+                ---@class Cfg
+                ---@field command string
+                ---@field meta Meta
+
+                ---@type Cfg
+                return {
+                    command = "x",
+                    meta = { u<??>rl = "u" },
+                }
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 11
+                },
+            ]
+        ));
+        Ok(())
+    }
 }

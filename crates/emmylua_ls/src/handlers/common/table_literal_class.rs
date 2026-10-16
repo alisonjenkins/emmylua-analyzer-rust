@@ -5,7 +5,7 @@
 use emmylua_code_analysis::{LuaMemberKey, LuaType, SemanticId, SemanticModel};
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaAstToken, LuaCallArgList, LuaCallExpr, LuaExpr, LuaIndexExpr,
-    LuaIndexKey, LuaLocalStat, LuaTableExpr, LuaTableField,
+    LuaIndexKey, LuaLocalStat, LuaReturnStat, LuaTableExpr, LuaTableField,
 };
 
 /// The classes a table literal stands for, with `nil` stripped (`Opts?` -> `Opts`). A union
@@ -69,6 +69,13 @@ fn expected_types_of_table(model: &SemanticModel<'_>, table: &LuaTableExpr) -> V
             && let Some(decl) = model.decl_by_offset(token.get_position())
             && let Some(ty) = model.type_of_decl(&decl)
         {
+            push_named_types(&ty, &mut out);
+        }
+        return out;
+    }
+    // `---@type Opts return { key = v }`: the declared type of the returned literal.
+    if table.syntax().parent().and_then(LuaReturnStat::cast).is_some() {
+        if let Some(ty) = model.returned_table_doc_type(model.file_id(), table.get_range()) {
             push_named_types(&ty, &mut out);
         }
         return out;
