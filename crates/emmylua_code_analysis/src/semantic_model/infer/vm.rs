@@ -2804,6 +2804,14 @@ impl<'a> InferVm<'a> {
                 signature,
                 &generic_names,
             );
+            if matches!(ret, LuaType::Unknown) && signature.infers_return_from_body() {
+                let inferred = self
+                    .model
+                    .inferred_closure_return_in_file(file_id, signature.closure_syntax);
+                if !matches!(inferred, LuaType::Unknown | LuaType::Any) {
+                    ret = inferred;
+                }
+            }
         }
         let generic_tpls = self.generic_tpls_with_metadata(file_id, generic_params);
         ret = bind_signature_generics(&ret, &generic_tpls);

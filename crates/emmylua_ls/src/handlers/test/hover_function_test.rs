@@ -1194,4 +1194,47 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// A `---@param` without a `---@return` still has its return inferred from the body.
+    #[gtest]
+    fn test_documented_params_keep_body_return_inference() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_hover(
+            r#"
+                ---@param s string
+                local function <??>shout(s)
+                    return string.upper(s)
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal function shout(s: string) -> string\n```".to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                ---@param s string
+                local function shout(s)
+                    return string.upper(s)
+                end
+
+                local <??>r = shout("a")
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal r: string\n```".to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                ---@return integer
+                ---@param s string
+                local function <??>len(s)
+                    return string.upper(s)
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal function len(s: string) -> integer\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }

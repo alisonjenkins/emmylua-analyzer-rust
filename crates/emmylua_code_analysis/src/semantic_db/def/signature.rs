@@ -35,6 +35,21 @@ pub struct Signature {
     pub docs: Option<Box<SignatureDoc>>,
 }
 
+impl Signature {
+    /// True when no annotation fixes the return type, so the body decides it. A generic signature is left
+    /// alone: its body would type the return with the unsubstituted parameter.
+    pub fn infers_return_from_body(&self) -> bool {
+        self.docs.as_ref().is_none_or(|docs| {
+            docs.returns.is_empty()
+                && docs.named_returns.is_empty()
+                && docs.return_overloads.is_empty()
+                && docs.return_cast.is_none()
+                && docs.overloads.is_empty()
+                && docs.generic_params.is_empty()
+        })
+    }
+}
+
 /// `---@[constructor("__init")]` (attribute line immediately after `---@param`).
 /// The legacy signature index stored attributes per param, so `meta("Name")` calls use this to
 /// resolve `Name()` into a `Name:__init()` constructor call.
