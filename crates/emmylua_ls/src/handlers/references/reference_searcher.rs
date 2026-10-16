@@ -11,12 +11,13 @@ use emmylua_code_analysis::{
 };
 use emmylua_parser::{
     LuaAstNode, LuaAstToken, LuaCallExpr, LuaIndexExpr, LuaLiteralToken, LuaSyntaxToken,
+    LuaTableField,
 };
 use lsp_types::Location;
 
 use crate::handlers::common::{
-    decl_reference_ranges, label_reference_ranges, member_reference_ranges,
-    type_def_reference_ranges,
+    class_fields_of_table_key, decl_reference_ranges, label_reference_ranges,
+    member_reference_ranges, type_def_reference_ranges,
 };
 
 /// Entry point: token position → list of reference positions.
@@ -134,6 +135,9 @@ fn member_slot(model: &SemanticModel<'_>, member: &SemanticId) -> Option<(Semant
 /// The class fields (`---@field version? integer`) a key like `state.version` names through the
 /// type of its receiver: an assignment to a field of a typed receiver is a use of that field.
 fn class_fields_of_receiver(model: &SemanticModel<'_>, token: &LuaSyntaxToken) -> Vec<SemanticId> {
+    if let Some(field) = token.parent().and_then(LuaTableField::cast) {
+        return class_fields_of_table_key(model, &field);
+    }
     let Some(index_expr) = token.parent().and_then(LuaIndexExpr::cast) else {
         return Vec::new();
     };
@@ -207,6 +211,22 @@ fn typed_receiver_uses(
                 .resolve_member(&index_expr)
                 .and_then(|resolved| resolved.member_id);
             if resolved.is_some_and(|id| slot.contains(&id))
+                && let Some(range) = key.get_range()
+            {
+                push_unique(&mut out, (file_id, range));
+            }
+        }
+        // `set(1, { name = v })`: a key of a literal whose expected class declares the field.
+        for table_field in chunk.descendants::<LuaTableField>() {
+            let Some(key) = table_field.get_field_key() else {
+                continue;
+            };
+            if key.get_path_part() != name {
+                continue;
+            }
+            if class_fields_of_table_key(&file_model, &table_field)
+                .iter()
+                .any(|id| slot.contains(id))
                 && let Some(range) = key.get_range()
             {
                 push_unique(&mut out, (file_id, range));

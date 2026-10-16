@@ -15,7 +15,7 @@ use emmylua_parser::{
 use lsp_types::{GotoDefinitionResponse, Location};
 use rowan::TextSize;
 
-use crate::handlers::common::{call_value_function, resolve_alias_origin};
+use crate::handlers::common::{call_value_function, expected_class_of_table, resolve_alias_origin};
 use crate::util::parse_desc;
 
 pub fn goto_def_definition(
@@ -155,6 +155,12 @@ fn goto_member_definition(
             && let Some(ty) = model.type_of_decl(&decl_id)
         {
             prefix_types.push(ty);
+        }
+        // `set(1, { key = v })`: the class the parameter (or the enclosing literal's field) names.
+        if prefix_types.is_empty()
+            && let Some(class) = expected_class_of_table(model, &table)
+        {
+            prefix_types.push(class);
         }
     }
 

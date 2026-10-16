@@ -1249,4 +1249,31 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_a_key_of_a_call_argument_table_lists_the_class_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class SetOpts
+                ---@field hl_group? string
+
+                ---@param opts SetOpts
+                local function set(buf, opts) end
+
+                set(1, { hl_g<??>roup = "A" })
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 7
+                },
+            ]
+        ));
+        Ok(())
+    }
 }
