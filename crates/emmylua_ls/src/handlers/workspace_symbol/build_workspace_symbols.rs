@@ -5,9 +5,9 @@ use std::{
 };
 
 use emmylua_code_analysis::{
-    Decl, DeclKind, EmmyLuaAnalysis, FileFacts, LuaDocument, Member, SemanticId,
+    Decl, DeclKind, EmmyLuaAnalysis, FileFacts, LuaDocument, Member, SemanticId, SemanticModel,
 };
-use emmylua_parser::LuaSyntaxKind;
+use emmylua_parser::{LuaAstNode, LuaExpr, LuaIndexExpr, LuaSyntaxKind};
 use lsp_types::{SymbolKind, SymbolTag, Uri, WorkspaceSymbol, WorkspaceSymbolResponse};
 use rowan::TextRange;
 use tokio_util::sync::CancellationToken;
@@ -204,6 +204,7 @@ pub fn build_workspace_symbols(
                         member_container_name(facts, member),
                     )
                 });
+                push_global_path(model, facts, member, name, key_range, &mut file);
             }
         }
         let mut merged = merged.lock().expect("workspace symbols lock");
@@ -221,6 +222,122 @@ pub fn build_workspace_symbols(
     Some(WorkspaceSymbolResponse::Nested(
         best.into_iter().map(|candidate| candidate.symbol).collect(),
     ))
+}
+
+/// A path longer than this is not a real `a.b.c = v` chain; it also bounds a cyclic owner chain.
+const MAX_PATH_SEGMENTS: usize = 32;
+
+/// LuaLS also lists an assignment to a field of a global as the whole dotted
+/// path (`vim.ui.input = ...` is `vim.ui.input`, kind Variable) next to the
+/// field symbol. Table constructor fields and paths rooted in a local get no
+/// such symbol. The syntax tree is only consulted for paths that match.
+fn push_global_path(
+    model: &SemanticModel<'_>,
+    facts: &FileFacts,
+    member: &Member,
+    name: &str,
+    key_range: TextRange,
+    file: &mut FileSymbols<'_>,
+) {
+    let known = match global_path(facts, member, name) {
+        Some(GlobalPath::Known(path)) => Some(path),
+        Some(GlobalPath::FromSyntax) => None,
+        None => return,
+    };
+    if known
+        .as_ref()
+        .is_some_and(|path| match_tier(path, file.query).is_none())
+    {
+        return;
+    }
+    let Some(index_expr) = assigned_index_expr(model, key_range) else {
+        return;
+    };
+    let path = match known {
+        Some(path) => path,
+        None => {
+            let Some(path) = syntax_path(&LuaExpr::IndexExpr(index_expr)) else {
+                return;
+            };
+            if match_tier(&path, file.query).is_none() {
+                return;
+            }
+            path
+        }
+    };
+    file.add(&path, key_range, || (SymbolKind::VARIABLE, None, None));
+}
+
+enum GlobalPath {
+    Known(String),
+    /// The analysis names the owner of a path with three or more segments
+    /// wrongly (`a.b.b.c`), so the path has to be read from the source.
+    FromSyntax,
+}
+
+fn global_path(facts: &FileFacts, member: &Member, name: &str) -> Option<GlobalPath> {
+    let mut segments = vec![name];
+    let mut owner = &member.owner;
+    loop {
+        if segments.len() > MAX_PATH_SEGMENTS {
+            return None;
+        }
+        match owner {
+            SemanticId::Name(root) => {
+                if root.matches('.').count() >= 2 {
+                    return Some(GlobalPath::FromSyntax);
+                }
+                segments.push(root);
+                break;
+            }
+            SemanticId::Decl(_) => {
+                let decl = facts.decl_by_id(owner)?;
+                if !matches!(decl.kind, DeclKind::Global) {
+                    return None;
+                }
+                segments.push(&decl.name);
+                break;
+            }
+            SemanticId::Member(_) => {
+                let parent = facts.member_by_id(owner)?;
+                segments.push(parent.key.get_name()?);
+                owner = &parent.owner;
+            }
+            SemanticId::TypeDef(_) | SemanticId::Signature(_) => return None,
+        }
+    }
+    segments.reverse();
+    Some(GlobalPath::Known(segments.join(".")))
+}
+
+/// The index expression whose field is the member key at `range` (`a.b = v`,
+/// `function a.b() end`); a table constructor key has none.
+fn assigned_index_expr(model: &SemanticModel<'_>, range: TextRange) -> Option<LuaIndexExpr> {
+    let token = model
+        .syntax_tree()?
+        .get_red_root()
+        .token_at_offset(range.start())
+        .right_biased()?;
+    token
+        .parent_ancestors()
+        .take(2)
+        .find_map(LuaIndexExpr::cast)
+}
+
+/// `a.b.c` as written; `None` for anything that is not a plain name chain.
+fn syntax_path(expr: &LuaExpr) -> Option<String> {
+    match expr {
+        LuaExpr::NameExpr(name) => name.get_name_text(),
+        LuaExpr::IndexExpr(index) => {
+            let prefix = syntax_path(&index.get_prefix_expr()?)?;
+            Some(format!(
+                "{prefix}.{}",
+                index.get_index_key()?.get_path_part()
+            ))
+        }
+        LuaExpr::ParenExpr(paren) => syntax_path(&paren.get_expr()?),
+        _ => None,
+    }
 }
 
 fn member_symbol_kind(member: &Member) -> SymbolKind {
