@@ -252,6 +252,62 @@ mod tests {
     }
 
     // M3 batch 2 retirement: function signature rendering stack (old HoverBuilder/overload matching/generic substitution); see migration notes §M3.
+    /// An `---@async` function is marked `(async)` in its hover, for functions and methods alike.
+    #[gtest]
+    fn test_hover_async_function_and_method_marked() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@class Core
+                local core = {}
+
+                ---@async
+                function core.fet<??>ch(x)
+                    return x
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(async) function Core.fetch(x: any)\n```".to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                ---@class Core2
+                local core = {}
+
+                ---@async
+                function core:sl<??>eep(x)
+                    return x
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(async) (method) Core2:sleep(x: any)\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// A function assigned to a class field with a first parameter named `self` shows that parameter as the class.
+    #[gtest]
+    fn test_hover_field_assigned_function_types_self_param() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@class Core
+                local core = {}
+
+                core.prep<??>are = function(self, opts)
+                    return opts
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction Core.prepare(self: Core, opts: any)\n```"
+                    .to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     #[gtest]
     fn test_return_overload_hover_short_row_keeps_nil() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
