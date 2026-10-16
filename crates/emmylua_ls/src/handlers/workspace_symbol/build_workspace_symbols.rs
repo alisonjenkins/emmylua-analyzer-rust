@@ -14,6 +14,13 @@ const MAX_WORKSPACE_SYMBOLS: usize = 1000;
 fn match_symbol(text: &str, query: &str) -> bool {
     if query.chars().any(|c| c.is_uppercase()) {
         text.contains(query)
+    } else if query.is_ascii() && text.is_ascii() {
+        // Runs once per name use in the workspace; skip allocating a lowercased copy.
+        query.is_empty()
+            || text
+                .as_bytes()
+                .windows(query.len())
+                .any(|window| window.eq_ignore_ascii_case(query.as_bytes()))
     } else {
         text.to_lowercase().contains(&query.to_lowercase())
     }
