@@ -765,6 +765,14 @@ impl<'db> SemanticModel<'db> {
         }
         let slot = slots.get(index)?;
         let substituted = infer::unify::substitute(slot, &bindings);
+        // An alias that cannot be expanded (`std.NotNull<V>` declared as `T - ?`) has no members to look up.
+        if let LuaType::Generic(generic) = &substituted
+            && let Some(def) = self.type_def_of(&generic.get_base_type_id())
+            && def.kind == TypeDefKind::Alias
+            && self.alias_target(&def).is_none()
+        {
+            return None;
+        }
         (!matches!(substituted, LuaType::Unknown)).then_some(substituted)
     }
     /// Infers `ipairs` slots directly from integer-index members of named types (does not depend on global pairs/ipairs signatures).
