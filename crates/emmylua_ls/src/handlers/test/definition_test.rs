@@ -1505,4 +1505,30 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_self_field_when_another_block_of_the_class_defines_the_same_method()
+    -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "narrow.lua",
+            "---@class view.Menu\nlocal narrow = {}\n\nnarrow.open = function(self, offset)\n    return offset\nend\n",
+        );
+        check!(ws.check_definition(
+            r#"
+                ---@class view.Menu
+                ---@field width integer
+                local wide = {}
+
+                wide.open = function(self, offset)
+                    return self.wi<??>dth + offset
+                end
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 2
+            }]
+        ));
+        Ok(())
+    }
 }

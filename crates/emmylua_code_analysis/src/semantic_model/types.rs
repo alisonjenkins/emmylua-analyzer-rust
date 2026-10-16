@@ -151,7 +151,10 @@ impl<'db> SemanticModel<'db> {
                             .first()
                             .is_some_and(|name| name == "self")
                     })
-                && self.param_type(closure_syntax, 0).is_none()
+                // An unannotated `self` of another block's same-named method fills in as `any`.
+                && self
+                    .param_type(closure_syntax, 0)
+                    .is_none_or(|ty| matches!(ty, LuaType::Any | LuaType::Unknown))
                 && let Some(ty) = self.method_owner_type(closure_syntax)
             {
                 return Some(ty);
