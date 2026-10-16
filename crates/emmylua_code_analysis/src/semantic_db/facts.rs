@@ -191,11 +191,15 @@ impl FileFacts {
             .partition_point(|(start, _)| *start <= offset);
         for (_, index) in self.member_by_range_start[..idx].iter().rev() {
             let member = &self.members[*index];
-            if member
-                .id
-                .member_key_range()
-                .is_some_and(|range| range.contains(offset))
-            {
+            let Some(key_range) = member.id.member_key_range() else {
+                continue;
+            };
+            // A positional table item has no key token: its "key" range is the whole item, which
+            // must not claim every token of the value (e.g. the body of a closure).
+            let encloses_value = member
+                .value_syntax
+                .is_some_and(|value| key_range.contains_range(value.get_range()));
+            if key_range.contains(offset) && !encloses_value {
                 return Some(member);
             }
         }
