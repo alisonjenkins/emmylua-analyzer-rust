@@ -21,6 +21,7 @@ use super::desc::{
     type_def_description,
 };
 use super::render::humanize;
+use super::usage_shape::render_usage_shape;
 
 /// Context projection result for table fields / value aliases: `show_unknown` marks
 /// unbound generics that were substituted with `unknown`, so member function signatures
@@ -994,6 +995,8 @@ fn build_decl_hover(
         if let Some((param_ty, closure_syntax)) = param_info {
             let type_text = if !matches!(typ, LuaType::Unknown) {
                 humanize(model, typ)
+            } else if matches!(param_ty, LuaType::Unknown) {
+                render_usage_shape(model, decl).unwrap_or_else(|| humanize(model, &param_ty))
             } else {
                 humanize(model, &param_ty)
             };
@@ -1064,12 +1067,13 @@ fn build_decl_hover(
         return (code, Some(description));
     }
     let display_typ = hover_expand_type(model, typ);
-    let code = format!(
-        "{}{}: {}",
-        prefix,
-        name,
-        humanize(model, &widen_decl_const(&display_typ))
-    );
+    let type_text = if matches!(display_typ, LuaType::Unknown) {
+        render_usage_shape(model, decl)
+    } else {
+        None
+    }
+    .unwrap_or_else(|| humanize(model, &widen_decl_const(&display_typ)));
+    let code = format!("{}{}: {}", prefix, name, type_text);
     (code, Some(description))
 }
 
