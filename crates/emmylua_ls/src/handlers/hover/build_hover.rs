@@ -820,6 +820,20 @@ fn render_decl_overload_blocks(
     out
 }
 
+/// Append the member function's `---@overload` signatures as separate blocks.
+fn push_signature_overload_blocks(
+    model: &SemanticModel<'_>,
+    member_info: &Member,
+    name: &str,
+    description: &mut HoverDescription,
+) {
+    if let Some(closure) = member_info.value_syntax {
+        description
+            .overload_blocks
+            .extend(render_decl_overload_blocks(model, name, closure, false, None));
+    }
+}
+
 fn signature_has_named_returns(
     model: &SemanticModel<'_>,
     closure_syntax: Option<emmylua_parser::LuaSyntaxId>,
@@ -1619,6 +1633,12 @@ fn build_member_hover(
     let Some(member_info) = members.iter().find(|m| &m.id == member) else {
         return (humanize(model, typ), None);
     };
+    // A member declared with `---@overload` lists the declared signature and every overload,
+    // not only the overload the call selected.
+    let signature_overloads = member_info
+        .value_syntax
+        .map_or(0, |closure| decl_overload_count(model, closure));
+    let call_site_substituted = call_site_substituted && signature_overloads == 0;
     let mut runtime_member = member_info.clone();
     // The member use site may exist as a standalone member fact (no doc/value). For hover, prefer falling back to
     // the real defining member with the same key and owner (which has `---@type` or a value expression) to get type and comments.
@@ -1879,7 +1899,7 @@ fn build_member_hover(
                 overload_types.len().saturating_sub(1)
             } else {
                 overload_types.len()
-            };
+            } + signature_overloads;
             let overloads = if overloads > 0 {
                 format!(" (+{} overloads)", overloads)
             } else {
@@ -1893,6 +1913,12 @@ fn build_member_hover(
             } else {
                 "(field) "
             };
+            push_signature_overload_blocks(
+                model,
+                &member_info,
+                &format!("{owner_name}{separator}{member_name}"),
+                &mut description,
+            );
             render_member_overload_blocks(
                 model,
                 &member_info,
@@ -1928,13 +1954,20 @@ fn build_member_hover(
                         .1,
                 )
             };
-            let overloads = member_overload_count(model, &member_info, &LuaType::Unknown);
+            let overloads =
+                member_overload_count(model, &member_info, &LuaType::Unknown) + signature_overloads;
             let overloads = if overloads > 0 {
                 format!(" (+{} overloads)", overloads)
             } else {
                 String::new()
             };
             let separator = if is_method { ":" } else { "." };
+            push_signature_overload_blocks(
+                model,
+                &member_info,
+                &format!("{owner_name}{separator}{member_name}"),
+                &mut description,
+            );
             let code = if is_method {
                 format!(
                     "{}(method) {}{}{}({}){}{}",
@@ -1987,7 +2020,7 @@ fn build_member_hover(
                 overload_types.len().saturating_sub(1)
             } else {
                 overload_types.len()
-            };
+            } + signature_overloads;
             let overloads = if overloads > 0 {
                 format!(" (+{} overloads)", overloads)
             } else {
@@ -1995,6 +2028,12 @@ fn build_member_hover(
             };
             let separator = if is_method { ":" } else { "." };
             let prefix = if is_method { "(method) " } else { "function " };
+            push_signature_overload_blocks(
+                model,
+                &member_info,
+                &format!("{owner_name}{separator}{member_name}"),
+                &mut description,
+            );
             render_member_overload_blocks(
                 model,
                 &member_info,
@@ -2014,15 +2053,27 @@ fn build_member_hover(
             );
         }
         if let Some(owner_name) = member_owner_display_name(model, &member_info.owner) {
+            let separator = if is_method { ":" } else { "." };
+            push_signature_overload_blocks(
+                model,
+                &member_info,
+                &format!("{owner_name}{separator}{member_name}"),
+                &mut description,
+            );
+            let overloads = if signature_overloads > 0 {
+                format!(" (+{} overloads)", signature_overloads)
+            } else {
+                String::new()
+            };
             let code = if is_method {
                 format!(
-                    "{}(method) {}:{}({}){}",
-                    async_prefix, owner_name, member_name, params, ret
+                    "{}(method) {}:{}({}){}{}",
+                    async_prefix, owner_name, member_name, params, ret, overloads
                 )
             } else {
                 format!(
-                    "{}function {}.{}({}){}",
-                    async_prefix, owner_name, member_name, params, ret
+                    "{}function {}.{}({}){}{}",
+                    async_prefix, owner_name, member_name, params, ret, overloads
                 )
             };
             return (code, Some(description));

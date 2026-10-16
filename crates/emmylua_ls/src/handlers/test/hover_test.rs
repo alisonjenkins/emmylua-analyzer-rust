@@ -1854,4 +1854,46 @@ mod tests {
         }
         Ok(())
     }
+
+    /// A call to a module function declared with `---@overload` lists the declared signature and
+    /// the overload, whichever one the call matches.
+    #[gtest]
+    fn test_hover_member_call_lists_declared_overloads() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local M = {}
+                ---Doc here.
+                ---@overload fun(list: table, value: any)
+                ---@param list table
+                ---@param pos integer
+                ---@param value any
+                function M.ins(list, pos, value) end
+
+                M.<??>ins({}, 1)
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction M.ins(list: table, pos: integer, value: any) (+1 overloads)\n```\n\n---\n\nDoc here.\n\n---\n\n```lua\nfunction M.ins(list: table, value: any)\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_hover_std_table_insert_call_lists_overloads() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        let (content, position) =
+            ProviderVirtualWorkspace::handle_file_content("table.<??>insert({}, 1)")?;
+        let file_id = ws.def(&content);
+        let hover = crate::handlers::hover::hover(&ws.analysis, file_id, position)
+            .ok_or("no hover")
+            .or_fail()?;
+        let hover_text = format!("{hover:?}");
+        verify_that!(
+            hover_text,
+            contains_substring("table.insert(list: table, pos: integer, value: any) (+1 overloads)")
+        )?;
+        verify_that!(hover_text, contains_substring("table.insert(list: table, value: any)"))?;
+        Ok(())
+    }
 }
