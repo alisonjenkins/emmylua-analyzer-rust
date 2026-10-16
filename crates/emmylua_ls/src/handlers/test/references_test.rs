@@ -412,6 +412,47 @@ mod tests {
     }
 
     #[gtest]
+    fn test_method_references_through_inferred_receiver_types() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            r#"
+                ---@class Reader
+                local M = {}
+                M.__index = M
+
+                ---@return Reader
+                function M.open(path)
+                    return setmetatable({ path = path }, M)
+                end
+
+                function M:cl<??>ose()
+                end
+
+                return M
+            "#,
+            vec![(
+                "a.lua",
+                r#"
+                    local reader = require("virtual_0")
+                    local r = reader.open("x")
+                    r:close()
+                "#,
+            )],
+            vec![
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 10,
+                },
+                VirtualLocation {
+                    file: "a.lua".to_string(),
+                    line: 3,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_member_references_alias_cycle_does_not_stack_overflow() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
 
