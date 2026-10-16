@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::handlers::call_hierarchy::{incoming_calls, prepare_call_hierarchy};
+    use crate::handlers::call_hierarchy::{incoming_calls, outgoing_calls, prepare_call_hierarchy};
     use crate::handlers::test_lib::{ProviderVirtualWorkspace, check};
     use googletest::prelude::*;
 
@@ -124,5 +124,121 @@ mod tests {
             "#
         ));
         verify_eq!(got, vec![("virtual_0.lua".to_string(), vec![2, 3])])
+    }
+
+    /// `(callee name, call-site lines)` for every outgoing call of the function under `<??>`.
+    fn outgoing(ws: &mut ProviderVirtualWorkspace, block: &str) -> Result<Vec<(String, Vec<u32>)>> {
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(block));
+        let file_id = ws.def(&content);
+        let items = prepare_call_hierarchy(&ws.analysis, file_id, position)
+            .ok_or("prepare failed")
+            .or_fail()?;
+        let calls = outgoing_calls(&ws.analysis, &items[0])
+            .ok_or("outgoing failed")
+            .or_fail()?;
+        Ok(calls
+            .into_iter()
+            .map(|call| {
+                let mut lines: Vec<u32> = call.from_ranges.iter().map(|r| r.start.line).collect();
+                lines.sort();
+                (call.to.name, lines)
+            })
+            .collect())
+    }
+
+    #[gtest]
+    fn test_outgoing_lists_callees_grouped_with_call_sites() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(outgoing(
+            &mut ws,
+            r#"
+                local function helper() end
+                local M = {}
+                function M.util() end
+                function M.r<??>un()
+                    helper()
+                    helper()
+                    M.util()
+                end
+            "#
+        ));
+        verify_eq!(
+            got,
+            vec![
+                ("helper".to_string(), vec![5, 6]),
+                ("util".to_string(), vec![7]),
+            ]
+        )
+    }
+
+    #[gtest]
+    fn test_outgoing_handles_methods_callbacks_and_nested_functions() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(outgoing(
+            &mut ws,
+            r#"
+                local function each(cb) end
+                local function inner_only() end
+                local function in_callback() end
+                local M = {}
+                function M:oth() end
+                function M:r<??>un()
+                    self:oth()
+                    each(function()
+                        in_callback()
+                    end)
+                    local function nested()
+                        inner_only()
+                    end
+                end
+            "#
+        ));
+        verify_eq!(
+            got,
+            vec![
+                ("oth".to_string(), vec![7]),
+                ("each".to_string(), vec![8]),
+                ("in_callback".to_string(), vec![9]),
+            ]
+        )
+    }
+
+    #[gtest]
+    fn test_outgoing_of_closure_assigned_to_a_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(outgoing(
+            &mut ws,
+            r#"
+                local function helper() end
+                local M = {}
+                M.r<??>un = function()
+                    helper()
+                end
+            "#
+        ));
+        verify_eq!(got, vec![("helper".to_string(), vec![4])])
+    }
+
+    #[gtest]
+    fn test_outgoing_follows_cross_file_require() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "dep.lua",
+            r#"
+                local M = {}
+                function M.work() end
+                return M
+            "#,
+        );
+        let got = check!(outgoing(
+            &mut ws,
+            r#"
+                local dep = require("dep")
+                local function r<??>un()
+                    dep.work()
+                end
+            "#
+        ));
+        verify_eq!(got, vec![("work".to_string(), vec![3])])
     }
 }

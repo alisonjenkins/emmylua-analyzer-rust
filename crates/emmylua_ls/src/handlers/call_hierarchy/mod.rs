@@ -2,6 +2,7 @@ mod build_call_hierarchy;
 
 use build_call_hierarchy::{
     CallHierarchyItemData, build_call_hierarchy_item, build_incoming_hierarchy,
+    build_outgoing_hierarchy,
 };
 use emmylua_code_analysis::{EmmyLuaAnalysis, FileId};
 use emmylua_parser::{LuaAstNode, LuaTokenKind};
@@ -92,11 +93,23 @@ pub fn incoming_calls(
 }
 
 pub async fn on_outgoing_calls_handler(
-    _: ServerContextSnapshot,
-    _: CallHierarchyOutgoingCallsParams,
-    _: CancellationToken,
+    context: ServerContextSnapshot,
+    params: CallHierarchyOutgoingCallsParams,
+    cancel_token: CancellationToken,
 ) -> RequestOutcome<Vec<CallHierarchyOutgoingCall>> {
-    RequestOutcome::Missing
+    let item = params.item;
+    snapshot_query(context.analysis(), cancel_token, move |analysis| {
+        outgoing_calls(analysis, &item)
+    })
+    .await
+}
+
+pub fn outgoing_calls(
+    analysis: &EmmyLuaAnalysis,
+    item: &CallHierarchyItem,
+) -> Option<Vec<CallHierarchyOutgoingCall>> {
+    let file_id = analysis.get_file_id(&item.uri)?;
+    build_outgoing_hierarchy(&analysis.db, file_id, item.selection_range.start)
 }
 
 pub struct CallHierarchyCapabilities;
