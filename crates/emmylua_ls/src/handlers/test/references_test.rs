@@ -1048,4 +1048,33 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 6, 7])
     }
+
+    #[gtest]
+    fn test_references_of_class_field_of_a_call_result_with_an_optional_class_argument()
+    -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Ret
+                ---@field all integer
+
+                ---@class Opts
+                ---@field n? integer
+
+                ---@param win integer
+                ---@param o? Opts
+                ---@return Ret
+                function measure(win, o) end
+
+                local r = measure(1, {})
+                r.al<??>l = 1
+                local r2 = measure(1, { n = 1 })
+                print(r2.all)
+            "#,
+        ));
+        verify_eq!(
+            reference_lines(&content, position, &mut ws),
+            vec![2, 13, 15]
+        )
+    }
 }
