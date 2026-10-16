@@ -414,6 +414,16 @@ impl<'db> SemanticModel<'db> {
     /// `---@[lsp_optimization("delayed_definition")]`: no longer treat "uninitialized" as nil,
     /// instead take the union of types from all assignments after that declaration.
     pub(crate) fn infer_delayed_definition_type(&self, decl: &Decl) -> Option<LuaType> {
+        self.infer_assigned_type(decl, None)
+    }
+    /// Union of the types assigned to `decl` after its declaration. With `read_offset`, only
+    /// assignments made in a function that contains the read count: a value set in a sibling
+    /// closure or another function is not what the read sees.
+    pub(crate) fn infer_assigned_type(
+        &self,
+        decl: &Decl,
+        read_offset: Option<TextSize>,
+    ) -> Option<LuaType> {
         let tree = self.syntax_tree()?;
         let chunk = tree.get_chunk_node();
         let mut types = Vec::new();
@@ -431,6 +441,12 @@ impl<'db> SemanticModel<'db> {
                     continue;
                 }
                 if self.resolve_name(offset) != Some(decl.id.clone()) {
+                    continue;
+                }
+                if let Some(read) = read_offset
+                    && let Some(closure) = self.enclosing_closure_at(offset)
+                    && !closure.get_range().contains(read)
+                {
                     continue;
                 }
                 // `a, b = f()`: targets past the last expression take that call's later results.
