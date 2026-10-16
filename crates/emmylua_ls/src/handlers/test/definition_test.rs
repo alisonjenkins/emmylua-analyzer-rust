@@ -27,6 +27,25 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_self_method_on_untyped_param_table() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local N = {}
+                function N.install(Reader)
+                    function Reader:note_free(a) end
+                    function Reader:scan() self:note_<??>free(1) end
+                end
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 3,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_basic_definition() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(
