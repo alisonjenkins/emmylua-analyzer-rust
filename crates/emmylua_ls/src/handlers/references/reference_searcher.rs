@@ -10,7 +10,8 @@ use emmylua_code_analysis::{
     FileId, LuaMemberKey, LuaType, SemanticDatabase, SemanticId, SemanticModel, TypeDef,
 };
 use emmylua_parser::{
-    LuaAstNode, LuaAstToken, LuaCallExpr, LuaIndexExpr, LuaLiteralToken, LuaSyntaxToken,
+    LuaAstNode, LuaAstToken, LuaCallExpr, LuaIndexExpr, LuaLiteralToken, LuaSyntaxKind,
+    LuaSyntaxToken,
 };
 use lsp_types::Location;
 
@@ -445,6 +446,10 @@ fn alias_members_of_decl(db: &SemanticDatabase, decl: &SemanticId) -> Vec<Semant
             let Some(value_syntax) = member.value_syntax else {
                 continue;
             };
+            // `m.f = make()` stores what `make` returns, not `make` itself.
+            if value_syntax.get_kind() == LuaSyntaxKind::CallExpr {
+                continue;
+            }
             let resolved = model.resolve_name(value_syntax.get_range().start());
             if resolved == Some(decl.clone()) {
                 out.push(member.id.clone());
