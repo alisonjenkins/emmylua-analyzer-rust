@@ -529,6 +529,15 @@ fn require_module_name_at(
 /// Which member aliases reference a declaration (the `flush` member in `export.flush = flush`).
 fn alias_members_of_decl(db: &SemanticDatabase, decl: &SemanticId) -> Vec<SemanticId> {
     let mut out = Vec::new();
+    // A parameter holds whatever the caller passed; storing it in a field does not export it.
+    if let SemanticId::Decl(key) = decl
+        && SemanticModel::new(db, key.file_id)
+            .file_facts_of(key.file_id)
+            .and_then(|facts| facts.decl_by_id(decl))
+            .is_some_and(|info| matches!(info.kind, DeclKind::Param))
+    {
+        return out;
+    }
     for file_id in db.file_ids() {
         let model = SemanticModel::new(db, file_id);
         let Some(members) = model.members() else {
@@ -538,8 +547,9 @@ fn alias_members_of_decl(db: &SemanticDatabase, decl: &SemanticId) -> Vec<Semant
             let Some(value_syntax) = member.value_syntax else {
                 continue;
             };
-            // `m.f = make()` stores what `make` returns, not `make` itself.
-            if value_syntax.get_kind() == LuaSyntaxKind::CallExpr {
+            // `m.f = make()` stores what `make` returns, not `make` itself; likewise `m.f = x.y`
+            // stores a field of `x`.
+            if value_syntax.get_kind() != LuaSyntaxKind::NameExpr {
                 continue;
             }
             let resolved = model.resolve_name(value_syntax.get_range().start());
