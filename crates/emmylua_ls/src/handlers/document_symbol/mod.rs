@@ -73,7 +73,10 @@ fn value_kind(value: Option<&LuaExpr>) -> SymbolKind {
         },
         Some(LuaExpr::TableExpr(table)) => {
             let mut fields = table.get_fields().peekable();
-            if fields.peek().is_some() && fields.all(|field| field.is_value_field()) {
+            if fields.peek().is_some()
+                && fields.all(|field| is_positional_item(&field))
+                && !table.get_fields().any(|field| is_vararg_field(&field))
+            {
                 SymbolKind::ARRAY
             } else {
                 SymbolKind::OBJECT
@@ -458,8 +461,22 @@ fn build_assign_symbols(
 /// field's index is not recomputed by scanning its siblings.
 type PositionalIndex = HashMap<u32, usize>;
 
+fn is_vararg_field(field: &LuaTableField) -> bool {
+    field.is_value_field()
+        && matches!(
+            field.get_value_expr(),
+            Some(LuaExpr::LiteralExpr(literal))
+                if matches!(literal.get_literal(), Some(LuaLiteralToken::Dots(_)))
+        )
+}
+
+/// A `...` inside a table constructor spreads values; LuaLS gives it no item.
+fn is_positional_item(field: &LuaTableField) -> bool {
+    field.is_value_field() && !is_vararg_field(field)
+}
+
 fn index_positional_fields(table: &LuaTableExpr, positional: &mut PositionalIndex) {
-    let fields = table.get_fields().filter(LuaTableField::is_value_field);
+    let fields = table.get_fields().filter(is_positional_item);
     for (index, field) in (1..).zip(fields) {
         positional.insert(u32::from(field.get_position()), index);
     }
@@ -825,6 +842,26 @@ mod tests {
     fn loop_variables_nest_under_their_function() {
         let got = outline_of("function f()\n  for i = 1, 3 do local x = i end\nend\n");
         assert_eq!(got, ["f", "  i", "  x"]);
+    }
+
+    #[test]
+    fn vararg_in_a_table_is_not_an_item() {
+        let all = symbols("local argv = { ... }\nlocal mixed = { ..., 'a' }\n");
+        let shape: Vec<_> = all
+            .iter()
+            .map(|symbol| {
+                let items = symbol.children.as_deref().unwrap_or_default();
+                let items: Vec<_> = items.iter().map(|item| item.name.as_str()).collect();
+                (symbol.name.as_str(), symbol.kind, items)
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            [
+                ("argv", SymbolKind::OBJECT, vec![]),
+                ("mixed", SymbolKind::OBJECT, vec!["[1]"]),
+            ]
+        );
     }
 
     #[test]
