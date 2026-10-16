@@ -674,6 +674,22 @@ mod tests {
         Ok(())
     }
 
+    // `function name() end` assigns the name like `name = function() end` does.
+    #[gtest]
+    fn test_function_statement_on_a_declared_name_is_a_symbol() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            "local fs_fwd\nlocal fs_other\nfunction fs_fwd(a) return a end\nfunction fs_other.fs_x() end\nfunction fs_fwd2() end\n",
+        );
+        let symbols = query(&ws, "fs_fwd");
+        expect_that!(lines_of(&symbols, "fs_fwd"), eq(&vec![0, 2]));
+        // the first assignment to a global is its declaration, not a second symbol
+        expect_that!(count_of(&query(&ws, "fs_fwd2"), "fs_fwd2"), eq(1));
+        // a field function does not report its base name
+        expect_that!(count_of(&query(&ws, "fs_other"), "fs_other"), eq(1));
+        Ok(())
+    }
+
     // LuaLS lists `t.x = 1; t.x = 2` once per assignment site.
     #[gtest]
     fn test_repeated_field_assignment_is_one_symbol_per_site() -> Result<()> {
