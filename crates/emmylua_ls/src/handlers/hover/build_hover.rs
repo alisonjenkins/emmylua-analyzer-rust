@@ -1933,6 +1933,17 @@ fn build_member_hover(
         rendered_typ.push_str(" = ");
         rendered_typ.push_str(&humanize(model, &literal_ty));
     }
+    if let Some(class_lines) = class_member_lines(model, &effective_typ)
+        && !class_lines.is_empty()
+    {
+        let code = format!(
+            "(field) {}: {} {{\n{}\n}}",
+            member_name,
+            rendered_typ,
+            class_lines.join("\n")
+        );
+        return (code, Some(description));
+    }
     let code = format!("(field) {}: {}", member_name, rendered_typ);
     (code, Some(description))
 }
