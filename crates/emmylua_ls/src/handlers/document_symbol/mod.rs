@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use emmylua_code_analysis::{LuaType, SemanticModel};
 use emmylua_parser::{
     LuaAssignStat, LuaAst, LuaAstNode, LuaAstToken, LuaCallExpr, LuaExpr, LuaIndexExpr,
-    LuaIndexKey, LuaLiteralToken, LuaLocalStat, LuaSyntaxKind, LuaTableExpr, LuaTableField,
-    LuaVarExpr, PathTrait,
+    LuaIndexKey, LuaLiteralToken, LuaLocalStat, LuaNameToken, LuaSyntaxKind, LuaTableExpr,
+    LuaTableField, LuaVarExpr, PathTrait,
 };
 use lsp_types::{
     ClientCapabilities, DocumentSymbol, DocumentSymbolOptions, DocumentSymbolParams,
@@ -161,6 +161,24 @@ fn build_anonymous_symbol(
     })
 }
 
+fn build_loop_variable_symbol(
+    document: &emmylua_code_analysis::LuaDocument,
+    name: LuaNameToken,
+) -> Option<DocumentSymbol> {
+    let range = document.to_lsp_range(name.get_range())?;
+    Some(DocumentSymbol {
+        name: name.get_name_text().to_string(),
+        detail: None,
+        kind: SymbolKind::VARIABLE,
+        range,
+        selection_range: range,
+        children: None,
+        tags: None,
+        #[allow(deprecated)]
+        deprecated: None,
+    })
+}
+
 fn local_name_value(local_name: &emmylua_parser::LuaLocalName) -> Option<LuaExpr> {
     let stat = local_name.get_parent::<LuaLocalStat>()?;
     let index = stat
@@ -282,6 +300,22 @@ fn build_document_symbol(
             }
             LuaAst::LuaAssignStat(assign_stat) => {
                 symbols.extend(build_assign_symbols(model, document, assign_stat));
+                continue;
+            }
+            LuaAst::LuaForStat(for_stat) => {
+                symbols.extend(
+                    for_stat
+                        .get_var_name()
+                        .and_then(|name| build_loop_variable_symbol(document, name)),
+                );
+                continue;
+            }
+            LuaAst::LuaForRangeStat(for_range) => {
+                symbols.extend(
+                    for_range
+                        .get_var_name_list()
+                        .filter_map(|name| build_loop_variable_symbol(document, name)),
+                );
                 continue;
             }
             LuaAst::LuaParamName(param) => {
@@ -774,6 +808,23 @@ mod tests {
             .and_then(|children| children.first())
             .map(|param| param.kind);
         assert_eq!(kind, Some(SymbolKind::CONSTANT));
+    }
+
+    #[test]
+    fn loop_variables_are_listed_as_variables() {
+        let got = names(&symbols(
+            "for i = 1, 3 do end\nfor k, v in pairs(t) do end\nfor _, x in ipairs(t) do end\n",
+        ));
+        assert_eq!(
+            got,
+            ["i", "k", "v", "_", "x"].map(|name| (name.to_string(), SymbolKind::VARIABLE))
+        );
+    }
+
+    #[test]
+    fn loop_variables_nest_under_their_function() {
+        let got = outline_of("function f()\n  for i = 1, 3 do local x = i end\nend\n");
+        assert_eq!(got, ["f", "  i", "  x"]);
     }
 
     #[test]
