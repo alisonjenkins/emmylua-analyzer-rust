@@ -763,6 +763,33 @@ impl<'db> SemanticModel<'db> {
             None
         }
     }
+    /// Return type inferred from the body of a closure that may live in another file.
+    ///
+    /// The closure's syntax tree and scope belong to its own file, so a foreign closure is inferred
+    /// with that file's model. Each foreign model starts with an empty in-progress set, so mutually
+    /// recursive cross-file functions are cut off by a depth limit instead.
+    fn inferred_closure_return_in_file(
+        &self,
+        file_id: FileId,
+        closure_syntax: LuaSyntaxId,
+    ) -> LuaType {
+        if file_id == self.view.file_id() {
+            return infer::closure_return_lua(self, closure_syntax);
+        }
+        thread_local! {
+            static FOREIGN_DEPTH: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+        }
+        const MAX_FOREIGN_DEPTH: u8 = 4;
+        let depth = FOREIGN_DEPTH.with(|depth| depth.get());
+        if depth >= MAX_FOREIGN_DEPTH {
+            return LuaType::Unknown;
+        }
+        FOREIGN_DEPTH.with(|d| d.set(depth + 1));
+        let foreign = self.model_for(file_id);
+        let inferred = infer::closure_return_lua(&foreign, closure_syntax);
+        FOREIGN_DEPTH.with(|d| d.set(depth));
+        inferred
+    }
     /// Signature structure of a closure in any file (used for cross-file member/global function signature resolution).
     pub fn type_of_signature_in_file(
         &self,
@@ -814,11 +841,8 @@ impl<'db> SemanticModel<'db> {
         let mut ret =
             self.signature_return_type(file_id, closure_syntax, signature, &generic_names);
         ret = type_eval::expand_alias_generic(self, &ret);
-        if matches!(ret, LuaType::Unknown)
-            && signature.docs.is_none()
-            && file_id == self.view.file_id()
-        {
-            let inferred = infer::closure_return_lua(self, closure_syntax);
+        if matches!(ret, LuaType::Unknown) && signature.docs.is_none() {
+            let inferred = self.inferred_closure_return_in_file(file_id, closure_syntax);
             if !matches!(inferred, LuaType::Unknown | LuaType::Any) {
                 ret = inferred;
             }
