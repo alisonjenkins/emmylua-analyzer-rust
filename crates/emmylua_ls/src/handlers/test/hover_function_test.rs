@@ -1094,7 +1094,7 @@ mod tests {
                 local <??>f = io.open("name", "r")
             "#,
             VirtualHoverResult {
-                value: "```lua\nlocal f: file?\n```".to_string(),
+                value: "```lua\nlocal f: file? {\n    close: function,\n    flush: function,\n    lines: function,\n    read: function,\n    seek: function,\n    setvbuf: function,\n    write: function,\n}\n```".to_string(),
             },
         ));
         Ok(())
