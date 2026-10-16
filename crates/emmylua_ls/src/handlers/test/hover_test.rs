@@ -1351,4 +1351,19 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// `require("string")` yields the standard library table.
+    #[gtest]
+    fn test_hover_call_through_required_standard_library() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_hover(
+            r#"
+                local n<??> = require("string").upper("x")
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal n: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
