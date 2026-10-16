@@ -1427,4 +1427,35 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// Comparing a member of an untyped value must not narrow the value to `never`.
+    #[gtest]
+    fn test_hover_unknown_not_narrowed_to_never_by_member_comparison() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local function f(o)
+                    if o.kind == "x" then
+                        return o<??>.name
+                    end
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(parameter) o: unknown\n```".to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                local function g(o)
+                    if o.enabled then
+                        return o<??>.name
+                    end
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(parameter) o: unknown\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
