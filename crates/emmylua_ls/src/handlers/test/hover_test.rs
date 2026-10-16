@@ -1060,4 +1060,48 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// A call through a global field that holds a required module keeps the declared return.
+    #[gtest]
+    fn test_hover_call_through_global_field_holding_a_deferred_module() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "defer.lua",
+            r#"
+                ---@generic T
+                ---@param root string
+                ---@param mod T
+                ---@return T
+                function defer(root, mod)
+                    return setmetatable({ _sub = mod }, { __index = function() end })
+                end
+            "#,
+        );
+        ws.def_file(
+            "lsp_mod.lua",
+            r#"
+                local lsp = defer("x", { a = 1 })
+
+                ---@return string
+                function lsp.name() end
+                return lsp
+            "#,
+        );
+        ws.def_file(
+            "glob.lua",
+            r#"
+                vim = {}
+                vim.lsp = require("lsp_mod")
+            "#,
+        );
+        check!(ws.check_hover(
+            r#"
+                local n<??> = vim.lsp.name()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal n: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
