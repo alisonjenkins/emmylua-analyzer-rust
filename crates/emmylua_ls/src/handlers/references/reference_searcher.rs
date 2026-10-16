@@ -7,7 +7,7 @@
 use std::collections::HashSet;
 
 use emmylua_code_analysis::{
-    FileId, LuaMemberKey, LuaType, SemanticDatabase, SemanticId, SemanticModel, TypeDef,
+    DeclKind, FileId, LuaMemberKey, LuaType, SemanticDatabase, SemanticId, SemanticModel, TypeDef,
 };
 use emmylua_parser::{
     LuaAstNode, LuaAstToken, LuaCallExpr, LuaIndexExpr, LuaLiteralToken, LuaSyntaxKind,
@@ -41,7 +41,14 @@ pub fn search_references(
     if let Some(decl) = model.find_decl(token.clone().into()) {
         let ranges = match &decl {
             SemanticId::Decl(_) => {
-                decl_reference_ranges_with_aliases(db, &decl, include_declaration)
+                let mut ranges = Vec::new();
+                for same in same_name_global_decls(model, &decl) {
+                    for range in decl_reference_ranges_with_aliases(db, &same, include_declaration)
+                    {
+                        push_unique(&mut ranges, range);
+                    }
+                }
+                ranges
             }
             SemanticId::Member(_) => {
                 let mut ranges = Vec::new();
@@ -92,6 +99,34 @@ pub fn search_references(
 
     // 4. String reference index and fuzzy search retired with the old reference index (no Semantic equivalent).
     Some(Vec::new())
+}
+
+/// A global declared in several files (`function printf` in each standalone script, `Mod = Mod or {}`
+/// in each module) is one variable: the declaration itself followed by its same-named siblings.
+/// Any other declaration stands alone.
+pub(crate) fn same_name_global_decls(
+    model: &SemanticModel<'_>,
+    decl: &SemanticId,
+) -> Vec<SemanticId> {
+    let mut out = vec![decl.clone()];
+    let SemanticId::Decl(key) = decl else {
+        return out;
+    };
+    let Some(info) = model
+        .file_facts_of(key.file_id)
+        .and_then(|facts| facts.decl_by_id(decl))
+    else {
+        return out;
+    };
+    if !matches!(info.kind, DeclKind::Global) {
+        return out;
+    }
+    for sibling in model.global_decls_named_for_file(key.file_id, info.name.as_str()) {
+        if !out.contains(&sibling) {
+            out.push(sibling);
+        }
+    }
+    out
 }
 
 /// Every member sharing the owner and name of `member`, itself included.

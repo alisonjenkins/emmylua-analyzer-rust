@@ -16,6 +16,7 @@ use lsp_types::{GotoDefinitionResponse, Location};
 use rowan::TextSize;
 
 use crate::handlers::common::{call_value_function, expected_class_of_table, resolve_alias_origin};
+use crate::handlers::references::reference_searcher::same_name_global_decls;
 use crate::util::parse_desc;
 
 pub fn goto_def_definition(
@@ -49,9 +50,18 @@ pub fn goto_def_definition(
                     locations.push(location);
                 }
             }
-            for location in sibling_global_definitions(model, db, decl, token) {
-                if !locations.contains(&location) {
-                    locations.push(location);
+            // The same global declared in other files is the same variable.
+            for sibling in same_name_global_decls(model, decl).iter().skip(1) {
+                let SemanticId::Decl(sibling_key) = sibling else {
+                    continue;
+                };
+                let sites = location_of(db, sibling_key.file_id, sibling_key.name_range)
+                    .into_iter()
+                    .chain(assignment_sites(model, db, sibling));
+                for location in sites {
+                    if !locations.contains(&location) {
+                        locations.push(location);
+                    }
                 }
             }
             Some(match locations.len() {
@@ -71,34 +81,6 @@ pub fn goto_def_definition(
         }
         _ => None,
     }
-}
-
-/// The other declarations of a global the workspace declares in several files (`function f` in
-/// each of them); LuaLS lists every one.
-fn sibling_global_definitions(
-    model: &SemanticModel<'_>,
-    db: &SemanticDatabase,
-    decl: &SemanticId,
-    token: &LuaSyntaxToken,
-) -> Vec<Location> {
-    if token.kind() != LuaTokenKind::TkName.into() {
-        return Vec::new();
-    }
-    let SemanticId::Decl(key) = decl else {
-        return Vec::new();
-    };
-    let siblings = model.global_decls_named_for_file(key.file_id, token.text());
-    if !siblings.contains(decl) {
-        return Vec::new();
-    }
-    siblings
-        .iter()
-        .filter(|sibling| *sibling != decl)
-        .filter_map(|sibling| match sibling {
-            SemanticId::Decl(key) => location_of(db, key.file_id, key.name_range),
-            _ => None,
-        })
-        .collect()
 }
 
 /// Where a variable is assigned (`x = v`), in source order.

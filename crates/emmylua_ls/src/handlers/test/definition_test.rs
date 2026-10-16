@@ -1361,4 +1361,34 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_a_global_function_defined_in_several_files() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file("shout_a.lua", "function shout(x) end\nshout(1)\n");
+        ws.def_file("shout_b.lua", "\n\nfunction shout(x) end\n");
+        check!(ws.check_definition(
+            r#"
+                -- a standalone script with its own copy
+                -- of the helper
+                function shout(x) end
+                sho<??>ut(2)
+            "#,
+            vec![
+                Expected {
+                    file: "shout_a.lua".to_string(),
+                    line: 0
+                },
+                Expected {
+                    file: "shout_b.lua".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 3
+                },
+            ]
+        ));
+        Ok(())
+    }
 }
