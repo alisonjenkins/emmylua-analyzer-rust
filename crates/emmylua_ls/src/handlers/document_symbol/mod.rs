@@ -5,8 +5,8 @@
 
 use emmylua_code_analysis::{LuaType, SemanticModel};
 use emmylua_parser::{
-    LuaAssignStat, LuaAst, LuaAstNode, LuaAstToken, LuaExpr, LuaIndexKey, LuaLiteralToken,
-    LuaLocalStat, LuaSyntaxKind, LuaTableField, LuaVarExpr, PathTrait,
+    LuaAssignStat, LuaAst, LuaAstNode, LuaAstToken, LuaCallExpr, LuaExpr, LuaIndexKey,
+    LuaLiteralToken, LuaLocalStat, LuaSyntaxKind, LuaTableField, LuaVarExpr, PathTrait,
 };
 use lsp_types::{
     ClientCapabilities, DocumentSymbol, DocumentSymbolOptions, DocumentSymbolParams,
@@ -79,6 +79,80 @@ fn value_kind(value: Option<&LuaExpr>) -> SymbolKind {
         Some(LuaExpr::ClosureExpr(_)) => SymbolKind::FUNCTION,
         _ => SymbolKind::VARIABLE,
     }
+}
+
+/// LuaLS sends blank text for a table or closure that nothing names.
+const BLANK_NAME: &str = " ";
+
+/// The name of a closure or table that is not the value of a named symbol:
+/// `return` for returned values, the callee for call arguments, blank
+/// otherwise. `None` when the value already belongs to a named symbol.
+fn anonymous_head(expr: &LuaExpr) -> Option<String> {
+    match LuaAst::cast(expr.syntax().parent()?)? {
+        LuaAst::LuaFuncStat(_) | LuaAst::LuaLocalFuncStat(_) | LuaAst::LuaTableField(_) => None,
+        LuaAst::LuaLocalStat(stat) => {
+            let index = stat
+                .get_value_exprs()
+                .position(|value| value.syntax() == expr.syntax())?;
+            (index >= stat.get_local_name_list().count()).then(String::new)
+        }
+        LuaAst::LuaAssignStat(stat) => {
+            let (vars, values) = stat.get_var_and_expr_list();
+            let index = values
+                .iter()
+                .position(|value| value.syntax() == expr.syntax())?;
+            let named = match vars.get(index) {
+                Some(LuaVarExpr::NameExpr(_)) => true,
+                Some(LuaVarExpr::IndexExpr(index_expr)) => matches!(
+                    index_expr.get_index_key(),
+                    Some(LuaIndexKey::Name(_) | LuaIndexKey::String(_))
+                ),
+                None => false,
+            };
+            (!named).then(String::new)
+        }
+        LuaAst::LuaCallArgList(args) => {
+            let callee = args.get_parent::<LuaCallExpr>()?.get_prefix_expr()?;
+            let text = callee.syntax().text().to_string();
+            Some(match text.trim().rsplit_once('\n') {
+                Some((_, last)) => format!("... {}", last.trim()),
+                None => text.trim().to_string(),
+            })
+        }
+        LuaAst::LuaReturnStat(_) => Some("return".to_string()),
+        _ => Some(String::new()),
+    }
+}
+
+fn build_anonymous_symbol(
+    document: &emmylua_code_analysis::LuaDocument,
+    expr: LuaExpr,
+) -> Option<DocumentSymbol> {
+    let head = anonymous_head(&expr)?;
+    let range = document.to_lsp_range(expr.get_range())?;
+    let selection_range = match &expr {
+        LuaExpr::ClosureExpr(_) => expr
+            .syntax()
+            .first_token()
+            .and_then(|keyword| document.to_lsp_range(keyword.text_range()))
+            .unwrap_or(range),
+        _ => range,
+    };
+    Some(DocumentSymbol {
+        name: if head.is_empty() {
+            BLANK_NAME.to_string()
+        } else {
+            head
+        },
+        detail: None,
+        kind: value_kind(Some(&expr)),
+        range,
+        selection_range,
+        children: None,
+        tags: None,
+        #[allow(deprecated)]
+        deprecated: None,
+    })
 }
 
 fn local_name_value(local_name: &emmylua_parser::LuaLocalName) -> Option<LuaExpr> {
@@ -202,6 +276,12 @@ fn build_document_symbol(
             LuaAst::LuaAssignStat(assign_stat) => {
                 symbols.extend(build_assign_symbols(model, document, assign_stat));
                 continue;
+            }
+            LuaAst::LuaClosureExpr(closure) => {
+                build_anonymous_symbol(document, LuaExpr::ClosureExpr(closure.clone()))
+            }
+            LuaAst::LuaTableExpr(table) => {
+                build_anonymous_symbol(document, LuaExpr::TableExpr(table.clone()))
             }
             _ => continue,
         };
@@ -502,6 +582,68 @@ mod tests {
                 ("k".to_string(), SymbolKind::STRING),
             ]
         );
+    }
+
+    #[test]
+    fn call_argument_closure_is_named_after_the_callee() {
+        let got = outline_of(
+            "vim.schedule(function()\n  local x = 1\nend)\nclient:request('m', function(err) end)\ndescribe('a', function() end)\n",
+        );
+        assert_eq!(got, ["vim.schedule", "  x", "client:request", "describe"]);
+        let kinds = names(&symbols("foo(function() end)\n"));
+        assert_eq!(kinds, [("foo".to_string(), SymbolKind::FUNCTION)]);
+    }
+
+    #[test]
+    fn call_argument_table_is_named_after_the_callee() {
+        let got = outline_of("setmetatable(M, { __index = Base })\nopts({ a = 1 })\nf{ b = 2 }\n");
+        assert_eq!(
+            got,
+            ["setmetatable", "  __index", "opts", "  a", "f", "  b"]
+        );
+        let kinds = names(&symbols("foo({ 1, 2 })\nbar({ k = 1 })\n"));
+        assert_eq!(
+            kinds,
+            [
+                ("foo".to_string(), SymbolKind::ARRAY),
+                ("bar".to_string(), SymbolKind::OBJECT)
+            ]
+        );
+    }
+
+    #[test]
+    fn returned_closure_and_table_are_named_return() {
+        let got =
+            outline_of("local function f()\n  return function() end\nend\nreturn { a = 1 }\n");
+        assert_eq!(got, ["f", "  return", "return", "  a"]);
+    }
+
+    #[test]
+    fn unnamed_table_operand_gets_a_blank_symbol() {
+        let operand = symbols("local x = y or {}\n");
+        let blank = operand
+            .first()
+            .and_then(|x| x.children.as_deref())
+            .and_then(|children| children.first())
+            .map(|symbol| (symbol.name.as_str(), symbol.kind));
+        assert_eq!(blank, Some((" ", SymbolKind::OBJECT)));
+
+        let dynamic = names(&symbols("t[k] = {}\n"));
+        assert_eq!(dynamic, [(" ".to_string(), SymbolKind::OBJECT)]);
+    }
+
+    #[test]
+    fn values_that_name_a_symbol_are_not_listed_twice() {
+        let got = outline_of(
+            "local a = {}\nlocal f = function() end\nM.g = function() end\nfunction M.h() end\nlocal t = { k = function() end, o = {} }\n",
+        );
+        assert_eq!(got, ["a", "f", "M.g", "M.h", "t", "  k", "  o"]);
+    }
+
+    #[test]
+    fn anonymous_selection_range_is_inside_range() {
+        let symbols = symbols("foo(function()\n  local x = 1\nend, { a = 1 })\nreturn {}\n");
+        check_selection_inside_range(&symbols);
     }
 
     #[test]
