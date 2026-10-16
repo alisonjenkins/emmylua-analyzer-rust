@@ -166,6 +166,81 @@ mod tests {
     }
 
     #[gtest]
+    fn test_incoming_receiver_assigned_later_in_the_declaring_scope() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(incoming(
+            &mut ws,
+            r#"
+                local function mk(ctx)
+                    local e = {}
+                    function e.s<??>et(k) end
+                    return e
+                end
+                local env
+                do
+                    local made = mk(1)
+                    env = made
+                end
+                local function use_it()
+                    env.set(1)
+                end
+            "#
+        ));
+        verify_eq!(got, vec![("use_it".to_string(), vec![12])])
+    }
+
+    #[gtest]
+    fn test_incoming_receiver_assigned_from_pcall_result() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        let got = check!(incoming(
+            &mut ws,
+            r#"
+                local BC
+                local ok, crypt = pcall(function()
+                    local c = {}
+                    function c.ha<??>sh(s) end
+                    return c
+                end)
+                if ok then
+                    BC = crypt
+                end
+                local function use_it()
+                    return BC.hash("x")
+                end
+            "#
+        ));
+        verify_eq!(got, vec![("use_it".to_string(), vec![11])])
+    }
+
+    #[gtest]
+    fn test_incoming_method_on_local_assigned_from_constructor() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(incoming(
+            &mut ws,
+            r#"
+                local Journal = {}
+                Journal.__index = Journal
+                function Journal:com<??>mit() end
+                local function create(dest)
+                    local fd, err = io.open(dest)
+                    if not fd then return nil, err end
+                    return setmetatable({ fd = fd }, Journal)
+                end
+                local function run()
+                    local j
+                    do
+                        local created, jerr = create("x")
+                        if not created then return end
+                        j = created
+                    end
+                    j:commit()
+                end
+            "#
+        ));
+        verify_eq!(got, vec![("run".to_string(), vec![16])])
+    }
+
+    #[gtest]
     fn test_incoming_top_level_calls_are_grouped_into_one_module_caller() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         let got = check!(incoming(
