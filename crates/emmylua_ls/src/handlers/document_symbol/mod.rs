@@ -129,9 +129,6 @@ fn build_document_symbol(
                     continue;
                 };
                 let ty = model.type_of_decl(&decl).unwrap_or(LuaType::Unknown);
-                if matches!(ty, LuaType::Unknown) {
-                    continue;
-                }
                 let Some(lsp_range) = document.to_lsp_range(name_token.get_range()) else {
                     continue;
                 };
@@ -239,5 +236,11 @@ mod tests {
     fn local_function_is_one_symbol() {
         let got = names(&symbols("local function foo(a) return a end\n"));
         assert_eq!(got, vec![("foo".to_string(), SymbolKind::FUNCTION)]);
+    }
+
+    #[test]
+    fn local_with_unknown_type_is_listed() {
+        let got = names(&symbols("local c = unknown_global_call()\n"));
+        assert_eq!(got, vec![("c".to_string(), SymbolKind::VARIABLE)]);
     }
 }
