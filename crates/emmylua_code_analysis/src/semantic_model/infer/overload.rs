@@ -22,6 +22,7 @@ use super::vm::{
     variadic_base_type, widen_const, widen_variadic_const,
 };
 use crate::semantic_model::type_eval;
+use crate::semantic_model::types::remove_nil_from_type;
 
 /// Minimal representation of a call argument (type + whether it is a closure literal).
 #[derive(Debug, Clone)]
@@ -584,7 +585,7 @@ fn match_call_candidate_impl(
             true
         } else if matches!(arg_ty, LuaType::Object(_))
             && matches!(
-                raw_param_ty,
+                remove_nil_from_type(raw_param_ty.clone()),
                 LuaType::Ref(_) | LuaType::Def(_) | LuaType::Generic(_)
             )
         {
