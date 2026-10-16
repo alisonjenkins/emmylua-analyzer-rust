@@ -16,6 +16,27 @@ pub fn expected_classes_of_table(model: &SemanticModel<'_>, table: &LuaTableExpr
     types
 }
 
+/// Whether the literal is a field value inside another literal that is an argument of a call.
+fn is_nested_in_call_argument(table: &LuaTableExpr) -> bool {
+    let mut current = table.clone();
+    let mut nested = false;
+    while let Some(parent_table) = current
+        .syntax()
+        .parent()
+        .and_then(LuaTableField::cast)
+        .and_then(|field| field.get_parent::<LuaTableExpr>())
+    {
+        nested = true;
+        current = parent_table;
+    }
+    nested
+        && current
+            .syntax()
+            .parent()
+            .and_then(LuaCallArgList::cast)
+            .is_some()
+}
+
 /// Classes plus the containers (`Elem[]`, `table<string, Elem>`) a literal is declared as: the
 /// literals inside a container are its element type.
 fn expected_types_of_table(model: &SemanticModel<'_>, table: &LuaTableExpr) -> Vec<LuaType> {
@@ -113,6 +134,11 @@ pub fn class_fields_of_table_key(
     let LuaIndexKey::Name(_) = key else {
         return Vec::new();
     };
+    // LuaLS indexes the keys of a call argument's own table as uses of the parameter class's
+    // fields, but not those of tables nested inside it.
+    if is_nested_in_call_argument(&table) {
+        return Vec::new();
+    }
     let member_key = LuaMemberKey::Name(key.get_path_part().into());
     let mut out = Vec::new();
     for class_type in expected_classes_of_table(model, &table) {

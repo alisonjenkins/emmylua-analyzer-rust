@@ -1328,4 +1328,29 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 8, 13])
     }
+
+    #[gtest]
+    fn test_references_of_class_field_skip_keys_of_literals_nested_in_a_call_argument() -> Result<()>
+    {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Rng
+                ---@field fi<??>rst integer
+
+                ---@class Edit
+                ---@field range Rng
+                ---@field first integer
+
+                ---@param edit Edit
+                local function apply(edit) end
+
+                apply({ first = 1, range = { first = 2 } })
+
+                ---@type Edit
+                local kept = { first = 3, range = { first = 4 } }
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 14])
+    }
 }
