@@ -195,11 +195,20 @@ fn filter_overload_infos(
     token: &LuaSyntaxToken,
     infos: &[MemberInfo],
 ) -> Vec<MemberInfo> {
-    let Some(call) = token.parent().and_then(|parent| {
-        parent
-            .ancestors()
-            .find_map(emmylua_parser::LuaCallExpr::cast)
-    }) else {
+    // Only a call whose callee the token names selects among overloads; a token in an argument
+    // (`after_each(function() m.flag = false end)`) belongs to no call.
+    let Some(call) = token
+        .parent()
+        .and_then(|parent| {
+            parent
+                .ancestors()
+                .find_map(emmylua_parser::LuaCallExpr::cast)
+        })
+        .filter(|call| {
+            call.get_prefix_expr()
+                .is_some_and(|prefix| prefix.get_range().contains_range(token.text_range()))
+        })
+    else {
         return infos.to_vec();
     };
     let Some(args) = call.get_args_list() else {
