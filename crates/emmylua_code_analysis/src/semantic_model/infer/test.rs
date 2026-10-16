@@ -1808,3 +1808,43 @@ fn test_operator_len() {
     let n = decl_of(&model, "n");
     assert_eq!(model.type_of_decl(&n), Some(LuaType::Number));
 }
+
+/// An omitted optional callback param must not fail the whole call (`vim.system(cmd)`).
+#[test]
+fn test_call_with_omitted_optional_callback_param_keeps_return_type() {
+    let env = model_of(
+        r#"
+        ---@class Handle
+
+        ---@param cmd string[]
+        ---@param on_exit? fun()
+        ---@return Handle
+        function spawn(cmd, on_exit) end
+        local h = spawn({ "ls" })
+    "#,
+    );
+    let model = env.model();
+    let h = decl_of(&model, "h");
+    assert_eq!(
+        model.type_of_decl(&h),
+        Some(LuaType::Ref(LuaTypeDeclId::global("Handle")))
+    );
+}
+
+/// A non-function argument for a callback param still fails the match: no guessed return type.
+#[test]
+fn test_call_with_non_function_for_callback_param_stays_unknown() {
+    let env = model_of(
+        r#"
+        ---@class Handle
+
+        ---@param on_exit fun()
+        ---@return Handle
+        function spawn(on_exit) end
+        local h = spawn("not a function")
+    "#,
+    );
+    let model = env.model();
+    let h = decl_of(&model, "h");
+    assert_eq!(model.type_of_decl(&h), Some(LuaType::Unknown));
+}
