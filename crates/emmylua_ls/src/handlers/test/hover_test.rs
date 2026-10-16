@@ -806,6 +806,33 @@ mod tests {
         Ok(())
     }
 
+    /// Indexing `table<K, V>` yields `V` for a matching key, however the key is written.
+    #[gtest]
+    fn test_hover_table_generic_index() -> Result<()> {
+        let cases = [
+            ("table<string, integer>", "t.foo"),
+            ("table<string, integer>", "t[\"foo\"]"),
+            ("table<integer, integer>", "t[1]"),
+            ("table<string, integer>", "t[key]"),
+        ];
+        for (table_type, access) in cases {
+            let mut ws = ProviderVirtualWorkspace::new();
+            let code = format!(
+                "---@type {table_type}\nlocal t = {{}}\n---@type any\nlocal key\nlocal <??>v = {access}\n"
+            );
+            check!(
+                ws.check_hover(
+                    &code,
+                    VirtualHoverResult {
+                        value: "```lua\nlocal v: integer\n```".to_string(),
+                    },
+                ),
+                "{access} on {table_type}"
+            );
+        }
+        Ok(())
+    }
+
     // M3 batch 2 retirement: depends on the old humanize rendering stack (constant value / alias / keyof / overloaded attributes / narrowing / cross-file declared type projection, etc.); see migration notes §M3.
     #[gtest]
     fn test_class_with_nil() -> Result<()> {
