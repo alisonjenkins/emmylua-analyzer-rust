@@ -1854,4 +1854,23 @@ mod tests {
         }
         Ok(())
     }
+
+    /// A mistyped argument still yields the return type of a global function's only signature.
+    #[gtest]
+    fn test_hover_global_call_with_mismatched_arg_keeps_return() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@param i integer
+                ---@return string
+                function gf(i) return "" end
+
+                local s<??> = gf(1.5)
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal s: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
