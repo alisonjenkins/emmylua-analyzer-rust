@@ -4849,8 +4849,13 @@ fn filter_type_by_member_truthiness(
         }
         // Missing member is equivalent to nil: `obj.missing` is false.
         let member_ty = model.member_type(&component, key).unwrap_or(LuaType::Nil);
-        let truthy = type_is_truthy(&member_ty);
-        if truthy == keep_matching {
+        // An optional member (`string?`) may be falsy as well as truthy: the component stays on both sides.
+        let keep = if keep_matching {
+            type_is_truthy(&member_ty)
+        } else {
+            type_can_be_falsy(&member_ty)
+        };
+        if keep {
             kept.push(component);
         }
     }
@@ -4859,6 +4864,24 @@ fn filter_type_by_member_truthiness(
         1 => kept.pop().expect("len checked"),
         _ => LuaType::Union(LuaUnionType::from_vec(kept).into()),
     }
+}
+
+fn type_can_be_falsy(ty: &LuaType) -> bool {
+    let components: Vec<LuaType> = match ty {
+        LuaType::Union(union) => union.into_vec(),
+        other => vec![other.clone()],
+    };
+    components.iter().any(|component| {
+        matches!(
+            component,
+            LuaType::Nil
+                | LuaType::Boolean
+                | LuaType::BooleanConst(false)
+                | LuaType::DocBooleanConst(false)
+                | LuaType::Any
+                | LuaType::Unknown
+        )
+    })
 }
 
 fn type_is_truthy(ty: &LuaType) -> bool {

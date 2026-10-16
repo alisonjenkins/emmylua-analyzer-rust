@@ -1065,4 +1065,27 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 6])
     }
+
+    #[gtest]
+    fn test_references_of_class_field_in_the_else_branch_of_an_optional_member_test() -> Result<()>
+    {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class V
+                ---@field pat<??>ch number
+                ---@field pre? string
+
+                ---@param to V?
+                local function bump(to)
+                    if to.pre then
+                        to.pre = to.pre .. "x"
+                    else
+                        to.patch = to.patch + 1
+                    end
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 10])
+    }
 }
