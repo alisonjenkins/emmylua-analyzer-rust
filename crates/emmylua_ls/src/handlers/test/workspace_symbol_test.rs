@@ -199,6 +199,111 @@ mod tests {
         Ok(())
     }
 
+    // LuaLS 3.18.1 returns every local declaration (all with kind Variable and
+    // no container): functions, plain locals, multi-name locals, parameters,
+    // loop variables and locals in nested scopes, shadowed ones once per
+    // declaration.
+    const LOCALS_FIXTURE: &str = r#"
+        local function lf_top() end
+        local lv_num = 1
+        local lv_a, lv_b = 1, 2
+        local lv_req = require("x")
+        local lv_shadow = 1
+        local lv_fnexpr = function() end
+        local function outer(param_one, param_two)
+            local lv_inner = 1
+            local lv_shadow = 2
+            local function lf_nested() end
+            do
+                local lv_block = 3
+            end
+            for loop_i = 1, 3 do end
+            for loop_k, loop_v in pairs({}) do end
+            return lv_inner
+        end
+        function lv_obj:method_with_self() end
+        return outer
+    "#;
+
+    fn count_of(symbols: &[WorkspaceSymbol], name: &str) -> usize {
+        symbols.iter().filter(|symbol| symbol.name == name).count()
+    }
+
+    #[gtest]
+    fn test_local_functions_are_found_as_functions() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(LOCALS_FIXTURE);
+        for name in ["lf_top", "lf_nested", "lv_fnexpr", "outer"] {
+            expect_that!(
+                kind_of(&query(&ws, name), name),
+                some(eq(SymbolKind::FUNCTION)),
+                "{name}"
+            );
+        }
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_local_variables_are_found_once_each() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(LOCALS_FIXTURE);
+        for name in ["lv_num", "lv_a", "lv_b", "lv_req", "lv_inner", "lv_block"] {
+            expect_that!(
+                kind_of(&query(&ws, name), name),
+                some(eq(SymbolKind::VARIABLE)),
+                "{name}"
+            );
+        }
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_shadowing_locals_are_one_symbol_per_declaration() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(LOCALS_FIXTURE);
+        expect_that!(count_of(&query(&ws, "lv_shadow"), "lv_shadow"), eq(2));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_parameters_and_loop_variables_are_found() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(LOCALS_FIXTURE);
+        for name in ["param_one", "param_two", "loop_i", "loop_k", "loop_v"] {
+            expect_that!(count_of(&query(&ws, name), name), eq(1), "{name}");
+        }
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_implicit_self_and_varargs_are_not_symbols() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+            local M = {}
+            function M:with_self(...) end
+            return M
+        "#,
+        );
+        let symbols = query(&ws, "");
+        expect_that!(count_of(&symbols, "self"), eq(0));
+        expect_that!(count_of(&symbols, "..."), eq(0));
+        Ok(())
+    }
+
+    // LuaLS stops at 1000 results; a one-letter query on a large workspace
+    // otherwise returns tens of thousands of symbols.
+    #[gtest]
+    fn test_results_are_capped_at_one_thousand() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let source: String = (0..1100)
+            .map(|i| format!("local cap_{i} = {i}\n"))
+            .collect();
+        ws.def(&source);
+        expect_that!(query(&ws, "cap_").len(), eq(1000));
+        Ok(())
+    }
+
     #[gtest]
     fn test_unmatched_query_returns_nothing() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
