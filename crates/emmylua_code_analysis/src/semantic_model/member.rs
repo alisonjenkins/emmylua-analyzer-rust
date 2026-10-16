@@ -375,15 +375,22 @@ pub(crate) fn member_info_impl(
 /// Nested `__index` tables are followed at most this deep, which also ends `__index` cycles.
 const MAX_INDEX_TABLE_DEPTH: u8 = 4;
 
+thread_local! {
+    static DEPTH: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+}
+
+/// How many `__index` tables the current lookup is already inside; a nonzero depth truncates
+/// further lookups, so a result computed there is not the one a fresh lookup would give.
+pub(super) fn index_table_depth() -> u8 {
+    DEPTH.with(|depth| depth.get())
+}
+
 fn metatable_index_table_member(
     model: &SemanticModel,
     table: &InFiled<rowan::TextRange>,
     key: &LuaMemberKey,
 ) -> Option<MemberInfo> {
-    thread_local! {
-        static DEPTH: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
-    }
-    let depth = DEPTH.with(|depth| depth.get());
+    let depth = index_table_depth();
     if depth >= MAX_INDEX_TABLE_DEPTH {
         return None;
     }
