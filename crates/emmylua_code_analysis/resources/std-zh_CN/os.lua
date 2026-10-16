@@ -16,7 +16,9 @@
 --- @class oslib
 os = {}
 
---- 返回程序使用的 CPU 时间（以秒为单位）的近似值。
+---
+--- Returns an approximation of the amount in seconds of CPU time used by
+--- the program.
 --- @return number
 function os.clock() end
 
@@ -42,33 +44,38 @@ function os.clock() end
 --- @field yday  integer | string 一年中的哪一天 (1-366)
 --- @field isdst boolean          夏令时标志，布尔值。
 
---- 返回包含日期和时间的字符串或表，格式由字符串 `format` 指定。
 ---
---- 如果提供了 `time` 参数，则格式化该时间（有关此值的描述，请参见
---- `os.time` 函数）。否则，`date` 格式化当前时间。
+--- Returns a string or a table containing date and time, formatted according
+--- to the given string `format`.
 ---
---- 如果 `format` 以 '`!`' 开头，则日期按协调世界时（UTC）格式化。
---- 在此可选字符之后，如果 `format` 是字符串 "`*t`"，则 `date`
---- 返回一个包含以下字段的表：
+--- If the `time` argument is present, this is the time to be formatted (see
+--- the `os.time` function for a description of this value). Otherwise,
+--- `date` formats the current time.
 ---
---- **`year`** (四位年份)
---- **`month`** (1-12)
+--- If `format` starts with '`!`', then the date is formatted in Coordinated
+--- Universal Time. After this optional character, if `format` is the string
+--- "`*t`", then `date` returns a table with the following fields:
+---
+--- **`year`** (four digits)
+--- **`month`** (1–12)
 --- **`day`** (1-31)
 --- **`hour`** (0-23)
 --- **`min`** (0-59)
---- **`sec`** (0-61, 包含闰秒)
---- **`wday`** (星期几, 1-7, 星期日为 1)
---- **`yday`** (一年中的哪一天, 1-366)
---- **`isdst`** (夏令时标志, 布尔值). 如果信息不可用，可能会缺少此字段。
+--- **`sec`** (0-61), due to leap seconds
+--- **`wday`** (weekday, 1–7, Sunday is 1)
+--- **`yday`** (day of the year, 1–366)
+--- **`isdst`** (daylight saving flag, a boolean). This last field may be absent
+--- if the information is not available.
 ---
---- 如果 `format` 不是 "`*t`"，则 `date` 将日期作为字符串返回，
---- 其格式化规则与 ISO C 函数 `strftime` 相同。
+--- If `format` is not "`*t`", then `date` returns the date as a string,
+--- formatted according to the same rules as the ISO C function `strftime`.
 ---
---- 当不带参数调用时，`date` 返回依赖于主机系统和当前区域设置的
---- 合理日期和时间表示。（更具体地说，`os.date()` 相当于 `os.date("%c")`。）
+--- When called without arguments, `date` returns a reasonable date and time
+--- representation that depends on the host system and on the current locale.
+--- (More specifically, `os.date()` is equivalent to `os.date("%c")`.)
 ---
---- 在非 POSIX 系统上，此函数可能不是线程安全的，因为它依赖于
---- C 函数 `gmtime` 和 `localtime`。
+--- On non-POSIX systems, this function may be not thread safe because of its
+--- reliance on C function `gmtime` and C function `localtime`.
 --- @overload fun(fmt: "*t", time?: number): std.osdate
 --- @overload fun(fmt: "!*t", time?: number): std.osdate
 --- @param format? string
@@ -76,23 +83,29 @@ function os.clock() end
 --- @return string
 function os.date(format, time) end
 
---- 返回从时间 `t1` 到时间 `t2` 的差值（以秒为单位）。（其中时间是
---- `os.time` 返回的值）。在 POSIX、Windows 和其他一些系统中，
---- 此值正好是 `t2`-`t1`。
+---
+--- Returns the difference, in seconds, from time `t1` to time `t2`. (where the
+--- times are values returned by `os.time`). In POSIX, Windows, and some other
+--- systems, this value is exactly `t2`-`t1`.
 --- @param t2 number
 --- @param t1 number
 --- @return number
 function os.difftime(t2, t1) end
 
 --- @version >5.2
---- 此函数相当于 C 函数 `system`。它传递 `command` 给操作系统 shell 执行。
---- 如果命令成功终止，它的第一个结果是 **true**，否则是 **nil**。
 ---
---- 在第一个结果之后，函数返回一个字符串加上一个数字：
---- - **"exit"**: 命令正常终止；后面的数字是命令的退出状态。
---- - **"signal"**: 命令被信号终止；后面的数字是终止命令的信号。
+--- This function is equivalent to the C function `system`. It passes `command`
+--- to be executed by an operating system shell. Its first result is **true** if
+--- the command terminated successfully, or **nil** otherwise. After this first
+--- result the function returns a string plus a number, as follows:
 ---
---- 当不带命令调用时，如果 shell 可用，`os.execute` 返回 true。
+--- **"exit"**: the command terminated normally; the following number is the
+--- exit status of the command.
+--- **"signal"**: the command was terminated by a signal; the following number
+--- is the signal that terminated the command.
+---
+--- When called without a command, `os.execute` returns a boolean that is true
+--- if a shell is available.
 --- @overload fun(): boolean
 --- @param command string
 --- @return true|nil
@@ -111,17 +124,14 @@ function os.execute(command) end
 function os.execute(command) end
 
 --- @version >5.2, JIT
---- 调用 ISO C 函数 `exit` 以终止宿主程序。
 ---
---- 如果 `code` 为 **true**，返回的状态是 `EXIT_SUCCESS`；
+--- Calls the ISO C function `exit` to terminate the host program. If `code` is
+--- **true**, the returned status is `EXIT_SUCCESS`; if `code` is **false**, the
+--- returned status is `EXIT_FAILURE`; if `code` is a number, the returned
+--- status is this number. The default value for `code` is **true**.
 ---
---- 如果 `code` 为 **false**，返回的状态是 `EXIT_FAILURE`；
----
---- 如果 `code` 是数字，返回的状态就是该数字。
----
---- `code` 的默认值为 **true**。
----
---- 如果可选的第二个参数 `close` 为 true，则在退出前关闭 Lua 状态。
+--- If the optional second argument `close` is true, closes the Lua state before
+--- exiting.
 --- @param code?  boolean | integer
 --- @param close? boolean
 function os.exit(code, close) end
@@ -133,70 +143,93 @@ function os.exit(code, close) end
 --- @param code? integer
 function os.exit(code) end
 
---- 返回进程环境变量 `varname` 的值，如果未定义该变量，则返回 **nil**。
+---
+--- Returns the value of the process environment variable `varname`, or
+--- **nil** if the variable is not defined.
 --- @param varname string
 --- @return string?
 function os.getenv(varname) end
 
---- 删除具有给定名称的文件（或在 POSIX 系统上的空目录）。
---- 如果此函数失败，它返回 **nil**，加上描述错误的字符串和错误代码。
---- 否则，它返回 true。
+---
+--- Deletes the file (or empty directory, on POSIX systems) with the given name.
+--- If this function fails, it returns **nil**, plus a string describing the
+--- error and the error code. Otherwise, it returns true.
 --- @param filename string
 --- @return true|nil result
 --- @return string err
 function os.remove(filename) end
 
---- 将名为 `oldname` 的文件或目录重命名为 `newname`。如果此函数失败，
---- 它返回 **nil**，加上描述错误的字符串和错误代码。否则，它返回 true。
+---
+--- Renames the file or directory named `oldname` to `newname`. If this function
+--- fails, it returns **nil**, plus a string describing the error and the error
+--- code. Otherwise, it returns true.
 --- @param oldname string
 --- @param newname string
 --- @return true|nil result
 --- @return string err
 function os.rename(oldname, newname) end
 
---- 设置程序的当前区域设置。`locale` 是一个依赖于系统的字符串，指定区域设置；
---- `category` 是一个可选字符串，描述要更改的类别：`"all"`, `"collate"`,
---- `"ctype"`, `"monetary"`, `"numeric"`, 或 `"time"`；默认类别是 `"all"`。
---- 该函数返回新区域设置的名称，如果无法满足请求，则返回 **nil**。
 ---
---- 如果 `locale` 是空字符串，当前区域设置将设置为实现定义的本机区域设置。
---- 如果 `locale` 是字符串 "`C`"，当前区域设置将设置为标准 C 区域设置。
+--- Sets the current locale of the program. `locale` is a system-dependent
+--- string specifying a locale; `category` is an optional string describing
+--- which category to change: `"all"`, `"collate"`, `"ctype"`, `"monetary"`,
+--- `"numeric"`, or `"time"`; the default category is `"all"`. The function
+--- returns the name of the new locale, or **nil** if the request cannot be
+--- honored.
 ---
---- 当使用 **nil** 作为第一个参数调用时，此函数仅返回给定类别的当前区域设置名称。
+--- If `locale` is the empty string, the current locale is set to an
+--- implementation-defined native locale. If `locale` is the string "`C`",
+--- the current locale is set to the standard C locale.
 ---
---- 此函数可能不是线程安全的，因为它依赖于 C 函数 `setlocale`。
+--- When called with **nil** as the first argument, this function only returns
+--- the name of the current locale for the given category.
+---
+--- This function may be not thread safe because of its reliance on C function
+--- `setlocale`.
 --- @param locale    string
 --- @param category? string
 --- @return string|nil
 function os.setlocale(locale, category) end
 
---- 当不带参数调用时返回当前时间，或者返回由给定表指定的日期和时间对应的时间。
---- 此表必须有 `year`、`month` 和 `day` 字段，并且可以有 `hour`（默认为 12）、
---- `min`（默认为 0）、`sec`（默认为 0）和 `isdst`（默认为 **nil**）。
---- 忽略其他字段。有关这些字段的描述，请参见 `os.date` 函数。
 ---
---- 调用该函数时，这些字段中的值不需要在其有效范围内。例如，如果 `sec` 为 -10，
---- 则表示在其他字段指定的时间之前 10 秒；如果 `hour` 为 1000，则表示在
---- 其他字段指定的时间之后 1000 小时。
+--- Returns the current time when called without arguments, or a time
+--- representing the date and time specified by the given table. This table
+--- must have fields `year`, `month`, and `day`, and may have fields `hour`
+--- (default is 12), `min` (default is 0), `sec` (default is 0), and `isdst`
+--- (default is **nil**). Other fields are ignored. For a description of these
+--- fields, see the `os.date` function.
 ---
---- 返回的值是一个数字，其含义取决于你的系统。在 POSIX、Windows 和其他一些系统中，
---- 此数字计算自某个给定开始时间（"epoch"）以来的秒数。在其他系统中，
---- 含义未指定，`time` 返回的数字只能用作 `os.date` 和 `os.difftime` 的参数。
+--- When the function is called, the values in these fields do not need to be
+--- inside their valid ranges. For instance, if `sec` is -10, it means 10 seconds
+--- before the time specified by the other fields; if `hour` is 1000, it means
+--- 1000 hours after the time specified by the other fields.
 ---
---- 当使用表调用时，`os.time` 还会规范化 `os.date` 函数中记录的所有字段，
---- 以便它们表示与调用前相同的时间，但值在其有效范围内。
+--- The returned value is a number, whose meaning depends on your system. In
+--- POSIX, Windows, and some other systems, this number counts the number of
+--- seconds since some given start time (the "epoch"). In other systems, the
+--- meaning is not specified, and the number returned by `time` can be used only
+--- as an argument to `os.date` and `os.difftime`.
+---
+--- When called with a table, `os.time` also normalizes all the fields
+--- documented in the `os.date` function, so that they represent the same time
+--- as before the call but with values inside their valid ranges.
 --- @param date? std.osdateparam
 --- @return integer
 function os.time(date) end
 
---- 返回一个包含可用于临时文件文件名的字符串。该文件必须在使用前显式打开，
---- 不再需要时显式删除。
 ---
---- 在某些系统（POSIX）上，此函数还会创建一个具有该名称的文件，以避免安全风险。
---- （其他人可能会在获取名称和创建文件之间的时间内创建具有错误权限的文件。）
---- 你仍然必须打开文件才能使用它并删除它（即使你不使用它）。
+--- Returns a string with a file name that can be used for a temporary
+--- file. The file must be explicitly opened before its use and explicitly
+--- removed when no longer needed.
 ---
---- 如果可能，你可能更喜欢使用 `io.tmpfile`，它在程序结束时自动删除文件。
+--- On some systems (POSIX), this function also creates a file with that
+--- name, to avoid security risks. (Someone else might create the file with
+--- wrong permissions in the time between getting the name and creating the
+--- file.) You still have to open the file to use it and to remove it (even
+--- if you do not use it).
+---
+--- When possible, you may prefer to use `io.tmpfile`, which automatically
+--- removes the file when the program ends.
 --- @return string
 function os.tmpname() end
 

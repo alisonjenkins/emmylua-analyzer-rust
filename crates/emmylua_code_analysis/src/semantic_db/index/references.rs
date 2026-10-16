@@ -14,6 +14,7 @@ use crate::semantic_db::def::{
 use crate::semantic_db::query::{
     file_facts, file_matches_workspace_id, member_ref_from_index_expr, module_file_from,
     resolve_member_id, resolve_name, resolve_owner_ids, resolve_type_def, syntax_tree,
+    unresolved_member_key,
 };
 use crate::{FileId, WorkspaceId};
 
@@ -26,6 +27,9 @@ pub struct FileReferences {
     pub member_refs: HashMap<SemanticId, Vec<TextRange>>,
     /// Member definition sites (`T.x = v` / `@field x` / table field keys / method names).
     pub member_defs: HashMap<SemanticId, Vec<TextRange>>,
+    /// Uses of a field nothing declares and no type explains (`vim.fn.stdpath`, `h.check`), keyed by
+    /// root variable and dotted path (see `unresolved_member_key`).
+    pub unresolved_member_refs: HashMap<(SemanticId, SmolStr), Vec<TextRange>>,
     /// Canonical identity-level dependencies of this file (P7).
     pub deps: FileDependencies,
 }
@@ -86,15 +90,17 @@ pub(crate) fn build_file_references(db: &SemanticDatabase, file: FileId) -> File
                 &mut out.deps,
             );
         }
+        let Some(range) = index_expr.get_index_key().and_then(|key| key.get_range()) else {
+            continue;
+        };
         if let Some(member_id) = resolve_member_id(db, &facts, &index_expr) {
             push_target_dependencies(db, &member_id, &mut out.deps);
-            let Some(key) = index_expr.get_index_key() else {
-                continue;
-            };
-            let Some(range) = key.get_range() else {
-                continue;
-            };
             out.member_refs.entry(member_id).or_default().push(range);
+        } else if let Some(key) = unresolved_member_key(&facts, &index_expr) {
+            out.unresolved_member_refs
+                .entry(key)
+                .or_default()
+                .push(range);
         }
     }
 
@@ -211,6 +217,7 @@ pub struct WorkspaceReferenceIndex {
     pub decl_refs: HashMap<SemanticId, Vec<(FileId, TextRange)>>,
     pub member_refs: HashMap<SemanticId, Vec<(FileId, TextRange)>>,
     pub member_defs: HashMap<SemanticId, Vec<(FileId, TextRange)>>,
+    pub unresolved_member_refs: HashMap<(SemanticId, SmolStr), Vec<(FileId, TextRange)>>,
     by_file: HashMap<FileId, Arc<FileReferences>>,
 }
 
@@ -222,20 +229,30 @@ impl WorkspaceReferenceIndex {
         retain_file_ranges(&mut self.decl_refs, file_id, &refs.decl_refs);
         retain_file_ranges(&mut self.member_refs, file_id, &refs.member_refs);
         retain_file_ranges(&mut self.member_defs, file_id, &refs.member_defs);
+        retain_file_ranges(
+            &mut self.unresolved_member_refs,
+            file_id,
+            &refs.unresolved_member_refs,
+        );
     }
 
     pub(crate) fn add_file(&mut self, file_id: FileId, refs: Arc<FileReferences>) {
         extend_file_ranges(&mut self.decl_refs, file_id, &refs.decl_refs);
         extend_file_ranges(&mut self.member_refs, file_id, &refs.member_refs);
         extend_file_ranges(&mut self.member_defs, file_id, &refs.member_defs);
+        extend_file_ranges(
+            &mut self.unresolved_member_refs,
+            file_id,
+            &refs.unresolved_member_refs,
+        );
         self.by_file.insert(file_id, refs);
     }
 }
 
-fn extend_file_ranges(
-    aggregate: &mut HashMap<SemanticId, Vec<(FileId, TextRange)>>,
+fn extend_file_ranges<K: std::hash::Hash + Eq + Clone>(
+    aggregate: &mut HashMap<K, Vec<(FileId, TextRange)>>,
     file_id: FileId,
-    ranges: &HashMap<SemanticId, Vec<TextRange>>,
+    ranges: &HashMap<K, Vec<TextRange>>,
 ) {
     for (target, ranges) in ranges {
         aggregate
@@ -245,10 +262,10 @@ fn extend_file_ranges(
     }
 }
 
-fn retain_file_ranges(
-    aggregate: &mut HashMap<SemanticId, Vec<(FileId, TextRange)>>,
+fn retain_file_ranges<K: std::hash::Hash + Eq>(
+    aggregate: &mut HashMap<K, Vec<(FileId, TextRange)>>,
     file_id: FileId,
-    ranges: &HashMap<SemanticId, Vec<TextRange>>,
+    ranges: &HashMap<K, Vec<TextRange>>,
 ) {
     for target in ranges.keys() {
         if let Some(entries) = aggregate.get_mut(target) {

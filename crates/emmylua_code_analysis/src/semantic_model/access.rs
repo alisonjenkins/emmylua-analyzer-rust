@@ -760,6 +760,14 @@ impl<'db> SemanticModel<'db> {
             .insert((file_id, syntax), signatures.clone());
         signatures
     }
+    /// Root variable and dotted key path of an access like `vim.fn.stdpath` or `h.check`, the
+    /// identity under which its uses are linked when the field is declared nowhere.
+    pub fn unresolved_member_key(
+        &self,
+        index_expr: &LuaIndexExpr,
+    ) -> Option<(SemanticId, SmolStr)> {
+        crate::semantic_db::query::unresolved_member_key(self.file_facts()?, index_expr)
+    }
     pub fn resolve_member(&self, index_expr: &LuaIndexExpr) -> Option<ResolvedMember> {
         let syntax = index_expr.get_syntax_id();
         let file_id = self.view.file_id();
