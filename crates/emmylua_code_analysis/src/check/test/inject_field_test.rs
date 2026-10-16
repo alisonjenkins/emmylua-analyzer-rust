@@ -461,6 +461,22 @@ mod test {
     }
 
     #[test]
+    fn test_index_signature_class_allows_field_injection() {
+        let mut ws = VirtualWorkspace::new();
+        assert!(ws.has_no_diagnostic(
+            DiagnosticCode::InjectField,
+            r#"
+            --- @class Bag
+            --- @field [string] any
+
+            ---@type Bag
+            local bag = {}
+            bag.aaa = true
+            "#,
+        ));
+    }
+
+    #[test]
     fn test_alias_unknown_allows_field_injection() {
         let mut ws = VirtualWorkspace::new();
         assert!(ws.has_no_diagnostic(

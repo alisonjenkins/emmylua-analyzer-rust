@@ -1060,4 +1060,41 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// `---@type uv` on `vim.uv = ...` in a meta file: the class's functions are reachable
+    /// from another file.
+    #[gtest]
+    fn test_hover_call_through_global_field_with_declared_class() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "uv_meta.lua",
+            r#"
+                ---@meta
+                ---@class uv
+                local uv = {}
+
+                ---@return string
+                function uv.fs_name() end
+            "#,
+        );
+        ws.def_file(
+            "vim_meta.lua",
+            r#"
+                ---@meta
+                vim = {}
+
+                ---@type uv
+                vim.uv = ...
+            "#,
+        );
+        check!(ws.check_hover(
+            r#"
+                local n<??> = vim.uv.fs_name()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal n: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
