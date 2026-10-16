@@ -1632,6 +1632,29 @@ mod tests {
         Ok(())
     }
 
+    /// The `---@version` branches that do not apply to the runtime are not the signature shown.
+    #[gtest]
+    fn test_hover_stdlib_version_overload_picks_runtime_version() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        for source in [
+            "local a = coroutine.run<??>ning",
+            "local a = coroutine.run<??>ning()",
+        ] {
+            let (content, position) = ProviderVirtualWorkspace::handle_file_content(source)?;
+            let file_id = ws.def(&content);
+            let hover = crate::handlers::hover::hover(&ws.analysis, file_id, position)
+                .ok_or("no hover")
+                .or_fail()?;
+            let hover_text = format!("{hover:?}");
+            verify_that!(
+                hover_text,
+                contains_substring("function coroutine.running() -> thread, boolean")
+            )?;
+            verify_that!(hover_text, not(contains_substring("thread?")))?;
+        }
+        Ok(())
+    }
+
     /// Lua coerces a number to a string for the string library, so the subject accepts both.
     #[gtest]
     fn test_hover_string_library_accepts_number_subject() -> Result<()> {
