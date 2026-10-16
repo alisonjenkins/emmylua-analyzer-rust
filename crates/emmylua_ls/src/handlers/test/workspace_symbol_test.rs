@@ -141,7 +141,35 @@ mod tests {
         let response = build_workspace_symbols(&ws.analysis, "".to_string(), cancel);
         expect_that!(
             response,
-            some(matches_pattern!(WorkspaceSymbolResponse::Nested(is_empty())))
+            some(matches_pattern!(
+                WorkspaceSymbolResponse::Nested(is_empty())
+            ))
+        );
+        Ok(())
+    }
+
+    // LuaLS 3.18.1 also returns named fields of table constructors
+    // (`return { run = function() end }`), so they stay. LuaLS additionally
+    // returns fields of `local t = { a = 1 }`, which emmylua does not index
+    // as members yet; that gap is not pinned here.
+    #[gtest]
+    fn test_table_constructor_fields_are_found() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+            local t = { ctorfield = 1 }
+            local M = {}
+            M.modfield = 1
+            return { retfn = function() end, M = M, t = t }
+        "#,
+        );
+        expect_that!(
+            kind_of(&query(&ws, "retfn"), "retfn"),
+            some(eq(SymbolKind::FUNCTION))
+        );
+        expect_that!(
+            kind_of(&query(&ws, "modfield"), "modfield"),
+            some(eq(SymbolKind::FIELD))
         );
         Ok(())
     }
