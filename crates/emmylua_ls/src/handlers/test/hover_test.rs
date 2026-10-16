@@ -1533,7 +1533,7 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\n(parameter) o: unknown\n```".to_string(),
+                value: "```lua\n(parameter) o: { kind: unknown, name: unknown }\n```".to_string(),
             },
         ));
         check!(ws.check_hover(
@@ -1545,7 +1545,8 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\n(parameter) o: unknown\n```".to_string(),
+                value: "```lua\n(parameter) o: { enabled: unknown, name: unknown }\n```"
+                    .to_string(),
             },
         ));
         Ok(())
