@@ -16,58 +16,84 @@
 
 -- Built-in Types
 
---- *nil* 类型只有一个值 **nil**，其主要特性是与任何其他值都不同；
---- 它通常表示缺少有用的值。
+---
+--- The type *nil* has one single value, **nil**, whose main property is to be
+--- different from any other value; it usually represents the absence of a
+--- useful value.
 --- @class nil
 
---- *boolean* 类型有两个值：**false** 和 **true**。**nil** 和 **false**
---- 都会使条件为假；任何其他值都会使条件为真。
+---
+--- The type *boolean* has two values, **false** and **true**. Both **nil** and
+--- **false** make a condition false; any other value makes it true.
 --- @class boolean
 
---- **number** 类型在内部使用两种表示形式，或称为两种子类型，一种叫做
---- *integer*，另一种叫做 *float*。Lua 对于何时使用哪种表示形式有明确的规则，
---- 但也会在需要时自动进行转换。因此，程序员可以选择忽略整数和浮点数之间的差异，
---- 也可以完全控制每个数字的表示形式。标准 Lua 使用 64 位整数和双精度（64 位）
---- 浮点数，但你也可以将 Lua 编译为使用 32 位整数和/或单精度（32 位）浮点数。
---- 对于小型机器和嵌入式系统来说，同时使用 32 位整数和 32 位浮点数的选项特别有吸引力。
---- （参见 `luaconf.h` 文件中的宏 `LUA_32BITS`。）
+---
+--- The type *number* uses two internal representations, or two subtypes, one
+--- called *integer* and the other called *float*. Lua has explicit rules about
+--- when each representation is used, but it also converts between them
+--- automatically as needed. Therefore, the programmer may choose to mostly
+--- ignore the difference between integers and floats or to assume complete
+--- control over the representation of each number. Standard Lua uses 64-bit
+--- integers and double-precision (64-bit) floats, but you can also compile
+--- Lua so that it uses 32-bit integers and/or single-precision (32-bit)
+--- floats. The option with 32 bits for both integers and floats is
+--- particularly attractive for small machines and embedded systems. (See
+--- macro LUA_32BITS in file luaconf.h.)
 --- @class number
 
 --- @class integer
 
---- *userdata* 类型用于允许将任意 C 数据存储在 Lua 变量中。userdata 值
---- 表示一块原始内存。有两种 userdata：*full userdata*，是一个由 Lua
---- 管理内存块的对象；*light userdata*，它仅是一个 C 指针值。userdata 在
---- Lua 中没有预定义的操作，除了赋值和相等性测试。通过使用 *metatables*，程序员
---- 可以为 full userdata 值定义操作。userdata 值不能在 Lua 中创建或修改，
---- 只能通过 C API 进行。这保证了宿主程序所拥有数据的完整性。
+---
+--- The type *userdata* is provided to allow arbitrary C data to be stored in
+--- Lua variables. A userdata value represents a block of raw memory. There
+--- are two kinds of userdata: *full userdata*, which is an object with a block
+--- of memory managed by Lua, and *light userdata*, which is simply a C pointer
+--- value. Userdata has no predefined operations in Lua, except assignment
+--- and identity test. By using *metatables*, the programmer can define
+--- operations for full userdata values. Userdata values cannot be
+--- created or modified in Lua, only through the C API. This guarantees the
+--- integrity of data owned by the host program.
 --- @class userdata
 
 --- @class lightuserdata
 
---- *thread* 类型表示独立的执行线程，用于实现协程。Lua 线程与操作系统
---- 线程无关。Lua 在所有系统上都支持协程，即使是那些原生不支持线程的系统。
+---
+--- The type *thread* represents independent threads of execution and it is
+--- used to implement coroutines. Lua threads are not related to
+--- operating-system threads. Lua supports coroutines on all systems, even those
+--- that do not support threads natively.
 --- @class thread
 
---- *table* 类型实现关联数组，即索引不仅可以是数字，还可以是除 **nil**
---- 和 NaN 之外的任何 Lua 值的数组。（*NaN* 是 IEEE 754 标准用于表示
---- 未定义或不可表示的数值结果的特殊浮点值，例如 `0/0`。）表可以是异构的；
---- 也就是说，它们可以包含所有类型的值（除了 **nil**）。值为 **nil** 的
---- 任何键都不被视为表的一部分。相反，任何不属于表的键其关联值都为 **nil**。
 ---
---- 表是 Lua 中唯一的数据结构；它们可以用来表示普通数组、列表、符号表、
---- 集合、记录、图、树等。为了表示记录，Lua 使用字段名作为索引。语言通过
---- 提供 `a.name` 作为 `a["name"]` 的语法糖来支持这种表示。
+--- The type *table* implements associative arrays, that is, arrays that can
+--- have as indices not only numbers, but any Lua value except **nil** and NaN.
+--- (*Not a Number* is a special floating-point value used by the IEEE 754
+--- standard to represent undefined or unrepresentable numerical results, such
+--- as `0/0`.) Tables can be heterogeneous; that is, they can contain values of
+--- all types (except **nil**). Any key with value **nil** is not considered
+--- part oft he table. Conversely, any key that is not part of a table has an
+--- a ssociated value **nil**.
 ---
---- 与索引一样，表字段的值可以是任何类型。特别地，由于函数是一等公民，表
---- 字段可以包含函数。因此表也可以携带 *methods*。
+--- Tables are the sole data-structuring mechanism in Lua; they can be used to
+--- represent ordinary arrays, lists, symbol tables, sets, records, graphs,
+--- trees, etc. To represent records, Lua uses the field name as an index. The
+--- language supports this representation by providing `a.name` as syntactic
+--- sugar for `a["name"]`. There are several convenient ways to create tables
+--- in Lua.
 ---
---- 表的索引遵循语言中原始相等的定义。表达式 `a[i]` 和 `a[j]` 当且仅当
---- `i` 和 `j` 原始相等（即不使用元方法的相等）时表示相同的表元素。特别地，
---- 具有整数值的浮点数等于其对应的整数。为避免歧义，任何用作键的具有整数值
---- 的浮点数都会转换为其对应的整数。例如，如果你写 `a[2.0] = true`，
---- 插入表中的实际键将是整数 `2`。（另一方面，2 和 "`2`" 是不同的 Lua 值，
---- 因此表示不同的表条目。）
+--- Like indices, the values of table fields can be of any type. In particular,
+--- because functions are first-class values, table fields can contain functions.
+--- Thus tables can also carry *methods*.
+---
+--- The indexing of tables follows the definition of raw equality in the
+--- language. The expressions `a[i]` and `a[j]` denote the same table element
+--- if and only if `i` and `j` are raw equal (that is, equal without
+--- metamethods). In particular, floats with integral values are equal to
+--- their respective integers. To avoid ambiguities, any float with integral
+--- value used as a key is converted to its respective integer. For instance,
+--- if you write `a[2.0] = true`, the actual key inserted into the table will
+--- be the integer `2`. (On the other hand, 2 and "`2`" are different Lua
+--- values and therefore denote different table entries.)
 --- @class table
 
 --- @class any
@@ -90,13 +116,16 @@
 
 --- @alias std.Nullable<T> T +?
 
---- Select 函数的内置类型
+---
+--- built-in type for Select function
 --- @alias std.Select<T, StartOrLen> unknown
 
---- Unpack 函数的内置类型
+---
+--- built-in type for Unpack function
 --- @alias std.Unpack<T, Start, End> unknown
 
---- Rawget 的内置类型
+---
+--- built-in type for Rawget
 --- @alias std.RawGet<T, K> unknown
 
 --- compact luals
@@ -111,29 +140,35 @@
 
 --- @alias Language<T: string> string
 
---- 以元组形式获取函数的参数
+---
+--- Get the parameters of a function as a tuple
 --- @alias Parameters<T extends function> T extends (fun(...: infer P): any) and P or never
 
---- 以元组形式获取构造函数的参数
+---
+--- Get the parameters of a constructor as a tuple
 --- @alias ConstructorParameters<T> T extends new (fun(...: infer P): any) and P or never
 
---- 获取函数类型的返回类型
+--- Get the return type of a function type
 --- @alias ReturnType<T extends function> T extends (fun(...: any): infer R) and R or any
 
---- 使 T 中的所有属性变为可选
+---
+--- Make all properties in T optional
 --- @alias Partial<T> { [P in keyof T]?: T[P]; }
 
---- 排除 T 中可以赋值给 U 的类型
+---
+--- Exclude from T those types that are assignable to U
 --- @alias Exclude<T, U> T extends U and never or T
 
---- 提取 T 中可以赋值给 U 的类型
+---
+--- Extract from T those types that are assignable to U
 --- @alias Extract<T, U> T extends U and T or never
 
 --- attribute
 
 --- @class Attribute
 
---- 标记为`已弃用`。接收一个可选的消息参数。
+---
+--- Deprecated. Receives an optional message parameter.
 --- @class deprecated: Attribute
 --- @overload fun(message?: string)
 
@@ -167,13 +202,13 @@
 --- @class constructor: Attribute
 --- @overload fun(name: string, root_class?: string, strip_self?: boolean, return_mode?: "self" | "doc" | "default")
 
---- 将 `getter` 和 `setter` 方法与字段关联。目前仅提供定义跳转功能，
---- 且目标方法必须位于同一个类中。
 ---
---- ### 参数
+--- Associates `getter` and `setter` methods with a field. Currently provides only definition navigation functionality,
+--- and the target methods must reside within the same class.
 ---
---- - `convention`: 命名约定，默认为 `camelCase`。隐式添加 `get` 和 `set` 前缀，例如 `_age` -> `getAge`、`setAge`。
---- - `getter`: Getter 方法名。优先级高于 `convention`。
---- - `setter`: Setter 方法名。优先级高于 `convention`。
+--- Parameters:
+--- - `convention`: Naming convention, defaults to `camelCase`. Implicitly adds `get` and `set` prefixes. eg: `_age` -> `getAge`, `setAge`.
+--- - `getter`: Getter method name. Takes precedence over `convention`.
+--- - `setter`: Setter method name. Takes precedence over `convention`.
 --- @class field_accessor: Attribute
 --- @overload fun(convention?: "camelCase" | "PascalCase" | "snake_case", getter?: string, setter?: string)
