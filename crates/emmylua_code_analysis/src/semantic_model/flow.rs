@@ -4791,6 +4791,11 @@ fn filter_type_by_member_discriminant(
     };
     let mut kept = Vec::new();
     for component in components {
+        // A component with no known shape cannot be refuted by a member test.
+        if matches!(component, LuaType::Unknown | LuaType::Any) {
+            kept.push(component);
+            continue;
+        }
         if let LuaType::Ref(id) | LuaType::Def(id) = &component {
             if let Some(def) = model.type_def_of(id)
                 && def.kind == TypeDefKind::Alias
@@ -4835,6 +4840,11 @@ fn filter_type_by_member_truthiness(
     };
     let mut kept = Vec::new();
     for component in components {
+        // A component with no known shape cannot be refuted by a member test.
+        if matches!(component, LuaType::Unknown | LuaType::Any) {
+            kept.push(component);
+            continue;
+        }
         if let LuaType::Ref(id) | LuaType::Def(id) = &component {
             if let Some(def) = model.type_def_of(id)
                 && def.kind == TypeDefKind::Alias
