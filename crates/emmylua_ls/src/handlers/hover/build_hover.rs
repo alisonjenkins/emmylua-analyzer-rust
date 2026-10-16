@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use emmylua_code_analysis::{
-    Decl, DeclKind, GenericTplId, LuaFunctionType, LuaMemberKey, LuaType, LuaTypeDeclId, Member,
+    AsyncState, Decl, DeclKind, GenericTplId, LuaFunctionType, LuaMemberKey, LuaType, LuaTypeDeclId, Member,
     MemberInfo, SemanticDatabase, SemanticId, SemanticModel, TypeDef, TypeDefKind, VariadicType,
 };
 use emmylua_parser::{
@@ -611,6 +611,36 @@ fn humanize_return(model: &SemanticModel<'_>, ty: &LuaType) -> String {
     }
 }
 
+fn async_prefix(func: &LuaFunctionType) -> &'static str {
+    match func.get_async_state() {
+        AsyncState::Async => "(async) ",
+        _ => "",
+    }
+}
+
+/// A dot-defined function whose first parameter is an untyped `self` takes the owner class as its type.
+fn with_self_param_owner(func: &LuaFunctionType, owner: Option<&LuaType>) -> LuaFunctionType {
+    let mut params = func.get_params().to_vec();
+    match (owner, params.first_mut()) {
+        (Some(owner), Some((name, ty)))
+            if name == "self"
+                && !func.is_colon_define()
+                && matches!(ty, None | Some(LuaType::Unknown | LuaType::Any)) =>
+        {
+            *ty = Some(owner.clone());
+        }
+        _ => return func.clone(),
+    }
+    LuaFunctionType::new(
+        func.get_async_state(),
+        func.is_colon_define(),
+        func.is_variadic(),
+        params,
+        func.get_ret().clone(),
+        Some(func.get_generic_params().to_vec()),
+    )
+}
+
 fn render_function_params_and_ret_mode(
     model: &SemanticModel<'_>,
     func: &LuaFunctionType,
@@ -1044,10 +1074,14 @@ fn build_decl_hover(
         } else {
             String::new()
         };
+        let async_prefix = async_prefix(&signature);
         let code = if matches!(decl_info.kind, DeclKind::Local { .. }) {
-            format!("local function {}({}){}{}", name, params, ret, overloads)
+            format!(
+                "{}local function {}({}){}{}",
+                async_prefix, name, params, ret, overloads
+            )
         } else {
-            format!("function {}({}){}{}", name, params, ret, overloads)
+            format!("{}function {}({}){}{}", async_prefix, name, params, ret, overloads)
         };
         let mut description = decl_description(model, decl);
         description.overload_blocks = render_decl_overload_blocks(
@@ -1763,6 +1797,9 @@ fn build_member_hover(
             member_owner_type_and_name(model, &member_info.owner)
         {
             let is_method = display_as_method(model, fun, Some(&owner_ty));
+            let async_prefix = async_prefix(fun);
+            let typed_fun = with_self_param_owner(fun, Some(&owner_ty));
+            let fun = &typed_fun;
             let has_named_returns = !call_site_substituted
                 && signature_has_named_returns(model, member_info.value_syntax);
             let (params, _) =
@@ -1806,12 +1843,13 @@ fn build_member_hover(
             );
             return (
                 format!(
-                    "{}{}{}{}({}){}{}",
-                    prefix, owner_name, separator, member_name, params, ret, overloads
+                    "{}{}{}{}{}({}){}{}",
+                    async_prefix, prefix, owner_name, separator, member_name, params, ret, overloads
                 ),
                 Some(description),
             );
         } else if let Some(owner_name) = member_owner_display_name(model, &member_info.owner) {
+            let async_prefix = async_prefix(fun);
             let is_method = fun.is_colon_define() || member_info.is_method;
             let has_named_returns = !call_site_substituted
                 && signature_has_named_returns(model, member_info.value_syntax);
@@ -1831,13 +1869,13 @@ fn build_member_hover(
             let separator = if is_method { ":" } else { "." };
             let code = if is_method {
                 format!(
-                    "(method) {}{}{}({}){}{}",
-                    owner_name, separator, member_name, params, ret, overloads
+                    "{}(method) {}{}{}({}){}{}",
+                    async_prefix, owner_name, separator, member_name, params, ret, overloads
                 )
             } else {
                 format!(
-                    "function {}.{}({}){}{}",
-                    owner_name, member_name, params, ret, overloads
+                    "{}function {}.{}({}){}{}",
+                    async_prefix, owner_name, member_name, params, ret, overloads
                 )
             };
             return (code, Some(description));
@@ -1856,6 +1894,8 @@ fn build_member_hover(
     if let Some(fun) = member_signature(model, member_info) {
         let (owner_ty, owner_name) = member_owner_type_and_name(model, &member_info.owner);
         let is_method = member_info.is_method || display_as_method(model, &fun, owner_ty.as_ref());
+        let async_prefix = async_prefix(&fun);
+        let fun = with_self_param_owner(&fun, owner_ty.as_ref());
         let has_named_returns =
             !call_site_substituted && signature_has_named_returns(model, member_info.value_syntax);
         let (params, _) =
@@ -1894,21 +1934,27 @@ fn build_member_hover(
             );
             return (
                 format!(
-                    "{}{}{}{}({}){}{}",
-                    prefix, owner_name, separator, member_name, params, ret, overloads
+                    "{}{}{}{}{}({}){}{}",
+                    async_prefix, prefix, owner_name, separator, member_name, params, ret, overloads
                 ),
                 Some(description),
             );
         }
         if let Some(owner_name) = member_owner_display_name(model, &member_info.owner) {
             let code = if is_method {
-                format!("(method) {}:{}({}){}", owner_name, member_name, params, ret)
+                format!(
+                    "{}(method) {}:{}({}){}",
+                    async_prefix, owner_name, member_name, params, ret
+                )
             } else {
-                format!("function {}.{}({}){}", owner_name, member_name, params, ret)
+                format!(
+                    "{}function {}.{}({}){}",
+                    async_prefix, owner_name, member_name, params, ret
+                )
             };
             return (code, Some(description));
         }
-        let code = format!("function {}({}){}", member_name, params, ret);
+        let code = format!("{}function {}({}){}", async_prefix, member_name, params, ret);
         return (code, Some(description));
     }
     let mut rendered_typ = render_member_typ_with_default(model, &effective_typ);
