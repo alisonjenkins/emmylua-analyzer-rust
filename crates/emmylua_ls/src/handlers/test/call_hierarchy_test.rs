@@ -89,6 +89,25 @@ mod tests {
     }
 
     #[gtest]
+    fn test_incoming_ignores_calls_of_fields_set_to_the_result_of_a_call() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(incoming(
+            &mut ws,
+            r#"
+                local function make<??>_logger(level)
+                    return function() end
+                end
+                local log = {}
+                log.debug = make_logger('DEBUG')
+                local function caller()
+                    log.debug()
+                end
+            "#
+        ));
+        verify_eq!(got, vec![("virtual_0.lua".to_string(), vec![5])])
+    }
+
+    #[gtest]
     fn test_incoming_caller_item_resolves_to_its_own_function() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
