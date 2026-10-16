@@ -27,6 +27,44 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_method_on_untyped_field_ignores_same_named_function_of_sibling_field()
+    -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local function new_client(handle)
+                    local state = { handle = handle, client = {} }
+                    function state.client.close(cb)
+                        state.handle:cl<??>ose()
+                    end
+                    return state
+                end
+            "#
+        ));
+        let file_id = ws.def(&content);
+        let result = crate::handlers::definition::definition(&ws.analysis, file_id, position);
+        verify_that!(result, none())
+    }
+
+    #[gtest]
+    fn test_definition_of_method_on_nested_field_finds_function_declared_on_the_same_path()
+    -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local state = { client = {} }
+                function state.client.close(cb) end
+                state.client.cl<??>ose(1)
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 2
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_definition_of_global_function_declared_in_several_files() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         ws.def_file("a.lua", "function shared() end");
