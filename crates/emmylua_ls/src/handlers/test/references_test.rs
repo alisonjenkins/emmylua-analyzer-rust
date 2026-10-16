@@ -1264,4 +1264,17 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 10])
     }
+
+    #[gtest]
+    fn test_references_omit_the_declaration_in_a_meta_file() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file("api_stub.lua", "---@meta\n\n\n\nfunction fetch_it() end\n");
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                fetch_<??>it()
+                fetch_it()
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![1, 2])
+    }
 }
