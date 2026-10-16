@@ -1060,4 +1060,31 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// A string method called on `string?` or `string|number` still gives its result type.
+    #[gtest]
+    fn test_hover_string_method_on_nullable_and_union_receivers() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_hover(
+            r#"
+                ---@type string?
+                local maybe
+                local up<??> = maybe:upper()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal up: string\n```".to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                ---@type string|number
+                local either
+                local up<??> = either:upper()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal up: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
