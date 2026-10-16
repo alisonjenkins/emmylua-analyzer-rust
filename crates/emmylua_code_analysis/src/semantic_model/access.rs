@@ -522,6 +522,14 @@ impl<'db> SemanticModel<'db> {
                 {
                     ty = param_ty;
                 }
+                // `local x` set later (`x = made`) has no declared type; the expression's own type
+                // carries the assignments that reach this use.
+                if matches!(ty, LuaType::Unknown | LuaType::Nil) {
+                    let expr_ty = self.type_of_expr(expr.get_syntax_id());
+                    if !matches!(expr_ty, LuaType::Unknown | LuaType::Nil) {
+                        ty = expr_ty;
+                    }
+                }
                 return self.attach_param_decl_constraint(&decl, ty);
             }
         }
