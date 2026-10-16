@@ -1324,12 +1324,15 @@ impl<'db> SemanticModel<'db> {
             && let Some(flow_id) = tree.get_flow_id_at(offset)
         {
             let start = flow::skip_own_decl_assign(decl, &tree, flow_id, offset);
-            let cached = self
-                .cache
-                .borrow()
-                .flow_decl
-                .get(&(self.view.file_id(), decl.clone(), start))
-                .cloned();
+            let key = (self.view.file_id(), decl.clone(), start);
+            let cache = self.cache.borrow();
+            let cached = cache.flow_decl.get(&key).cloned().or_else(|| {
+                let guessed = cache.flow_decl_gave_up.get(&key).cloned();
+                if guessed.is_some() {
+                    flow::note_gave_up();
+                }
+                guessed
+            });
             (Some(start), cached)
         } else {
             (None, None)
@@ -1337,12 +1340,16 @@ impl<'db> SemanticModel<'db> {
         if let Some(cached) = cached {
             return self.sanitize_global_generic_decl(decl, cached);
         }
+        let gave_up_before = flow::gave_up_events();
         let ty = flow::type_of_decl_at(self, decl, offset);
         if let Some(start) = start {
-            self.cache
-                .borrow_mut()
-                .flow_decl
-                .insert((self.view.file_id(), decl.clone(), start), ty.clone());
+            let key = (self.view.file_id(), decl.clone(), start);
+            let mut cache = self.cache.borrow_mut();
+            if flow::gave_up_events() == gave_up_before {
+                cache.flow_decl.insert(key, ty.clone());
+            } else {
+                cache.flow_decl_gave_up.insert(key, ty.clone());
+            }
         }
         self.sanitize_global_generic_decl(decl, ty)
     }
@@ -1453,11 +1460,14 @@ impl<'db> SemanticModel<'db> {
         {
             return cached.clone();
         }
+        let gave_up_before = flow::gave_up_events();
         let ty = flow::type_of_expr_at(self, expr_syntax, offset);
-        self.cache
-            .borrow_mut()
-            .expr_type_at
-            .insert((file_id, expr_syntax, offset), ty.clone());
+        if flow::gave_up_events() == gave_up_before {
+            self.cache
+                .borrow_mut()
+                .expr_type_at
+                .insert((file_id, expr_syntax, offset), ty.clone());
+        }
         ty
     }
     /// Operator-overload return type: when operand is a named type with `---@operator`, look up the return type by operator name.

@@ -12,7 +12,7 @@
 //! - `---@cast x +string` adds string to x's path type;
 //! - Flow type for member assignment `t.x = v` / `self.x = v` (FlowEffect::AssignMember).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use emmylua_parser::{
@@ -1355,7 +1355,7 @@ fn ambiguous_cast_target_matches(
 }
 
 /// `---@cast` path operation: widen / remove / replace.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum CastOp {
     Add(LuaType),
     Remove(LuaType),
@@ -1534,15 +1534,38 @@ fn trace_decl(
 /// 2^n walks without it. Sound queries need a few dozen walks; this only caps the blowup.
 const LOOP_GRAPH_TRACE_WALK_LIMIT: u32 = 4096;
 
+/// Identity of a walk's inputs: the same node entered with the same guards and casts collected
+/// so far answers the same, unless the route's `visited` set cut the walk short.
+type WalkMemoKey = (SemanticId, FlowId, bool, bool, bool, bool, String);
+
 struct QueryWalks {
     walks: u32,
     exhausted: bool,
+    /// Walks that stopped at a node the route had already visited (a loop back-edge).
+    cycle_cuts: u32,
+    /// Answers of walks that were not cut short, so they hold on every route to the node.
+    memo: HashMap<WalkMemoKey, LuaType>,
 }
 
 thread_local! {
     /// One entry per query (a trace started with an empty `visited` set) in progress on
     /// this thread; a nested query on another declaration gets its own budget.
     static QUERY_WALKS: std::cell::RefCell<Vec<QueryWalks>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+thread_local! {
+    static GAVE_UP_EVENTS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Count of answers this thread has given from the declared type because a trace ran out of
+/// walks. A caller that sees it change while computing a result knows the result rests on a
+/// guess and must not store it as the exact answer.
+pub(crate) fn gave_up_events() -> u64 {
+    GAVE_UP_EVENTS.with(|events| events.get())
+}
+
+pub(crate) fn note_gave_up() {
+    GAVE_UP_EVENTS.with(|events| events.set(events.get().wrapping_add(1)));
 }
 
 struct QueryWalksScope;
@@ -1573,10 +1596,22 @@ fn trace_decl_budgeted(
             stack.borrow_mut().push(QueryWalks {
                 walks: 0,
                 exhausted: false,
+                cycle_cuts: 0,
+                memo: HashMap::new(),
             });
         });
         QueryWalksScope
     });
+    let memo_key = walk_memo_key(decl, flow_id, options, mode, path);
+    if let Some(hit) = QUERY_WALKS.with(|stack| {
+        stack
+            .borrow()
+            .last()
+            .and_then(|query| query.memo.get(&memo_key).cloned())
+    }) {
+        return Some(hit);
+    }
+    let cuts_before = QUERY_WALKS.with(|stack| stack.borrow().last().map_or(0, |q| q.cycle_cuts));
     let within_budget = QUERY_WALKS.with(|stack| {
         let mut stack = stack.borrow_mut();
         let Some(query) = stack.last_mut() else {
@@ -1595,9 +1630,51 @@ fn trace_decl_budgeted(
     if is_query_root
         && QUERY_WALKS.with(|stack| stack.borrow().last().is_some_and(|query| query.exhausted))
     {
+        note_gave_up();
         return None;
     }
+    if let Some(ty) = &result {
+        QUERY_WALKS.with(|stack| {
+            if let Some(query) = stack.borrow_mut().last_mut()
+                && !query.exhausted
+                && query.cycle_cuts == cuts_before
+            {
+                query.memo.insert(memo_key, ty.clone());
+            }
+        });
+    }
     result
+}
+
+fn walk_memo_key(
+    decl: &SemanticId,
+    flow_id: FlowId,
+    options: TraceOptions,
+    mode: TraceMode,
+    path: &PathState,
+) -> WalkMemoKey {
+    let path_identity = if path.narrowings.is_empty() && path.casts.is_empty() {
+        String::new()
+    } else {
+        format!("{:?}|{:?}", path.narrowings, path.casts)
+    };
+    (
+        decl.clone(),
+        flow_id,
+        options.guards,
+        options.casts,
+        options.assignments,
+        mode == TraceMode::MergeBranch,
+        path_identity,
+    )
+}
+
+fn note_cycle_cut() {
+    QUERY_WALKS.with(|stack| {
+        if let Some(query) = stack.borrow_mut().last_mut() {
+            query.cycle_cuts = query.cycle_cuts.saturating_add(1);
+        }
+    });
 }
 
 fn trace_decl_uncached(
@@ -1619,6 +1696,7 @@ fn trace_decl_uncached(
         #[cfg(test)]
         flow_metrics::record_trace_step();
         if !visited.insert(current) {
+            note_cycle_cut();
             return None;
         }
         let node = tree.get_flow_node(current)?;

@@ -171,3 +171,71 @@ fn p11_flow_guard_chain_after_a_loop_keeps_exact_type_under_the_limit() {
         "flag is `string?` after the guards: {ty:?}"
     );
 }
+
+/// A read whose trace ran out of walks is answered from the declared type; that answer is
+/// reported as a guess every time it is served and is not stored with the exact answers.
+#[test]
+fn p11_flow_trace_that_gives_up_is_not_cached_as_exact() {
+    use crate::semantic_model::flow::gave_up_events;
+    use emmylua_parser::LuaNameExpr;
+
+    let mut ws = VirtualWorkspace::new();
+    let fid = ws.def_file("probe.lua", &guard_chain_after_loop(20));
+    let model = ws.analysis.semantic_model(fid);
+    let chunk = model.chunk().expect("chunk");
+    let last = chunk
+        .descendants::<LuaNameExpr>()
+        .filter(|expr| expr.get_text() == "flag")
+        .last()
+        .expect("last read");
+    for attempt in 0..3 {
+        let before = gave_up_events();
+        let ty = model.type_of_expr_at(last.get_syntax_id(), last.get_range().start());
+        assert!(ty.is_nullable(), "declared type is served: {ty:?}");
+        assert!(
+            gave_up_events() > before,
+            "attempt {attempt}: the answer was served as exact"
+        );
+    }
+}
+
+/// `n` assigning blocks that do not narrow `x` by their own condition, after a loop, then a
+/// guard that removes nil from the parameter.
+fn assigning_chain_after_loop(n: usize) -> String {
+    let mut content = String::from(
+        "---@param c boolean\n---@param x string?\nlocal function f(c, x)\n  while c do c = not c end\n",
+    );
+    for _ in 0..n {
+        content.push_str("  if c then x = x or 'a' end\n");
+    }
+    content.push_str("  if x == nil then return end\n  local z = x\n  return z\nend\n");
+    content
+}
+
+fn type_of_last_read_of_x(content: &str) -> LuaType {
+    use emmylua_parser::LuaNameExpr;
+
+    let mut ws = VirtualWorkspace::new();
+    let fid = ws.def_file("probe.lua", content);
+    let model = ws.analysis.semantic_model(fid);
+    let chunk = model.chunk().expect("chunk");
+    let last = chunk
+        .descendants::<LuaNameExpr>()
+        .filter(|expr| expr.get_text() == "x")
+        .last()
+        .expect("last read");
+    model.type_of_expr_at(last.get_syntax_id(), last.get_range().start())
+}
+
+/// The answer after a nil guard must not depend on how many unrelated assigning blocks come
+/// before it: past the walk limit the trace used to fall back to the declared `string?`.
+#[test]
+fn p11_flow_nil_guard_after_assigning_blocks_in_a_loop_graph_stays_narrowed() {
+    for n in [6usize, 11, 20, 30] {
+        let ty = type_of_last_read_of_x(&assigning_chain_after_loop(n));
+        assert!(
+            !ty.is_nullable(),
+            "x is `string` after `if x == nil then return end` with n={n}: {ty:?}"
+        );
+    }
+}

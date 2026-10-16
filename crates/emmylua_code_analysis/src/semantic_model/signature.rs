@@ -158,11 +158,16 @@ impl<'db> SemanticModel<'db> {
             .borrow_mut()
             .expr_type
             .insert(key, cache::CacheEntry::InProgress);
+        let gave_up_before = flow::gave_up_events();
         let ty = infer::infer_expr(self, expr_syntax);
-        self.cache
-            .borrow_mut()
-            .expr_type
-            .insert(key, cache::CacheEntry::Ready(ty.clone()));
+        let mut cache = self.cache.borrow_mut();
+        if flow::gave_up_events() == gave_up_before {
+            cache
+                .expr_type
+                .insert(key, cache::CacheEntry::Ready(ty.clone()));
+        } else {
+            cache.expr_type.remove(&key);
+        }
         ty
     }
     /// Hover/display layer only: expands generic alias instances (`Pick<...>` -> `T[K]` structure).

@@ -52,6 +52,9 @@ pub(crate) struct SemanticLocalCache {
     pub(crate) resolve_owner_set: HashMap<SemanticId, Vec<SemanticId>>,
     pub(crate) member_type_at: HashMap<(FileId, SemanticId, TextSize), LuaType>,
     pub(crate) flow_decl: HashMap<(FileId, SemanticId, FlowId), LuaType>,
+    /// Declared-type answers given because a trace ran out of walks, kept apart from
+    /// `flow_decl` so they are never mistaken for the exact narrowed type.
+    pub(crate) flow_decl_gave_up: HashMap<(FileId, SemanticId, FlowId), LuaType>,
     /// Memoized declaration-trace states for loop-free flow graphs. See
     /// [`TraceStateKey`] for why the path may be omitted from the key.
     pub(crate) trace_state: HashMap<TraceStateKey, CacheEntry<Option<LuaType>>>,
