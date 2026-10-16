@@ -3,10 +3,10 @@
 //! Syntax-tree traversal (functions / locals / assignments / table fields) plus type projection (`type_of_decl`).
 //! The old DbIndex-based version (decl_tree hierarchy and type cache details) is retired; see migration notes §M4.
 
-use emmylua_code_analysis::{DeclKind, LuaType, SemanticModel};
+use emmylua_code_analysis::{LuaType, SemanticModel};
 use emmylua_parser::{
-    LuaAssignStat, LuaAst, LuaAstNode, LuaAstToken, LuaExpr, LuaIndexKey, LuaSyntaxKind,
-    LuaTableField, LuaVarExpr, PathTrait,
+    LuaAssignStat, LuaAst, LuaAstNode, LuaAstToken, LuaExpr, LuaIndexKey, LuaLiteralToken,
+    LuaLocalStat, LuaSyntaxKind, LuaTableField, LuaVarExpr, PathTrait,
 };
 use lsp_types::{
     ClientCapabilities, DocumentSymbol, DocumentSymbolOptions, DocumentSymbolParams,
@@ -58,6 +58,37 @@ fn non_empty_symbol_name(raw: String, fallback: impl FnOnce() -> String) -> Stri
     }
 }
 
+/// LuaLS picks the symbol kind from the syntax of the assigned value, not its
+/// inferred type, so `local f = other` stays a variable.
+fn value_kind(value: Option<&LuaExpr>) -> SymbolKind {
+    match value {
+        Some(LuaExpr::LiteralExpr(literal)) => match literal.get_literal() {
+            Some(LuaLiteralToken::String(_)) => SymbolKind::STRING,
+            Some(LuaLiteralToken::Number(_)) => SymbolKind::NUMBER,
+            Some(LuaLiteralToken::Bool(_)) => SymbolKind::BOOLEAN,
+            _ => SymbolKind::VARIABLE,
+        },
+        Some(LuaExpr::TableExpr(table)) => {
+            let mut fields = table.get_fields().peekable();
+            if fields.peek().is_some() && fields.all(|field| field.is_value_field()) {
+                SymbolKind::ARRAY
+            } else {
+                SymbolKind::OBJECT
+            }
+        }
+        Some(LuaExpr::ClosureExpr(_)) => SymbolKind::FUNCTION,
+        _ => SymbolKind::VARIABLE,
+    }
+}
+
+fn local_name_value(local_name: &emmylua_parser::LuaLocalName) -> Option<LuaExpr> {
+    let stat = local_name.get_parent::<LuaLocalStat>()?;
+    let index = stat
+        .get_local_name_list()
+        .position(|name| name.syntax() == local_name.syntax())?;
+    stat.get_value_exprs().nth(index)
+}
+
 fn build_document_symbol(
     model: &SemanticModel<'_>,
     document: &emmylua_code_analysis::LuaDocument,
@@ -76,6 +107,7 @@ fn build_document_symbol(
                     continue;
                 };
                 let mut raw_name = func_name.get_access_path().unwrap_or_default();
+                let mut kind = SymbolKind::FUNCTION;
                 if let LuaVarExpr::IndexExpr(index_expr) = &func_name
                     && index_expr
                         .get_index_token()
@@ -83,6 +115,7 @@ fn build_document_symbol(
                     && let Some(dot) = raw_name.rfind('.')
                 {
                     raw_name.replace_range(dot..=dot, ":");
+                    kind = SymbolKind::METHOD;
                 }
                 let name = non_empty_symbol_name(raw_name, || {
                     func_name.syntax().text().to_string().trim().to_string()
@@ -90,7 +123,7 @@ fn build_document_symbol(
                 Some(DocumentSymbol {
                     name,
                     detail: None,
-                    kind: SymbolKind::FUNCTION,
+                    kind,
                     range: document
                         .to_lsp_range(func_stat.get_range())
                         .unwrap_or(lsp_range),
@@ -150,12 +183,7 @@ fn build_document_symbol(
                 Some(DocumentSymbol {
                     name: name_token.get_name_text().to_string(),
                     detail: (!matches!(ty, LuaType::Unknown)).then(|| humanize(model, &ty)),
-                    kind: match decl_kind(model, &decl) {
-                        Some(DeclKind::Local { .. }) | Some(DeclKind::Param) => {
-                            SymbolKind::VARIABLE
-                        }
-                        _ => SymbolKind::VARIABLE,
-                    },
+                    kind: value_kind(local_name_value(local_name).as_ref()),
                     range: local_name
                         .syntax()
                         .parent()
@@ -278,16 +306,10 @@ fn build_assign_symbols(
         let ty = value
             .map(|expr| model.type_of_expr(expr.get_syntax_id()))
             .unwrap_or(LuaType::Unknown);
-        let is_function = matches!(value, Some(LuaExpr::ClosureExpr(_)))
-            || matches!(ty, LuaType::DocFunction(_) | LuaType::Function);
         symbols.push(DocumentSymbol {
             name,
             detail: (!matches!(ty, LuaType::Unknown)).then(|| humanize(model, &ty)),
-            kind: if is_function {
-                SymbolKind::FUNCTION
-            } else {
-                SymbolKind::FIELD
-            },
+            kind: value_kind(value),
             range: stat_range,
             selection_range,
             children: None,
@@ -297,16 +319,6 @@ fn build_assign_symbols(
         });
     }
     symbols
-}
-
-fn decl_kind(
-    model: &SemanticModel<'_>,
-    decl: &emmylua_code_analysis::SemanticId,
-) -> Option<DeclKind> {
-    model
-        .decls()
-        .and_then(|decls| decls.iter().find(|d| &d.id == decl))
-        .map(|d| d.kind)
 }
 
 fn build_table_field_symbol(
@@ -327,11 +339,7 @@ fn build_table_field_symbol(
     Some(DocumentSymbol {
         name,
         detail: (!matches!(ty, LuaType::Unknown)).then(|| humanize(model, &ty)),
-        kind: if matches!(ty, LuaType::DocFunction(_) | LuaType::Function) {
-            SymbolKind::FUNCTION
-        } else {
-            SymbolKind::FIELD
-        },
+        kind: value_kind(table_field.get_value_expr().as_ref()),
         range: document
             .to_lsp_range(table_field.get_range())
             .unwrap_or(range),
@@ -390,7 +398,7 @@ mod tests {
             "local Reader = {}\nfunction Reader:close() end\nfunction Reader.open() end\n",
         ));
         assert!(
-            got.contains(&("Reader:close".to_string(), SymbolKind::FUNCTION)),
+            got.contains(&("Reader:close".to_string(), SymbolKind::METHOD)),
             "{got:?}"
         );
         assert!(
@@ -464,9 +472,9 @@ mod tests {
         assert_eq!(
             got,
             [
-                ("M".to_string(), SymbolKind::VARIABLE),
+                ("M".to_string(), SymbolKind::OBJECT),
                 ("M.f".to_string(), SymbolKind::FUNCTION),
-                ("M.x".to_string(), SymbolKind::FIELD),
+                ("M.x".to_string(), SymbolKind::NUMBER),
                 ("M.g".to_string(), SymbolKind::FUNCTION),
             ]
         );
@@ -481,7 +489,7 @@ mod tests {
     #[test]
     fn local_reassignment_is_not_a_new_symbol() {
         let got = names(&symbols("local i = 1\ni = i + 1\n"));
-        assert_eq!(got, [("i".to_string(), SymbolKind::VARIABLE)]);
+        assert_eq!(got, [("i".to_string(), SymbolKind::NUMBER)]);
     }
 
     #[test]
@@ -490,9 +498,58 @@ mod tests {
         assert_eq!(
             got,
             [
-                ("t".to_string(), SymbolKind::VARIABLE),
-                ("k".to_string(), SymbolKind::VARIABLE),
+                ("t".to_string(), SymbolKind::OBJECT),
+                ("k".to_string(), SymbolKind::STRING),
             ]
         );
+    }
+
+    #[test]
+    fn local_kind_follows_the_assigned_value() {
+        let got = names(&symbols(
+            "local s = 's'\nlocal n = 1\nlocal b = true\nlocal o = {}\nlocal a = {1, 2}\nlocal m = { 1, k = 2 }\nlocal f = function() end\nlocal u = g()\nlocal v = f\nlocal x, y = 1\n",
+        ));
+        let kinds: Vec<_> = got.iter().map(|(_, kind)| *kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                SymbolKind::STRING,
+                SymbolKind::NUMBER,
+                SymbolKind::BOOLEAN,
+                SymbolKind::OBJECT,
+                SymbolKind::ARRAY,
+                SymbolKind::OBJECT,
+                SymbolKind::FUNCTION,
+                SymbolKind::VARIABLE,
+                SymbolKind::VARIABLE,
+                SymbolKind::NUMBER,
+                SymbolKind::VARIABLE,
+            ]
+        );
+    }
+
+    #[test]
+    fn table_field_and_assignment_kind_follow_the_value() {
+        let outline = symbols(
+            "local M = { a = 'x', b = false, c = 2, d = {}, e = { 1 }, f = function() end, g = h() }\nM.i = 'y'\nM.j = {}\n",
+        );
+        let mut flat = Vec::new();
+        fn collect(symbols: &[DocumentSymbol], out: &mut Vec<(String, SymbolKind)>) {
+            for symbol in symbols {
+                out.push((symbol.name.clone(), symbol.kind));
+                collect(symbol.children.as_deref().unwrap_or_default(), out);
+            }
+        }
+        collect(&outline, &mut flat);
+        let kind = |name: &str| flat.iter().find(|(n, _)| n == name).map(|(_, k)| *k);
+        assert_eq!(kind("a"), Some(SymbolKind::STRING));
+        assert_eq!(kind("b"), Some(SymbolKind::BOOLEAN));
+        assert_eq!(kind("c"), Some(SymbolKind::NUMBER));
+        assert_eq!(kind("d"), Some(SymbolKind::OBJECT));
+        assert_eq!(kind("e"), Some(SymbolKind::ARRAY));
+        assert_eq!(kind("f"), Some(SymbolKind::FUNCTION));
+        assert_eq!(kind("g"), Some(SymbolKind::VARIABLE));
+        assert_eq!(kind("M.i"), Some(SymbolKind::STRING));
+        assert_eq!(kind("M.j"), Some(SymbolKind::OBJECT));
     }
 }
