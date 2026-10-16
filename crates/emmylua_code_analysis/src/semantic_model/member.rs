@@ -364,7 +364,40 @@ pub(crate) fn member_info_impl(
             is_method: false,
         });
     }
+    // `setmetatable(t, { __index = Class })` / `Class.__index = Class`: missing members are looked up
+    // on the `__index` table, so `t:method()` resolves to `Class`'s method.
+    if let LuaType::TableConst(table) = prefix_type {
+        return metatable_index_table_member(model, table, key);
+    }
     None
+}
+
+/// Nested `__index` tables are followed at most this deep, which also ends `__index` cycles.
+const MAX_INDEX_TABLE_DEPTH: u8 = 4;
+
+fn metatable_index_table_member(
+    model: &SemanticModel,
+    table: &InFiled<rowan::TextRange>,
+    key: &LuaMemberKey,
+) -> Option<MemberInfo> {
+    thread_local! {
+        static DEPTH: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    }
+    let depth = DEPTH.with(|depth| depth.get());
+    if depth >= MAX_INDEX_TABLE_DEPTH {
+        return None;
+    }
+    let index_info = table_metatable_index_info(model, table)?;
+    if !matches!(
+        index_info.typ,
+        LuaType::TableConst(_) | LuaType::Ref(_) | LuaType::Def(_)
+    ) {
+        return None;
+    }
+    DEPTH.with(|d| d.set(depth + 1));
+    let found = member_info(model, &index_info.typ, key);
+    DEPTH.with(|d| d.set(depth));
+    found
 }
 
 /// Members with the given key of a prefix type (all matches, overload scenario).

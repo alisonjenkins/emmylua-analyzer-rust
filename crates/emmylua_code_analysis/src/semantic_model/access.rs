@@ -1076,6 +1076,15 @@ impl<'db> SemanticModel<'db> {
             }
         }
 
+        // Anonymous table whose metatable `__index` is a class table (`setmetatable({}, M)`).
+        if let Some(prefix_ty @ LuaType::TableConst(_)) = &prefix_ty
+            && let Some(info) = self.member_info(prefix_ty, &LuaMemberKey::Name(name.clone()))
+            && let Some(id) = info.id
+            && let Some(file_id) = info.file_id
+        {
+            return Some(self.resolved_member(Some(id), Some(file_id), owner, name));
+        }
+
         Some(self.resolved_member(None, None, owner, name))
     }
     /// Whether the prefix type is a named type with a same-named member (avoids runtime inferred members shadowing class `@field`).
