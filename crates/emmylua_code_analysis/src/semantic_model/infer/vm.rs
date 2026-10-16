@@ -802,6 +802,9 @@ impl<'a> InferVm<'a> {
     }
 
     fn index_member_dynamic(&mut self, owner: Value, key: Value) -> Value {
+        if let Some(value) = table_generic_value(&owner.ty, &key.ty) {
+            return Value::plain(value);
+        }
         match &key.ty {
             LuaType::StringConst(s) | LuaType::DocStringConst(s) => {
                 self.index_member(owner, &LuaMemberKey::Name(SmolStr::new(s.as_str())))
@@ -1038,6 +1041,16 @@ impl<'a> InferVm<'a> {
         }
         // Member access on generic param `T: Base`: use the constraint type as the
         // member-lookup owner.
+        let key_ty = match key {
+            LuaMemberKey::Name(_) => Some(LuaType::String),
+            LuaMemberKey::Integer(_) => Some(LuaType::Integer),
+            _ => None,
+        };
+        if let Some(key_ty) = key_ty
+            && let Some(value) = table_generic_value(&owner.ty, &key_ty)
+        {
+            return Value::plain(value);
+        }
         if let LuaType::TplRef(tpl) = &owner.ty
             && let Some(constraint) = tpl.get_constraint()
         {
@@ -3353,6 +3366,30 @@ pub(crate) fn widen_const(ty: &LuaType) -> LuaType {
         LuaType::StringConst(_) | LuaType::DocStringConst(_) => LuaType::String,
         LuaType::IntegerConst(_) | LuaType::DocIntegerConst(_) => LuaType::Integer,
         _ => ty.clone(),
+    }
+}
+
+/// Value type of `table<K, V>` indexed by a key of type `key`, when the key fits `K`.
+fn table_generic_value(owner: &LuaType, key: &LuaType) -> Option<LuaType> {
+    let params = match owner {
+        LuaType::TableGeneric(params) => params.as_slice(),
+        LuaType::Generic(generic) if generic.get_base_type_id_ref().get_name() == "table" => {
+            generic.get_params().as_slice()
+        }
+        _ => return None,
+    };
+    let [key_param, value_param] = params else {
+        return None;
+    };
+    key_fits(key_param, &widen_const(key)).then(|| value_param.clone())
+}
+
+fn key_fits(param: &LuaType, key: &LuaType) -> bool {
+    match (param, key) {
+        (LuaType::Any | LuaType::Unknown, _) | (_, LuaType::Any | LuaType::Unknown) => true,
+        (LuaType::Union(union), _) => union.into_vec().iter().any(|member| key_fits(member, key)),
+        (LuaType::Number, LuaType::Integer) => true,
+        (param, key) => widen_const(param) == *key,
     }
 }
 
