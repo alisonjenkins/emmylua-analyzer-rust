@@ -452,6 +452,117 @@ mod tests {
         Ok(())
     }
 
+    fn check_unannotated_constructor_method_references(
+        module: &str,
+        close_line: u32,
+    ) -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            module,
+            vec![(
+                "a.lua",
+                r#"
+                    local reader = require("virtual_0")
+                    local r = reader.open("x")
+                    r:close()
+                "#,
+            )],
+            vec![
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: close_line,
+                },
+                VirtualLocation {
+                    file: "a.lua".to_string(),
+                    line: 3,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_method_references_through_unannotated_setmetatable_return() -> Result<()> {
+        check_unannotated_constructor_method_references(
+            r#"
+                ---@class Reader
+                local M = {}
+                M.__index = M
+
+                function M.open(path)
+                    return setmetatable({ path = path }, M)
+                end
+
+                function M:cl<??>ose()
+                end
+
+                return M
+            "#,
+            9,
+        )
+    }
+
+    #[gtest]
+    fn test_method_references_through_unannotated_class_without_doc_class() -> Result<()> {
+        check_unannotated_constructor_method_references(
+            r#"
+                local M = {}
+                M.__index = M
+
+                function M.open(path)
+                    return setmetatable({ path = path }, M)
+                end
+
+                function M:cl<??>ose()
+                end
+
+                return M
+            "#,
+            8,
+        )
+    }
+
+    #[gtest]
+    fn test_method_references_through_unannotated_self_local_return() -> Result<()> {
+        check_unannotated_constructor_method_references(
+            r#"
+                local M = {}
+                M.__index = M
+
+                function M.open(path)
+                    local self = setmetatable({}, M)
+                    self.path = path
+                    return self
+                end
+
+                function M:cl<??>ose()
+                end
+
+                return M
+            "#,
+            10,
+        )
+    }
+
+    #[gtest]
+    fn test_method_references_through_unannotated_inline_index_metatable() -> Result<()> {
+        check_unannotated_constructor_method_references(
+            r#"
+                local M = {}
+
+                function M.open(path)
+                    return setmetatable({ path = path }, { __index = M })
+                end
+
+                function M:cl<??>ose()
+                end
+
+                return M
+            "#,
+            7,
+        )
+    }
+
     #[gtest]
     fn test_member_references_alias_cycle_does_not_stack_overflow() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
