@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use emmylua_code_analysis::{LuaType, SemanticId, SemanticModel};
+use emmylua_code_analysis::{LuaType, Member, SemanticId, SemanticModel};
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaExpr, LuaIndexExpr, LuaIndexKey, LuaNameExpr, LuaVarExpr,
 };
@@ -38,16 +38,66 @@ pub fn render_usage_shape(model: &SemanticModel<'_>, decl: &SemanticId) -> Optio
         else {
             continue;
         };
-        let Some(key) = field_key(&index_expr) else {
+        record_field_use(model, &mut fields, &index_expr);
+    }
+    format_shape(fields)
+}
+
+/// Same shape for a member (`self.params`) from the fields its holders read, write and call elsewhere in the file:
+/// `self.params.acls = 1`, `self.params.group`, `self.params:get()`.
+pub fn render_member_usage_shape(model: &SemanticModel<'_>, member: &Member) -> Option<String> {
+    let name = member.key.to_path();
+    let tree = model.syntax_tree()?;
+    let root = tree.get_red_root();
+    let mut fields: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for node in root.descendants() {
+        let Some(index_expr) = LuaIndexExpr::cast(node) else {
             continue;
         };
-        let types = fields.entry(key).or_default();
-        if let Some(assigned) = assigned_type(model, &index_expr) {
-            if !types.contains(&assigned) && types.len() < MAX_FIELD_TYPES {
-                types.push(assigned);
-            }
+        let Some(LuaExpr::IndexExpr(holder)) = index_expr.get_prefix_expr() else {
+            continue;
+        };
+        if holder
+            .get_index_key()
+            .is_none_or(|key| key.get_path_part() != name)
+        {
+            continue;
+        }
+        let Some(resolved) = model.resolve_member(&holder) else {
+            continue;
+        };
+        let (Some(id), Some(file_id)) = (resolved.member_id, resolved.file_id) else {
+            continue;
+        };
+        let same_member = model
+            .file_facts_of(file_id)
+            .and_then(|facts| facts.member_by_id(&id))
+            .is_some_and(|found| found.owner == member.owner && found.key == member.key);
+        if same_member {
+            record_field_use(model, &mut fields, &index_expr);
         }
     }
+    format_shape(fields)
+}
+
+fn record_field_use(
+    model: &SemanticModel<'_>,
+    fields: &mut BTreeMap<String, Vec<String>>,
+    index_expr: &LuaIndexExpr,
+) {
+    let Some(key) = field_key(index_expr) else {
+        return;
+    };
+    let types = fields.entry(key).or_default();
+    if let Some(assigned) = assigned_type(model, index_expr)
+        && !types.contains(&assigned)
+        && types.len() < MAX_FIELD_TYPES
+    {
+        types.push(assigned);
+    }
+}
+
+fn format_shape(fields: BTreeMap<String, Vec<String>>) -> Option<String> {
     if fields.is_empty() {
         return None;
     }
