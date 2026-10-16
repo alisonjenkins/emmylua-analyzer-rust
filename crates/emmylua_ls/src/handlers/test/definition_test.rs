@@ -1844,4 +1844,24 @@ mod tests {
             none()
         )
     }
+
+    #[gtest]
+    fn test_definition_of_function_in_nested_table_of_a_module_returned_by_a_call() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "tester.lua",
+            "local tester = {\n    test = {},\n}\n\nfunction tester.init()\n    return tester\nend\n\nfunction tester.test.equal(a, b)\n    return a == b\nend\n\nreturn tester.init()\n",
+        );
+        check!(ws.check_definition(
+            r#"
+                local tester = require("tester")
+                local same = tester.test.equ<??>al
+            "#,
+            vec![Expected {
+                file: "tester.lua".to_string(),
+                line: 8
+            }]
+        ));
+        Ok(())
+    }
 }

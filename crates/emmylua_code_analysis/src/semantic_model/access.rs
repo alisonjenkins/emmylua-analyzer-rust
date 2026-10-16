@@ -1065,6 +1065,22 @@ impl<'db> SemanticModel<'db> {
             {
                 table_owners.push(decl.id.clone());
             }
+            // A literal nested in another (`tester = { test = {} }`): the members that
+            // `function tester.test.f()` declares sit under the field or the root table.
+            if let Some(facts) = self.file_facts_of(in_field.file_id) {
+                for kind in [
+                    LuaSyntaxKind::TableEmptyExpr,
+                    LuaSyntaxKind::TableObjectExpr,
+                    LuaSyntaxKind::TableArrayExpr,
+                ] {
+                    if let Some(member) =
+                        facts.member_by_value_syntax(LuaSyntaxId::new(kind.into(), in_field.value))
+                    {
+                        table_owners.push(member.id.clone());
+                        table_owners.push(member.owner.clone());
+                    }
+                }
+            }
             for table_owner in table_owners {
                 if let Some(member) = self
                     .members_of_owner_named(&table_owner, name.as_str())
