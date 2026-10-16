@@ -1,9 +1,12 @@
 use std::{collections::HashSet, sync::Mutex};
 
-use emmylua_code_analysis::{DeclKind, EmmyLuaAnalysis, FileFacts, Member, SemanticId};
+use emmylua_code_analysis::{Decl, DeclKind, EmmyLuaAnalysis, FileFacts, Member, SemanticId};
 use emmylua_parser::LuaSyntaxKind;
 use lsp_types::{SymbolKind, SymbolTag, WorkspaceSymbol, WorkspaceSymbolResponse};
 use tokio_util::sync::CancellationToken;
+
+/// LuaLS stops at 1000 results; a one-letter query otherwise returns tens of thousands of symbols.
+const MAX_WORKSPACE_SYMBOLS: usize = 1000;
 
 /// if query contains uppercase, do case-sensitive match; otherwise, ignore case
 fn match_symbol(text: &str, query: &str) -> bool {
@@ -33,9 +36,18 @@ pub fn build_workspace_symbols(
         let mut symbols = symbols.lock().expect("workspace symbols lock");
         if let Some(decls) = model.decls() {
             for decl in decls.iter() {
-                if !matches!(decl.kind, DeclKind::Global) {
-                    continue;
+                if cancel_token.is_cancelled() || symbols.len() >= MAX_WORKSPACE_SYMBOLS {
+                    return;
                 }
+                let kind = match decl.kind {
+                    DeclKind::Global => SymbolKind::FUNCTION,
+                    DeclKind::Local { .. } | DeclKind::Param => {
+                        if decl.is_implicit_self || decl.name == "..." {
+                            continue;
+                        }
+                        local_symbol_kind(decl)
+                    }
+                };
                 if !query.is_empty() && !match_symbol(&decl.name, &query) {
                     continue;
                 }
@@ -44,7 +56,7 @@ pub fn build_workspace_symbols(
                 };
                 symbols.push(WorkspaceSymbol {
                     name: decl.name.to_string(),
-                    kind: SymbolKind::FUNCTION,
+                    kind,
                     tags: None,
                     location: lsp_types::OneOf::Left(lsp_types::Location {
                         uri: uri.clone(),
@@ -57,6 +69,9 @@ pub fn build_workspace_symbols(
         }
         if let Some(facts) = model.file_facts() {
             for def in facts.type_defs.iter() {
+                if symbols.len() >= MAX_WORKSPACE_SYMBOLS {
+                    return;
+                }
                 if !query.is_empty() && !match_symbol(&def.full_name, &query) {
                     continue;
                 }
@@ -79,7 +94,7 @@ pub fn build_workspace_symbols(
             // anonymous table) with the same id; keep the first, which names the local.
             let mut seen_members = HashSet::new();
             for member in facts.members.iter() {
-                if cancel_token.is_cancelled() {
+                if cancel_token.is_cancelled() || symbols.len() >= MAX_WORKSPACE_SYMBOLS {
                     return;
                 }
                 if !seen_members.insert(&member.id) {
@@ -145,5 +160,18 @@ fn member_container_name(facts: &FileFacts, member: &Member) -> Option<String> {
             .and_then(|owner| owner.key.get_name())
             .map(str::to_string),
         SemanticId::Signature(_) => None,
+    }
+}
+
+// LuaLS reports every local as Variable; functions are told apart here so
+// clients can filter on them.
+fn local_symbol_kind(decl: &Decl) -> SymbolKind {
+    let is_function = decl
+        .value_expr_syntax
+        .is_some_and(|syntax| syntax.get_kind() == LuaSyntaxKind::ClosureExpr);
+    if is_function {
+        SymbolKind::FUNCTION
+    } else {
+        SymbolKind::VARIABLE
     }
 }
