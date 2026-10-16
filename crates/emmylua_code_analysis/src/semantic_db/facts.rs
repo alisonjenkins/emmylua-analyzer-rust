@@ -2346,6 +2346,19 @@ impl FactsBuilder {
             self.module_export = ModuleExport::None;
             return;
         };
+        // `return setmetatable(M, mt)` exports `M` itself: the call returns its first argument.
+        let expr = match &expr {
+            LuaExpr::CallExpr(call)
+                if matches!(call.get_prefix_expr(), Some(LuaExpr::NameExpr(callee))
+                    if callee.get_name_text().as_deref() == Some("setmetatable")) =>
+            {
+                match call.get_args_list().and_then(|args| args.get_args().next()) {
+                    Some(target @ LuaExpr::NameExpr(_)) => target,
+                    _ => expr,
+                }
+            }
+            _ => expr,
+        };
         self.module_export = match &expr {
             LuaExpr::NameExpr(name_expr) => {
                 let name = name_expr.get_name_text().unwrap_or_default();
