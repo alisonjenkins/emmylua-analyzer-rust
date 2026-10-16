@@ -635,6 +635,18 @@ mod tests {
         Ok(())
     }
 
+    // The member pass dedupes by id and the reassignment pass skips the first
+    // global assignment: together they list every site exactly once.
+    #[gtest]
+    fn test_constructor_field_then_assignment_has_no_duplicate_or_gap() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def("local dd_t = { dd_a = 1 }\ndd_t.dd_a = 2\ndd_g = 1\ndd_g = 2\n");
+        expect_that!(lines_of(&query(&ws, "dd_a"), "dd_a"), eq(&vec![0, 1]));
+        expect_that!(lines_of(&query(&ws, "dd_t"), "dd_t"), eq(&vec![0]));
+        expect_that!(lines_of(&query(&ws, "dd_g"), "dd_g"), eq(&vec![2, 3]));
+        Ok(())
+    }
+
     #[gtest]
     fn test_unmatched_query_returns_nothing() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
