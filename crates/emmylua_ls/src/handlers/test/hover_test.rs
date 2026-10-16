@@ -912,4 +912,28 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// A method called on a nullable receiver (`file?`) resolves against the non-nil member.
+    #[gtest]
+    fn test_hover_method_on_nullable_receiver() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@class Box
+                local Box = {}
+
+                ---@return integer
+                function Box:size() end
+
+                ---@type Box?
+                local b
+
+                b:si<??>ze()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(method) Box:size() -> integer\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
