@@ -399,7 +399,7 @@ impl<'db> SemanticModel<'db> {
         {
             ret = expected_fun.get_ret().clone();
         }
-        if matches!(ret, LuaType::Unknown) && signature.docs.is_none() {
+        if matches!(ret, LuaType::Unknown) && signature.infers_return_from_body() {
             let inferred = infer::closure_return_lua(self, closure_syntax);
             if !matches!(inferred, LuaType::Unknown | LuaType::Any) {
                 ret = inferred;
@@ -792,7 +792,7 @@ impl<'db> SemanticModel<'db> {
     /// lookup. Outermost inferences (no foreign inference and no `__index` walk above them) are
     /// kept here instead: they do not depend on what the caller is in the middle of, and a nested
     /// inference can be cut by the depth limits, so it is recomputed as before.
-    fn inferred_closure_return_in_file(
+    pub(crate) fn inferred_closure_return_in_file(
         &self,
         file_id: FileId,
         closure_syntax: LuaSyntaxId,
@@ -878,7 +878,7 @@ impl<'db> SemanticModel<'db> {
         let mut ret =
             self.signature_return_type(file_id, closure_syntax, signature, &generic_names);
         ret = type_eval::expand_alias_generic(self, &ret);
-        if matches!(ret, LuaType::Unknown) && signature.docs.is_none() {
+        if matches!(ret, LuaType::Unknown) && signature.infers_return_from_body() {
             let inferred = self.inferred_closure_return_in_file(file_id, closure_syntax);
             if !matches!(inferred, LuaType::Unknown | LuaType::Any) {
                 ret = inferred;
