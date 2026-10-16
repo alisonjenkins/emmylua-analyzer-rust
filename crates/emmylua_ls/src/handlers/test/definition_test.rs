@@ -1448,4 +1448,22 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_string_key_with_spaces_inside_the_brackets() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local kinds = {
+                    [ "boolean" ] = tostring,
+                    [ "str<??>ing"  ] = function(v) return v end,
+                }
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 3,
+            }],
+        ));
+        Ok(())
+    }
 }
