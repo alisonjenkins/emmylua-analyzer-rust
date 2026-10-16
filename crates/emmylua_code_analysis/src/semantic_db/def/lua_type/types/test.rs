@@ -3,8 +3,12 @@ mod tests {
 
     use smol_str::SmolStr;
     use std::mem::ManuallyDrop;
+    use std::rc::Rc;
 
-    use crate::{GenericTpl, GenericTplId, LuaArrayType, LuaType, TypeVisitTrait, VariadicType};
+    use crate::{
+        GenericTpl, GenericTplId, LuaArrayType, LuaType, LuaTypeDeclId, LuaUnionType,
+        TypeVisitTrait, VariadicType,
+    };
 
     #[test]
     fn test_union_with_variadic_uses_result_slot_extraction() {
@@ -58,5 +62,17 @@ mod tests {
         });
 
         assert_eq!(visited, depth + 1);
+    }
+
+    #[test]
+    fn test_union_with_duplicate_members_equals_itself() {
+        let a = LuaType::Ref(LuaTypeDeclId::global("A"));
+        let b = LuaType::Ref(LuaTypeDeclId::global("B"));
+        let union_of = |types: Vec<LuaType>| LuaType::Union(Rc::new(LuaUnionType::from_vec(types)));
+        let union = union_of(vec![a.clone(), a.clone(), b.clone()]);
+
+        assert_eq!(union, union.clone());
+        assert_eq!(union, union_of(vec![a.clone(), b.clone(), a.clone()]));
+        assert_ne!(union, union_of(vec![a.clone(), b.clone(), b.clone()]));
     }
 }
