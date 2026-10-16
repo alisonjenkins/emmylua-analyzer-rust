@@ -1069,17 +1069,30 @@ impl<'db> SemanticModel<'db> {
         let LuaExpr::NameExpr(prefix) = index_expr.get_prefix_expr()? else {
             return None;
         };
-        let SemanticId::Decl(key) = self.resolve_name(prefix.get_position())? else {
+        let decl = self.resolve_name(prefix.get_position())?;
+        self.aliased_global_owner(&decl)
+    }
+    /// Owner of the global path a local is initialised with (`local string = string`,
+    /// `local api = vim.api`).
+    pub(crate) fn aliased_global_owner(&self, decl: &SemanticId) -> Option<SemanticId> {
+        let SemanticId::Decl(key) = decl else {
             return None;
         };
         let facts = self.file_facts_of(key.file_id)?;
-        let value = facts
-            .decl_by_id(&SemanticId::Decl(key.clone()))?
-            .value_expr_syntax?;
+        let value = facts.decl_by_id(decl)?.value_expr_syntax?;
         let model = self.model_for(key.file_id);
         let value_node = value.to_node_from_root(model.chunk()?.syntax())?;
-        let LuaExpr::IndexExpr(init) = LuaExpr::cast(value_node)? else {
-            return None;
+        let init = match LuaExpr::cast(value_node)? {
+            LuaExpr::IndexExpr(init) => init,
+            // `local string = string`: the alias shares the global's members.
+            LuaExpr::NameExpr(init) => {
+                let global = init.get_name_text()?;
+                if model.resolve_local_name(init.get_position()).is_some() {
+                    return None;
+                }
+                return Some(SemanticId::name(SmolStr::new(global)));
+            }
+            _ => return None,
         };
         let (parent, segment) =
             crate::semantic_db::query::member_ref_from_index_expr(facts, &init)?;
