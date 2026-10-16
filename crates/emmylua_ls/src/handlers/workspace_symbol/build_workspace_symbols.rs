@@ -12,17 +12,21 @@ use lsp_types::{SymbolKind, SymbolTag, Uri, WorkspaceSymbol, WorkspaceSymbolResp
 use rowan::TextRange;
 use tokio_util::sync::CancellationToken;
 
-use super::rank::{MatchTier, match_tier};
+use super::rank::{MatchTier, match_tier, path_rank};
 
 /// LuaLS stops at 1000 results; a one-letter query otherwise returns tens of thousands of symbols.
 const MAX_WORKSPACE_SYMBOLS: usize = 1000;
 
-/// Sort key: best match first, then shorter names, then a fixed location order so
-/// the same workspace always yields the same list.
+/// Sort key: best match first, then project code before vendored code (library,
+/// std or remote files, and files under a dot-prefixed directory), then shorter
+/// names, shallower paths and a fixed location order so the same workspace
+/// always yields the same list.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct RankKey {
     tier: MatchTier,
+    vendored: bool,
     name_len: usize,
+    depth: usize,
     uri: Arc<str>,
     line: u32,
     column: u32,
@@ -55,6 +59,8 @@ struct FileSymbols<'a> {
     document: LuaDocument<'a>,
     uri: Uri,
     uri_key: Arc<str>,
+    vendored: bool,
+    depth: usize,
     query: &'a str,
     best: BinaryHeap<Candidate>,
 }
@@ -74,7 +80,9 @@ impl FileSymbols<'_> {
         };
         let key = RankKey {
             tier,
+            vendored: self.vendored,
             name_len: name.len(),
+            depth: self.depth,
             uri: self.uri_key.clone(),
             line: lsp_range.start.line,
             column: lsp_range.start.character,
@@ -119,6 +127,7 @@ pub fn build_workspace_symbols(
     cancel_token: CancellationToken,
 ) -> Option<WorkspaceSymbolResponse> {
     let merged: Mutex<Vec<Candidate>> = Mutex::new(Vec::new());
+    let roots = analysis.db.workspace_root_paths();
     analysis.db.parallel_for_each_file(|file_id, model| {
         if cancel_token.is_cancelled() {
             return;
@@ -129,9 +138,19 @@ pub fn build_workspace_symbols(
         let Some(uri) = document.get_uri() else {
             return;
         };
+        let location = analysis
+            .db
+            .file_path(file_id)
+            .map(|path| path_rank(&path, &roots));
+        let outside_main = analysis
+            .db
+            .workspace_id_of(file_id)
+            .is_some_and(|id| !id.is_main());
         let mut file = FileSymbols {
             document,
             uri_key: Arc::from(uri.as_str()),
+            vendored: outside_main || location.is_some_and(|rank| rank.hidden_dir),
+            depth: location.map_or(usize::MAX, |rank| rank.depth),
             uri,
             query: &query,
             best: BinaryHeap::new(),

@@ -370,6 +370,70 @@ mod tests {
         Ok(())
     }
 
+    fn uris_of(symbols: &[WorkspaceSymbol]) -> Vec<String> {
+        located_names(symbols)
+            .into_iter()
+            .map(|(_, uri, _, _)| uri)
+            .collect()
+    }
+
+    // `.vendor/` sorts before `src/` by path, so without a project-first tie-break
+    // the vendored copy would come first.
+    #[gtest]
+    fn test_project_match_precedes_vendored_match_of_the_same_tier() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(".vendor/lib.lua", "local pick = 1\n");
+        ws.def_file("src/app.lua", "local pick = 1\n");
+        let uris = uris_of(&query(&ws, "pick"));
+        expect_that!(uris.len(), eq(2));
+        expect_that!(
+            uris.first().map(|uri| uri.ends_with("src/app.lua")),
+            some(eq(true))
+        );
+        Ok(())
+    }
+
+    // The tier decides first: a vendored exact match still beats a project prefix match.
+    #[gtest]
+    fn test_vendored_exact_match_precedes_project_prefix_match() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(".vendor/lib.lua", "local pick = 1\n");
+        ws.def_file("src/app.lua", "local pick_more = 1\n");
+        let names: Vec<String> = query(&ws, "pick")
+            .into_iter()
+            .map(|symbol| symbol.name)
+            .collect();
+        expect_that!(names, elements_are![eq("pick"), eq("pick_more")]);
+        Ok(())
+    }
+
+    // Shallower paths first within the same tier, vendored status and name length.
+    #[gtest]
+    fn test_shallower_path_precedes_deeper_path() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file("a/b/c/deep.lua", "local pick = 1\n");
+        ws.def_file("z.lua", "local pick = 1\n");
+        let uris = uris_of(&query(&ws, "pick"));
+        expect_that!(
+            uris.first().map(|uri| uri.ends_with("z.lua")),
+            some(eq(true))
+        );
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_project_first_order_is_stable_across_runs() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        for dir in [".vendor", ".other", "src", "lib"] {
+            ws.def_file(&format!("{dir}/f.lua"), "local pick = 1\n");
+        }
+        let first = located_names(&query(&ws, "pick"));
+        for _ in 0..5 {
+            expect_that!(located_names(&query(&ws, "pick")), eq(&first));
+        }
+        Ok(())
+    }
+
     #[gtest]
     fn test_result_order_is_stable_across_runs() -> Result<()> {
         let ws = ranking_workspace();
