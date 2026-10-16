@@ -76,6 +76,7 @@ impl RenderLevel {
 // ─── TypeHumanizer ──────────────────────────────────────────────────────────
 
 const DEFAULT_MAX_DEPTH: u8 = 12;
+const HOVER_MAX_OBJECT_FIELDS: usize = 40;
 
 /// A writer-based humanizer that avoids intermediate `String` allocation and has depth limits plus recursive alias cycle detection.
 pub struct TypeHumanizer<'a> {
@@ -87,6 +88,8 @@ pub struct TypeHumanizer<'a> {
     expand_defaults: bool,
     /// Table literals being expanded, so a table that contains itself (`M.__index = M`) renders as `table` inside.
     open_tables: Vec<InFiled<rowan::TextRange>>,
+    /// Hover style: a table literal nested in another is a bare `table`, and its numeric constants keep their base type.
+    nested_tables_collapse: bool,
 }
 
 impl<'a> TypeHumanizer<'a> {
@@ -98,7 +101,21 @@ impl<'a> TypeHumanizer<'a> {
             max_depth: DEFAULT_MAX_DEPTH,
             expand_defaults: true,
             open_tables: Vec::new(),
+            nested_tables_collapse: false,
         }
+    }
+
+    /// Fields listed per object; hover lists them all up to a limit that only keeps a runaway module table readable.
+    fn object_field_cap(&self) -> usize {
+        if self.nested_tables_collapse {
+            HOVER_MAX_OBJECT_FIELDS
+        } else {
+            self.level.max_items()
+        }
+    }
+
+    fn inside_table_literal(&self) -> bool {
+        self.nested_tables_collapse && !self.open_tables.is_empty()
     }
 
     fn guard(&mut self) -> Option<DepthGuardToken> {
@@ -146,8 +163,10 @@ impl<'a> TypeHumanizer<'a> {
             LuaType::Never => w.write_str("never"),
             LuaType::BooleanConst(b) => write!(w, "{}", b),
             LuaType::DocBooleanConst(b) => write!(w, "{}", b),
+            LuaType::IntegerConst(i) if self.inside_table_literal() => write!(w, "integer = {}", i),
             LuaType::IntegerConst(i) => write!(w, "{}", i),
             LuaType::DocIntegerConst(i) => write!(w, "{}", i),
+            LuaType::FloatConst(f) if self.inside_table_literal() => write!(w, "number = {}", f),
             LuaType::FloatConst(f) => {
                 let s = f.to_string();
                 if s.contains('.') {
@@ -161,7 +180,7 @@ impl<'a> TypeHumanizer<'a> {
             LuaType::TableConst(table) => {
                 // Anonymous table literals expand to named objects in Detailed/Normal rendering rather than a generic `table`;
                 // Runtime and declared members are also expanded uniformly through `member_infos`.
-                if self.open_tables.contains(table) {
+                if self.open_tables.contains(table) || self.inside_table_literal() {
                     return w.write_str("table");
                 }
                 let infos = self.model.member_infos(ty);
@@ -644,7 +663,8 @@ impl<'a> TypeHumanizer<'a> {
         let saved = self.level;
         self.level = self.child_level();
 
-        for (i, (key, ty)) in field_vec.iter().take(self.level.max_items()).enumerate() {
+        let max_fields = self.object_field_cap();
+        for (i, (key, ty)) in field_vec.iter().take(max_fields).enumerate() {
             if i > 0 {
                 w.write_str(", ")?;
             }
@@ -653,7 +673,7 @@ impl<'a> TypeHumanizer<'a> {
             self.write_type(ty, w)?;
         }
 
-        if fields.len() > self.level.max_items() {
+        if fields.len() > max_fields {
             w.write_str(", ...")?;
         }
 
@@ -870,6 +890,15 @@ pub fn humanize_type(model: &SemanticModel, ty: &LuaType) -> String {
 
 pub fn humanize_type_detailed(model: &SemanticModel, ty: &LuaType) -> String {
     humanize_type_with_level(model, ty, RenderLevel::Detailed)
+}
+
+/// Hover rendering: `humanize_type`, with nested table literals collapsed to `table`.
+pub fn humanize_type_hover(model: &SemanticModel, ty: &LuaType) -> String {
+    let mut humanizer = TypeHumanizer::new(model, RenderLevel::Simple);
+    humanizer.nested_tables_collapse = true;
+    let mut buf = String::new();
+    let _ = humanizer.write_type(ty, &mut buf);
+    buf
 }
 
 pub fn humanize_type_with_level(model: &SemanticModel, ty: &LuaType, level: RenderLevel) -> String {
