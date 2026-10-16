@@ -1475,6 +1475,27 @@ mod tests {
         Ok(())
     }
 
+    /// Hovering a call through a nested global table keeps the function's return type.
+    #[gtest]
+    fn test_hover_call_through_nested_global_keeps_return() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                gv = {}
+                gv.api = {}
+
+                --- @return integer
+                function gv.api.fetch() end
+
+                local a = gv.api.fe<??>tch()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(field) fetch() -> integer\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     /// An unannotated parameter takes its shape from the fields the body reads, writes and calls.
     #[gtest]
     fn test_hover_unannotated_param_usage_shape() -> Result<()> {
