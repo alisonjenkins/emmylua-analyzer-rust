@@ -2071,4 +2071,63 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_key_of_a_returned_typed_literal_lists_class_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Meta
+                ---@field url string
+
+                ---@class Cfg
+                ---@field command string
+                ---@field meta Meta
+
+                ---@type Cfg
+                return {
+                    comm<??>and = "x",
+                    meta = { url = "u" },
+                }
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 5
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 10
+                },
+            ]
+        ));
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Meta
+                ---@field url string
+
+                ---@class Cfg
+                ---@field command string
+                ---@field meta Meta
+
+                ---@type Cfg
+                return {
+                    command = "x",
+                    meta = { u<??>rl = "u" },
+                }
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 11
+                },
+            ]
+        ));
+        Ok(())
+    }
 }
