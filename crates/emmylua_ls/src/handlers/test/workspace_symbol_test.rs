@@ -691,8 +691,10 @@ mod tests {
         expect_that!(count_of(&query(&ws, "casemixed"), "CaseMixed"), eq(1));
         expect_that!(count_of(&query(&ws, "casemixed"), "casemixed2"), eq(1));
         expect_that!(count_of(&query(&ws, "CaseMixed"), "CaseMixed"), eq(1));
-        expect_that!(query(&ws, "CASEMIXED"), is_empty());
-        expect_that!(count_of(&query(&ws, "Casemixed"), "casemixed2"), eq(0));
+        // the letters-bag fallback ignores case, so only a query with a letter the names lack is empty
+        expect_that!(count_of(&query(&ws, "CASEMIXED"), "CaseMixed"), eq(1));
+        expect_that!(query(&ws, "CASEMIXEDX"), is_empty());
+        expect_that!(count_of(&query(&ws, "Casemixed"), "casemixed2"), eq(1));
         Ok(())
     }
 
