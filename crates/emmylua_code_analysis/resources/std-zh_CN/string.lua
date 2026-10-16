@@ -13,66 +13,48 @@
 -- License for the specific language governing permissions and limitations under
 -- the License.
 
----
---- The type *string* represents immutable sequences of bytes. Lua is 8-bit
---- clean: strings can contain any 8-bit value, including embedded zeros
---- ('`\0`'). Lua is also encoding-agnostic; it makes no assumptions about
---- the contents of a string.
+--- *string* 类型表示不可变的字节序列。Lua 使用 8 位编码：字符串可以包含任意 8 位值，
+--- 包括嵌入的零（`\0`）。Lua 也与编码无关；它不会对字符串的内容做任何假设。
 --- @class (partial) string
 string = {}
 
+--- 返回字符 `s[i]`、`s[i+1]`、...、`s[j]` 的内部数值码。`i` 的默认值为 1，`j` 的默认值为 `i`。
+--- 这些索引会按 `string.sub` 的相同规则进行修正。
 ---
---- Returns the internal numerical codes of the characters `s[i]`, `s[i+1]`,
---- ..., `s[j]`. The default value for `i` is 1; the default value for `j`
---- is `i`. These indices are corrected following the same rules of function
---- `string.sub`.
----
---- Note that numerical codes are not necessarily portable across platforms.
+--- 注意：这些数值码并不一定能跨平台移植。
 --- @param s  string
 --- @param i? integer
 --- @param j? integer
 --- @return integer
 function string.byte(s, i, j) end
 
+--- 接收零个或多个整数。返回一个长度等于参数个数的字符串，其中每个字符的内部数值码
+--- 等于其对应的参数。
 ---
---- Receives zero or more integers. Returns a string with length equal to
---- the number of arguments, in which each character has the internal numerical
---- code equal to its corresponding argument.
----
---- Note that numerical codes are not necessarily portable across platforms.
+--- 注意：这些数值码并不一定能跨平台移植。
 --- @param ... integer
 --- @return string
 function string.char(...) end
 
+--- 返回一个字符串，包含给定函数的二进制表示（*二进制块*）。之后对该字符串调用 `load`，
+--- 会得到该函数的一个副本（但其上值是新的实例）。如果 `strip` 为真，则为了节省空间，
+--- 二进制表示可能不会包含该函数的全部调试信息。
 ---
---- Returns a string containing a binary representation (*a binary chunk*) of
---- the given function, so that a later `load` on this string returns a
---- copy of the function (but with new upvalues). If strip is a true value, the
---- binary representation may not include all debug information about the
---- function, to save space.
----
---- Functions with upvalues have only their number of upvalues saved. When (re)
---- loaded, those upvalues receive fresh instances containing **nil**. (You can
---- use the debug library to serialize and reload the upvalues of a function in
---- a way adequate to your needs.)
+--- 对于带上值的函数，只会保存上值的数量；（重新）加载后，这些上值会变成包含 **nil**
+--- 的新实例。（你可以使用 debug 库按需序列化并恢复函数的上值。）
 --- @param func   function
 --- @param strip? boolean
 --- @return string
 function string.dump(func, strip) end
 
+--- 在字符串 `s` 中查找 `pattern` 的第一次匹配。如果找到，则返回该匹配在 `s` 中的起始与结束索引；
+--- 否则返回 **nil**。
 ---
---- Looks for the first match of `pattern` in the string `s`. If it finds a
---- match, then `find` returns the indices of `s` where this occurrence starts
---- and ends; otherwise, it returns **nil**. A third, optional numerical
---- argument `init` specifies where to start the search; its default value is 1
---- and can be negative. A value of **true** as a fourth, optional argument
---- `plain` turns off the pattern matching facilities, so the function does a
---- plain "find substring" operation, with no characters in `pattern` being
---- considered "magic". Note that if `plain` is given, then `init` must be given
---- as well.
+--- 可选的第三个数字参数 `init` 指定从哪里开始搜索；默认值为 1，也可以为负数。
+--- 可选的第四个参数 `plain` 为 **true** 时，会关闭模式匹配机制：函数将进行普通的“查找子串”操作，
+--- 此时 `pattern` 中不会有任何字符被视为具有特殊含义的“魔法字符”。注意：如果提供了 `plain`，则也必须提供 `init`。
 ---
---- If the pattern has captures, then in a successful match the captured values
---- are also returned, after the two indices.
+--- 如果 `pattern` 含有捕获，则匹配成功时也会在两个索引之后返回捕获到的值。
 --- @param s       string | number
 --- @param pattern string | number
 --- @param init?   integer
@@ -83,96 +65,87 @@ function string.dump(func, strip) end
 --- @nodiscard
 function string.find(s, pattern, init, plain) end
 
+--- 按第一个参数（必须是字符串）中的描述，对后续可变数量的参数进行格式化，并返回格式化后的字符串。
+--- 格式字符串遵循 ISO C 的 `sprintf` 的规则，区别在于：不支持选项/修饰符 `*`、`h`、`L`、`l`、`n`、`p`，
+--- 且额外支持一个 `q` 选项。
 ---
---- Returns a formatted version of its variable number of arguments following
---- the description given in its first argument (which must be a string). The
---- format string follows the same rules as the ISO C function `sprintf`. The
---- only differences are that the options/modifiers `*`, `h`, `L`, `l`, `n`, and
---- `p` are not supported and that there is an extra option, `q`.
+--- `q` 选项会以“可被 Lua 源码当作常量读回”的形式格式化布尔值、nil、数字和字符串：
+--- 布尔值与 nil 会直接写作 `true`、`false`、`nil`；浮点数会用十六进制表示以保留全部精度；
+--- 字符串会放在双引号中，并在必要时使用转义序列以确保 Lua 解释器可以安全读回。
 ---
---- The `q` option formats booleans, nil, numbers, and strings in a way that the
---- result is a valid constant in Lua source code. Booleans and nil are written
---- in the obvious way (`true`, `false`, `nil`). Floats are written in
---- hexadecimal, to preserve full precision. A string is written between double
---- quotes, using escape sequences when necessary to ensure that it can safely
---- be read back by the Lua interpreter. For instance, the call
+--- 例如：
+--- ```lua
+--- string.format('%q', 'a string with "quotes" and \n new line')
+--- ```
+--- 可能产生：
+--- ```lua
+--- "a string with \"quotes\" and \n new line"
+--- ```
 ---
---- string.format('%q', 'a string with "quotes" and \n new line') may produce
---- the string:
+--- 选项 `A`、`a`、`E`、`e`、`f`、`g`、`G` 和 `g` 需要一个数字参数。
+--- 选项 `c`、`d`、`i`、`o`、`u`、`X`、`x` 需要一个整数参数。
+--- 当 Lua 使用 C89 编译器编译时，选项 `A` 和 `a`（十六进制浮点数）不支持任何修饰符（标志、宽度、长度）。
 ---
---- > "a string with \"quotes\" and \
---- > new line"
----
---- The options `A`, `a`, `E`, `e`, `f`, `g`, `G` and `g` all expect a number as
---- argument. Options `c`, `d`, `i`, `o`, `u`, `X`, and `x` expect an integer.
---- When Lua is compiled with a C89 compiler, options `A` and `a` (hexadecimal
---- floats) do not support any modifier (flags, width, length).
----
---- Option `s` expects a string; if its argument is not a string, it is
---- converted to one following the same rules of `tostring`. If the option
---- has any modifier (flags, width, length), the string argument should not
---- contain embedded zeros.
+--- 选项 `s` 需要一个字符串；若参数不是字符串，则按与 `tostring` 相同的规则转换为字符串。
+--- 如果 `s` 选项带有任何修饰符（标志、宽度、长度），则字符串参数不应包含嵌入的零字节。
 --- @param fmt string
 --- @param ... any
 --- @return string
 --- @nodiscard
 function string.format(fmt, ...) end
 
+--- 返回一个迭代器函数：每次调用时，它都会在字符串 `s` 上返回 `pattern` 的下一组捕获结果。
+--- 若 `pattern` 未指定捕获，则每次返回整个匹配内容。
 ---
---- Returns an iterator function that, each time it is called, returns the
---- next captures from `pattern` over the string `s`. If `pattern` specifies no
---- captures, then the whole match is produced in each call.
+--- 例如，下面的循环会遍历字符串 `s` 中的所有单词，并逐行打印：
 ---
---- As an example, the following loop will iterate over all the words from
---- string `s`, printing one per line:
+--- ```lua
+--- s = "hello world from Lua"
+--- for w in string.gmatch(s, "%a+") do
+---     print(w)
+--- end
+--- ```
 ---
---- `s = "hello world from Lua"`
---- `for w in string.gmatch(s, "%a+") do`
----  > `print(w)`
---- `end`
+--- 下一个示例把给定字符串中的所有 `key=value` 对收集到表中：
 ---
---- The next example collects all pairs `key=value` from the given string into a
---- table:
+--- ```lua
+--- t = {}
+--- s = "from=world, to=Lua"
+--- for k, v in string.gmatch(s, "(%w+)=(%w+)") do
+---     t[k] = v
+--- end
+--- ```
 ---
---- `t = {}`
----  s = "from=world, to=Lua"`
---- `for k, v in string.gmatch(s, "(%w+)=(%w+)") do`
----  > `t[k] = v`
---- `end`
----
---- For this function, a caret '`^`' at the start of a pattern does not work as
---- an anchor, as this would prevent the iteration.
+--- 注意：对该函数而言，模式开头的插入符 '`^`' 不会作为锚点使用，因为那会阻止迭代。
 --- @param s       string
 --- @param pattern string
 --- @return fun(): string?...
 function string.gmatch(s, pattern) end
 
+--- 返回一个迭代器函数：每次调用时，它都会在字符串 `s` 上返回 `pattern` 的下一组捕获结果。
+--- 若 `pattern` 未指定捕获，则每次返回整个匹配内容。 第三个可选参数 `init` 指定从哪里开始搜索；
+--- 默认值为 1，也可以为负数。
 ---
---- Returns an iterator function that, each time it is called, returns the
---- next captures from `pattern` over the string `s`. If `pattern` specifies no
---- captures, then the whole match is produced in each call. A third,
---- optional numeric argument init specifies where to start the search;
---- its default value is 1 and can be negative.
+--- 例如，下面的循环会遍历字符串 `s` 中的所有单词，并逐行打印：
 ---
---- As an example, the following loop will iterate over all the words from
---- string `s`, printing one per line:
+--- ```lua
+--- s = "hello world from Lua"
+--- for w in string.gmatch(s, "%a+") do
+---     print(w)
+--- end
+--- ```
 ---
---- `s = "hello world from Lua"`
---- `for w in string.gmatch(s, "%a+") do`
----  > `print(w)`
---- `end`
+--- 下一个示例把给定字符串中的所有 `key=value` 对收集到表中：
 ---
---- The next example collects all pairs `key=value` from the given string into a
---- table:
+--- ```lua
+--- t = {}
+--- s = "from=world, to=Lua"
+--- for k, v in string.gmatch(s, "(%w+)=(%w+)") do
+---     t[k] = v
+--- end
+--- ```
 ---
---- `t = {}`
----  s = "from=world, to=Lua"`
---- `for k, v in string.gmatch(s, "(%w+)=(%w+)") do`
----  > `t[k] = v`
---- `end`
----
---- For this function, a caret '`^`' at the start of a pattern does not work as
---- an anchor, as this would prevent the iteration.
+--- 注意：对该函数而言，模式开头的插入符 '`^`' 不会作为锚点使用，因为那会阻止迭代。
 --- @version >5.4
 --- @param s       string
 --- @param pattern string
@@ -180,49 +153,36 @@ function string.gmatch(s, pattern) end
 --- @return fun():string?...
 function string.gmatch(s, pattern, init) end
 
+--- 返回 `s` 的一个副本，其中所有（或前 `n` 个，如果给出）匹配 `pattern` 的内容都会被 `repl` 替换。
+--- `repl` 可以是字符串、表或函数。`gsub` 还会把发生的匹配总数作为第二个返回值返回。
 ---
---- Returns a copy of `s` in which all (or the first `n`, if given)
---- occurrences of the `pattern` have been replaced by a replacement string
---- specified by `repl`, which can be a string, a table, or a function. `gsub`
---- also returns, as its second value, the total number of matches that
---- occurred.
+--- 若 `repl` 为字符串，则直接用该字符串替换。此时字符 `%` 用作转义：`repl` 中形如 `%n`（*n* 为 1~9）
+--- 的序列表示第 *n* 个捕获子串；`%0` 表示整个匹配；`%%` 表示单个 `%`。
 ---
---- If `repl` is a string, then its value is used for replacement. The character
---- `%` works as an escape character: any sequence in `repl` of the form `%n`,
---- with *n* between 1 and 9, stands for the value of the *n*-th captured
---- substring (see below). The sequence `%0` stands for the whole match. The
---- sequence `%%` stands for a single `%`.
+--- 若 `repl` 为表，则每次匹配都会用“第一个捕获”作为键查询该表；如果 `pattern` 没有捕获，则用整个匹配作为键。
 ---
---- If `repl` is a table, then the table is queried for every match, using
---- the first capture as the key; if the pattern specifies no captures, then
---- the whole match is used as the key.
+--- 若 `repl` 为函数，则每次匹配都会调用该函数，并按顺序把所有捕获子串作为参数传入；如果没有捕获，则把整个匹配作为唯一参数传入。
 ---
---- If `repl` is a function, then this function is called every time a match
---- occurs, with all captured substrings passed as arguments, in order; if
---- the pattern specifies no captures, then the whole match is passed as a
---- sole argument.
+--- 若表查询或函数调用的返回值是字符串或数字，则用它作为替换内容；否则，如果返回 false 或 nil，则表示不替换（即保留原始匹配）。
 ---
---- If the value returned by the table query or by the function call is a
---- string or a number, then it is used as the replacement string; otherwise,
---- if it is false or nil, then there is no replacement (that is, the original
---- match is kept in the string).
----
---- Here are some examples:
---- `x = string.gsub("hello world", "(%w+)", "%1 %1")`
---- `-- > x="hello hello world world"`
---- `x = string.gsub("hello world", "%w+", "%0 %0", 1)`
---- `-- > x="hello hello world"`
---- `x = string.gsub("hello world from Lua", "(%w+)%s*(%w+)", "%2 %1")`
---- `-- > x="world hello Lua from"`
---- `x = string.gsub("home = $HOME, user = $USER", "%$(%w+)", os.getenv)`
---- `-- > x="home = /home/roberto, user = roberto"`
---- `x = string.gsub("4+5 = $return 4+5$", "%$(.-)%$", function (s)`
----  >> return loadstring(s)()
----  > end)
---- `-- > x="4+5 = 9"`
---- `local t = {name="lua", version="5.3"}`
---- `x = string.gsub("$name-$version.tar.gz", "%$(%w+)", t)`
---- > x="lua-5.3.tar.gz"
+--- # 示例：
+--- ```lua
+--- x = string.gsub("hello world", "(%w+)", "%1 %1")
+--- -- > x="hello hello world world"
+--- x = string.gsub("hello world", "%w+", "%0 %0", 1)
+--- -- > x="hello hello world"
+--- x = string.gsub("hello world from Lua", "(%w+)%s*(%w+)", "%2 %1")
+--- -- > x="world hello Lua from"
+--- x = string.gsub("home = $HOME, user = $USER", "%$(%w+)", os.getenv)
+--- -- > x="home = /home/roberto, user = roberto"
+--- x = string.gsub("4+5 = $return 4+5$", "%$(.-)%$", function (s)
+---     return loadstring(s)()
+--- end)
+--- -- > x="4+5 = 9"
+--- local t = {name="lua", version="5.3"}
+--- x = string.gsub("$name-$version.tar.gz", "%$(%w+)", t)
+--- -- > x="lua-5.3.tar.gz"
+--- ```
 --- @param s       string | number
 --- @param pattern string | number
 --- @param repl    string | number | table | fun(param: string)
@@ -231,27 +191,20 @@ function string.gmatch(s, pattern, init) end
 --- @return integer count
 function string.gsub(s, pattern, repl, n) end
 
----
---- Receives a string and returns its length. The empty string `""` has
---- length 0. Embedded zeros are counted, so `"a\000bc\000"` has length 5.
+--- 接收一个字符串并返回其长度。空字符串 `""` 的长度为 0。
+--- 嵌入的零字节也会计入长度，因此 `"a\000bc\000"` 的长度为 5。
 --- @param s string
 --- @return integer
 function string.len(s) end
 
----
---- Receives a string and returns a copy of this string with all uppercase
---- letters changed to lowercase. All other characters are left unchanged. The
---- definition of what an uppercase letter is depends on the current locale.
+--- 接收一个字符串并返回该字符串的副本，将其中所有大写字母转换为小写；其余字符保持不变。
+--- 什么算作大写字母取决于当前的区域设置。
 --- @param s string
 --- @return string
 function string.lower(s) end
 
----
---- Looks for the first *match* of `pattern` in the string `s`. If it
---- finds one, then `match` returns the captures from the pattern; otherwise
---- it returns **nil**. If `pattern` specifies no captures, then the whole match
---- is returned. A third, optional numerical argument `init` specifies where
---- to start the search; its default value is 1 and can be negative.
+--- 在字符串 `s` 中查找 `pattern` 的第一次*匹配*。如果匹配成功，则返回模式中的捕获；否则返回 **nil**。
+--- 如果 `pattern` 没有捕获，则返回整个匹配内容。可选的第三个数字参数 `init` 指定从哪里开始搜索；默认值为 1，可为负数。
 --- @param s       string
 --- @param pattern string
 --- @param init?   integer
@@ -259,9 +212,7 @@ function string.lower(s) end
 function string.match(s, pattern, init) end
 
 --- @version >5.3
----
---- Returns a binary string containing the values `v1`, `v2`, etc. packed (that
---- is, serialized in binary form) according to the format string `fmt`.
+--- 按格式字符串 `fmt` 将 `v1`、`v2` 等值打包（即以二进制形式序列化），并返回得到的二进制字符串。
 --- @param fmt string
 --- @param v1  string | number | integer
 --- @param v2? string | number | integer
@@ -270,46 +221,35 @@ function string.match(s, pattern, init) end
 function string.pack(fmt, v1, v2, ...) end
 
 --- @version >5.3
----
---- Returns the size of a string resulting from `string.pack` with the given
---- format. The format string cannot have the variable-length options '`s`' or
---- '`z`'
+--- 返回使用给定格式调用 `string.pack` 时生成的字符串大小。
+--- 格式字符串不能包含变长选项 '`s`' 或 '`z`'。
 --- @param fmt string
 --- @return integer
 function string.packsize(fmt) end
 
+--- 返回 `n` 个以字符串 `sep` 为分割符连在一起的字符串。
+--- 默认的 `sep` 值为空字符串（即没有分割符）。如果 `n` 不是正数则返回空串。
 ---
---- Returns a string that is the concatenation of `n` copies of the string
---- `s` separated by the string `sep`. The default value for `sep` is the empty
---- string (that is, no separator). Returns the empty string if n is not
---- positive.
----
---- Note that it is very easy to exhaust the memory of your machine with a
---- single call to this function.
+--- 请注意，单次调用此函数极易耗尽机器的内存。
 --- @param s    string
 --- @param n    integer
 --- @param sep? string
 --- @return string
 function string.rep(s, n, sep) end
 
----
---- Returns a string that is the string `s` reversed.
+--- 返回将字符串 `s` 反转后的新字符串。
 --- @param s string
 --- @return string
 function string.reverse(s) end
 
+--- 返回 `s` 的子串：从 `i` 开始直到 `j` 结束（包含两端）。`i` 与 `j` 均可为负数。
+--- 若省略 `j`，则默认为 -1（等同于字符串长度）。
 ---
---- Returns the substring of `s` that starts at `i` and continues until
---- `j`; `i` and `j` can be negative. If `j` is absent, then it is assumed to
---- be equal to -1 (which is the same as the string length). In particular,
---- the call `string.sub(s,1,j)` returns a prefix of `s` with length `j`, and
---- `string.sub(s, -i)` (for a positive i) returns a suffix of `s` with length
---- `i`.
+--- 特别地，`string.sub(s, 1, j)` 返回 `s` 的一个前缀，其长度为 `j`；
+--- `string.sub(s, -i)`（`i` 为正）返回 `s` 的一个后缀，其长度为 `i`。
 ---
---- If, after the translation of negative indices, `i` is less than 1, it is
---- corrected to 1. If `j` is greater than the string length, it is corrected to
---- that length. If, after these corrections, `i` is greater than `j`, the
---- function returns the empty string.
+--- 将负索引换算后，若 `i` 小于 1，则修正为 1；若 `j` 大于字符串长度，则修正为该长度。
+--- 若修正后 `i` 大于 `j`，则返回空字符串。
 --- @param s  string | number
 --- @param i  integer
 --- @param j? integer
@@ -318,11 +258,9 @@ function string.reverse(s) end
 function string.sub(s, i, j) end
 
 --- @version >5.3
----
---- Returns the values packed in string `s` according to the format string
---- `fmt`. An optional `pos` marks where to start reading in `s` (default is 1).
---- After the read values, this function also returns the index of the first
---- unread byte in `s`.
+--- 按格式字符串 `fmt` 从字符串 `s` 中解包并返回其中的值。
+--- 可选参数 `pos` 指定从 `s` 的哪个位置开始读取（默认值为 1）。
+--- 除了解包得到的值之外，本函数还会返回 `s` 中第一个未读字节的索引。
 --- @param fmt  string
 --- @param s    string
 --- @param pos? integer
@@ -330,10 +268,8 @@ function string.sub(s, i, j) end
 --- @return integer offset
 function string.unpack(fmt, s, pos) end
 
----
---- Receives a string and returns a copy of this string with all lowercase
---- letters changed to uppercase. All other characters are left unchanged. The
---- definition of what a lowercase letter is depends on the current locale.
+--- 接收一个字符串并返回该字符串的副本，将其中所有小写字母转换为大写；其余字符保持不变。
+--- 什么算作小写字母取决于当前的区域设置。
 --- @param s string
 --- @return string
 function string.upper(s) end

@@ -16,80 +16,64 @@
 --- @class iolib
 io = {}
 
----
---- Equivalent to `file:close()`. Without a file, closes the default output
---- file.
+--- 相当于 `file:close()`。如果没有指定文件，则关闭默认输出文件。
 --- @param file? file
 function io.close(file) end
 
----
---- Equivalent to `io.output():flush()`.
+--- 相当于 `io.output():flush()`。
 function io.flush() end
 
+--- 当使用文件名调用时，它打开命名的文件（以文本模式），并将该文件句柄
+--- 设置为默认输入文件。当使用文件句柄调用时，它只是将此文件句柄设置为
+--- 默认输入文件。当不带参数调用时，它返回当前的默认输入文件。
 ---
---- When called with a file name, it opens the named file (in text mode), and
---- sets its handle as the default input file. When called with a file handle,
---- it simply sets this file handle as the default input file. When called
---- without parameters, it returns the current default input file.
----
---- In case of errors this function raises the error, instead of returning an
---- error code.
+--- 如果发生错误，此函数会引发错误，而不是返回错误代码。
 --- @param file? file | string
 --- @return file
 function io.input(file) end
 
+--- 以读取模式打开给定的文件名，并返回一个像 `file:lines(...)` 一样
+--- 在打开的文件上工作的迭代器函数。当迭代器函数检测到文件末尾时，
+--- 它不返回任何值（以结束循环）并自动关闭文件。
 ---
---- Opens the given file name in read mode and returns an iterator function
---- works like `file:lines(···)` over the opened file. When the iterator
---- function detects the end of file, it returns no values (to finish the loop)
---- and automatically closes the file.
+--- 调用 `io.lines()`（不带文件名）相当于 `io.input():lines()`；
+--- 也就是说，它遍历默认输入文件的行。在这种情况下，迭代器在循环结束时
+--- 不会关闭文件。
 ---
---- The call `io.lines()` (with no file name) is equivalent to `io.input():lines
---- ()`; that is, it iterates over the lines of the default
---- input file. In this case, the iterator does not close the file when the loop
---- ends.
----
---- In case of errors this function raises the error, instead of returning an
---- error code.
+--- 如果发生错误，此函数会引发错误，而不是返回错误代码。
 --- @param filename? string
 --- @return fun(): any
 function io.lines(filename, ...) end
 
 --- @alias iolib.OpenMode "r" | "w" | "a" | "r+" | "w+" | "a+" | "rb" | "wb" | "ab" | "rb+" | "wb+" | "ab+" | "r+b" | "w+b" | "a+b"
 
+--- 此函数以字符串 `mode` 指定的模式打开文件。如果成功，它返回一个新的
+--- 文件句柄。`mode` 字符串可以是以下任意一种：
 ---
---- This function opens a file, in the mode specified in the string `mode`. In
---- case of success, it returns a new file handle. The `mode` string can be
---- any of the following:
+--- **"r"**: 读取模式（默认）；
+--- **"w"**: 写入模式；
+--- **"a"**: 追加模式；
+--- **"r+"**: 更新模式，保留所有先前的数据；
+--- **"w+"**: 更新模式，擦除所有先前的数据；
+--- **"a+"**: 追加更新模式，保留先前的数据，只允许在文件末尾写入。
 ---
---- **"r"**: read mode (the default);
---- **"w"**: write mode;
---- **"a"**: append mode;
---- **"r+"**: update mode, all previous data is preserved;
---- **"w+"**: update mode, all previous data is erased;
---- **"a+"**: append update mode, previous data is preserved, writing is only
---- allowed at the end of file.
----
---- The `mode` string can also have a '`b`' at the end, which is needed in
---- some systems to open the file in binary mode.
+--- `mode` 字符串末尾也可以有一个 '`b`'，在某些系统中需要它以二进制模式打开文件。
 --- @param filename string
 --- @param mode?    iolib.OpenMode
 --- @return_overload file
 --- @return_overload nil, string err
 function io.open(filename, mode) end
 
----
---- Similar to `io.input`, but operates over the default output file.
+--- 类似于 `io.input`，但操作的是默认输出文件。
 --- @param file? file | string
 --- @return file
 function io.output(file) end
 
+--- 此函数依赖于系统，并非在所有平台上都可用。
 ---
---- This function is system dependent and is not available on all platforms.
----
---- Starts program `prog` in a separated process and returns a file handle that
---- you can use to read data from this program (if `mode` is "`r`", the default)
---- or to write data to this program (if `mode` is "`w`").
+--- 在单独的进程中启动程序 `prog`，并返回一个文件句柄，你可以使用它
+--- 从此程序读取数据（如果 `mode` 是 "`r`"，默认值）或向此程序写入数据
+--- （如果 `mode` 是 "`w`"）。
 --- @param prog  string
 --- @param mode? string | 'r' | 'w'
 --- @return file
@@ -107,47 +91,41 @@ function io.popen(prog, mode) end
 --- | "*l" # 读取一行并忽略行尾标记。
 --- | "*L" # 读取一行并保留行尾标记。
 
----
---- Equivalent to `io.input():read(···)`.
+--- 相当于 `io.input():read(...)`。
 --- @param ... std.readmode
 --- @return any
 --- @return any ...
 --- @nodiscard
 function io.read(...) end
 
----
---- In case of success, returns a handle for a temporary file. This file is
---- opened in update mode and it is automatically removed when the program ends.
+--- 如果成功，返回一个临时文件的句柄。此文件以更新模式打开，
+--- 并在程序结束时自动删除。
 --- @return file
 function io.tmpfile() end
 
----
---- Checks whether `obj` is a valid file handle. Returns the string "`file`"
---- if `obj` is an open file handle, "`closed file`" if `obj` is a closed file
---- handle, or **nil** if `obj` is not a file handle.
+--- 检查 `obj` 是否为有效的文件句柄。如果 `obj` 是打开的文件句柄，
+--- 返回字符串 "`file`"；如果 `obj` 是已关闭的文件句柄，
+--- 返回 "`closed file`"；如果 `obj` 不是文件句柄，返回 **nil**。
 --- @param obj file
 --- @return 'file'|'closed file'|nil
 function io.type(obj) end
 
----
---- Equivalent to `io.output():write(···)`.
+--- 相当于 `io.output():write(...)`。
 --- @param ... string | number
 --- @return_overload file
 --- @return_overload nil, string err
 function io.write(...) end
 
---- File object
+--- 文件对象
 --- @class file
 local file = {}
 
 --- @version >5.2
+--- 关闭 `file`。请注意，当文件句柄被垃圾收集时，文件会自动关闭，
+--- 但这需要的时间是不可预测的。
 ---
---- Closes `file`. Note that files are automatically closed when their
---- handles are garbage collected, but that takes an unpredictable amount of
---- time to happen.
----
---- When closing a file handle created with `io.popen`, `file:close` returns the
---- same values returned by `os.execute`.
+--- 当关闭由 `io.popen` 创建的文件句柄时，`file:close` 返回
+--- 与 `os.execute` 相同的返回值。
 --- @return_overload true, 'exit' | 'signal', integer
 --- @return_overload nil, 'exit' | 'signal', integer
 function file:close() end
@@ -161,75 +139,57 @@ function file:close() end
 --- @return_overload nil, string err
 function file:close() end
 
----
---- Saves any written data to `file`.
+--- 将任何写入的数据保存到 `file`。
 --- @return_overload true
 --- @return_overload nil, string err
 function file:flush() end
 
----
---- Returns an iterator function that, each time it is called, reads the file
---- according to the given formats. When no format is given, uses "l" as a
---- default. As an example, the construction
+--- 返回一个迭代器函数，每次调用时，都会根据给定的格式读取文件。
+--- 如果没有给出格式，默认使用 "l"。例如，构造
 --- `for c in file:lines(1) do *body* end`
---- will iterate over all characters of the file, starting at the current
---- position. Unlike `io.lines`, this function does not close the file when the
---- loop ends.
+--- 将从当前位置开始遍历文件的所有字符。与 `io.lines` 不同，
+--- 此函数在循环结束时不会关闭文件。
 ---
---- In case of errors this function raises the error, instead of returning an
---- error code.
+--- 如果发生错误，此函数会引发错误，而不是返回错误代码。
 --- @return fun(): string|integer|nil
 function file:lines(...) end
 
 -- TODO: file:read() can accept vararg params and return varargs
 
----
---- Reads the file `file`, according to the given formats, which specify
---- what to read. For each format, the function returns a string or a number
---- with the characters read, or **nil** if it cannot read data with the
---- specified format. (In this latter case, the function does not read
---- subsequent formats.) When called without parameters, it uses a default
---- format that reads the next line (see below).
+--- 根据给定的格式读取文件 `file`，格式指定了要读取的内容。对于每种格式，
+--- 该函数返回一个包含读取字符的字符串或数字，如果无法使用指定格式
+--- 读取数据，则返回 **nil**。（在后一种情况下，函数不会读取后续格式。）
+--- 当不带参数调用时，它使用默认格式读取下一行（见下文）。
 --- -
---- The available formats are:
---- **"n"**: reads a numeral and returns it as a float or an integer, following
---- the lexical conventions of Lua. (The numeral may have leading spaces and a
---- sign.) This format always reads the longest input sequence that is a valid
---- prefix for a numeral; if that prefix does not form a valid numeral (e.g., an
---- empty string, "`0x`", or "`3.4e-`"), it is discarded and the format returns
---- **nil**;
---- **"a"**: reads the whole file, starting at the current position. On end of
---- file, it returns the empty string;
---- **"l"**: reads the next line skipping the end of line, returning **nil** on
---- end of file. This is the default format.
---- **"L"**: reads the next line keeping the end-of-line character (if present),
---- returning **nil** on end of file;
---- *number*: reads a string with up to this number of bytes, returning **nil**
---- on end of file. If `number` is zero, it reads nothing and returns an
---- empty string, or **nil** on end of file.
+--- 可用的格式有：
+--- **"n"**: 读取一个数字，并根据 Lua 的词法约定将其作为浮点数或整数返回。
+--- （数字可以有前导空格和符号。）此格式总是读取作为数字有效前缀的最长
+--- 输入序列；如果该前缀不构成有效数字（例如空字符串、"`0x`" 或 "`3.4e-`"），
+--- 它将被丢弃，并且格式返回 **nil**；
+--- **"a"**: 从当前位置开始读取整个文件。在文件末尾，它返回空字符串；
+--- **"l"**: 读取下一行，跳过行尾，在文件末尾返回 **nil**。这是默认格式。
+--- **"L"**: 读取下一行，保留行尾字符（如果存在），在文件末尾返回 **nil**；
+--- *number*: 读取最多包含此字节数的字符串，在文件末尾返回 **nil**。
+--- 如果 `number` 为零，它不读取任何内容并返回空字符串，或在文件末尾返回 **nil**。
 --- @param ... std.readmode
 --- @return any
 --- @return any ...
 --- @nodiscard
 function file:read(...) end
 
+--- 设置并获取文件位置，位置从文件开头测量，由 `offset` 加上字符串 `whence`
+--- 指定的基准决定，如下所示：
+--- **"set"**: 基准是位置 0（文件开头）；
+--- **"cur"**: 基准是当前位置；
+--- **"end"**: 基准是文件末尾；
 ---
---- Sets and gets the file position, measured from the beginning of the
---- file, to the position given by `offset` plus a base specified by the string
---- `whence`, as follows:
---- **"set"**: base is position 0 (beginning of the file);
---- **"cur"**: base is current position;
---- **"end"**: base is end of file;
+--- 如果成功，`seek` 返回最终文件位置，以从文件开头算起的字节数测量。
+--- 如果 `seek` 失败，它返回 **nil** 加上描述错误的字符串。
 ---
---- In case of success, `seek` returns the final file position, measured in
---- bytes from the beginning of the file. If `seek` fails, it returns **nil**,
---- plus a string describing the error.
----
---- The default value for `whence` is "`cur`", and for `offset` is 0. Therefore,
---- the call `file:seek()` returns the current file position, without changing
---- it; the call `file:seek("set")` sets the position to the beginning of the
---- file (and returns 0); and the call `file:seek("end")` sets the position
---- to the end of the file, and returns its size.
+--- `whence` 的默认值为 "`cur`"，`offset` 的默认值为 0。因此，
+--- 调用 `file:seek()` 返回当前文件位置而不改变它；
+--- 调用 `file:seek("set")` 将位置设置为文件开头（并返回 0）；
+--- 调用 `file:seek("end")` 将位置设置为文件末尾，并返回其大小。
 --- @overload fun()
 --- @param whence string | 'set' | 'cur' | 'end'
 --- @param offset integer
@@ -237,41 +197,34 @@ function file:read(...) end
 --- @return_overload nil, string err
 function file:seek(whence, offset) end
 
+--- 设置输出文件的缓冲模式。有三种可用模式：
+--- **"no"**: 无缓冲；任何输出操作的结果立即出现。
+--- **"full"**: 全缓冲；仅当缓冲区已满（或显式 `flush` 文件（见 `io.flush`））
+--- 时才执行输出操作。
+--- **"line"**: 行缓冲；输出被缓冲直到输出换行符或从某些特殊文件
+--- （如终端设备）有任何输入。
 ---
---- Sets the buffering mode for an output file. There are three available
---- modes:
---- **"no"**: no buffering; the result of any output operation appears
---- immediately.
---- **"full"**: full buffering; output operation is performed only when the
---- buffer is full (or when you explicitly `flush` the file (see `io.flush`)).
---- **"line"**: line buffering; output is buffered until a newline is output or
---- there is any input from some special files (such as a terminal device).
----
---- For the last two cases, `size` specifies the size of the buffer, in
---- bytes. The default is an appropriate size.
+--- 对于后两种情况，`size` 指定缓冲区的大小（以字节为单位）。默认是合适的大小。
 --- @param mode  string | 'no' | 'full' | 'line'
 --- @param size? integer
 function file:setvbuf(mode, size) end
 
+--- 将其每个参数的值写入 `file`。参数必须是字符串或数字。
 ---
---- Writes the value of each of its arguments to the `file`. The arguments
---- must be strings or numbers.
----
---- In case of success, this function returns `file`. Otherwise it returns
---- **nil** plus a string describing the error.
+--- 如果成功，此函数返回 `file`。否则它返回 **nil** 加上描述错误的字符串。
 --- @param ... string | number
 --- @return_overload file
 --- @return_overload nil, string err
 function file:write(...) end
 
---- `io.stderr`: Standard error.
+--- 标准错误输出。
 --- @type file
 io.stderr = nil
 
---- `io.stdin`: Standard in.
+--- 标准输入。
 --- @type file
 io.stdin = nil
 
---- `io.stdout`: Standard out.
+--- 标准输出。
 --- @type file
 io.stdout = nil

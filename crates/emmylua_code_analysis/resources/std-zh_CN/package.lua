@@ -16,20 +16,13 @@
 --- @class packagelib
 package = {}
 
+--- 一个字符串，用于描述一些与包相关的编译期配置。该字符串由多行组成：
 ---
---- A string describing some compile-time configurations for packages. This
---- string is a sequence of lines:
----
---- The first line is the directory separator string. Default is '\' for Windows
---- and '/' for all other systems.
---- The second line is the character that separates templates in a path. Default
---- is ';'.
---- The third line is the string that marks the substitution points in a
---- template. Default is '?'.
---- The fourth line is a string that, in a path in Windows, is replaced by the
---- executable's directory. Default is '!'.
---- The fifth line is a mark to ignore all text after it when building the
---- luaopen_ function name. Default is '-'.
+--- - 第一行：目录分隔符字符串。Windows 默认为 `\`，其他系统默认为 `/`。
+--- - 第二行：路径中分隔模板的字符。默认为 `;`。
+--- - 第三行：标记模板中替换点的字符串。默认为 `?`。
+--- - 第四行：在 Windows 的路径中，会被替换为可执行文件目录的字符串。默认为 `!`。
+--- - 第五行：在构建 `luaopen_` 函数名时，用于忽略其后的所有文本的标记。默认为 `-`。
 package.config = [[
 /
 ;
@@ -37,132 +30,83 @@ package.config = [[
 !
 -]]
 
+--- `require` 用于搜索 C 加载器的路径。
 ---
---- The path used by `require` to search for a C loader.
----
---- Lua initializes the C path `package.cpath` in the same way it initializes
---- the Lua path `package.path`, using the environment variable `LUA_CPATH_5_4`
---- or the environment variable `LUA_CPATH`, or a default path defined in
---- `luaconf.h`.
+--- Lua 初始化 `package.cpath` 的方式与初始化 Lua 路径 `package.path` 类似：使用环境变量
+--- `LUA_CPATH_5_4` 或 `LUA_CPATH`，或者使用 `luaconf.h` 中定义的默认路径。
 package.cpath = ""
 
+--- 一个表，供 `require` 用于控制哪些模块已经被加载。
 ---
---- A table used by `require` to control which modules are already
---- loaded. When you require a module `modname` and `package.loaded[modname]``
---- is not false, `require` simply returns the value stored there.
+--- 当你 `require` 模块 `modname` 且 `package.loaded[modname]` 不为 false 时，
+--- `require` 会直接返回其中存储的值。
 ---
---- This variable is only a reference to the real table; assignments to this
---- variable do not change the table used by `require`.
+--- 该变量只是对真实表的引用；对该变量赋值不会改变 `require` 使用的表。
 package.loaded = {}
 
+--- 将宿主程序与 C 库 `libname` 进行动态链接。
 ---
---- Dynamically links the host program with the C library `libname`.
+--- 如果 `funcname` 为 `"*"`，则只链接该库，使库导出的符号可供其他动态链接库使用。
+--- 否则，它会在库中查找函数 `funcname`，并以 C 函数形式返回该函数。因此，`funcname`
+--- 必须符合 `lua_CFunction` 原型（参见 `lua_CFunction`）。
 ---
---- If `funcname` is "*", then it only links with the library, making the
---- symbols exported by the library available to other dynamically linked
---- libraries. Otherwise, it looks for a function `funcname` inside the library
---- and returns this function as a C function. So, `funcname` must follow the
---- `lua_CFunction` prototype (see `lua_CFunction`).
+--- 这是一个底层函数，它完全绕过包与模块系统。与 `require` 不同，它不会执行任何路径搜索，
+--- 也不会自动添加扩展名。`libname` 必须是 C 库的完整文件名（必要时包含路径与扩展名）。
+--- `funcname` 必须是该 C 库导出的精确名称（可能依赖所使用的 C 编译器与链接器）。
 ---
---- This is a low-level function. It completely bypasses the package and module
---- system. Unlike `require`, it does not perform any path searching and does
---- not automatically adds extensions. `libname` must be the complete file name
---- of the C library, including if necessary a path and an extension. `funcname`
---- must be the exact name exported by the C library (which may depend on the C
---- compiler and linker used).
----
---- This function is not supported by Standard C. As such, it is only available
---- on some platforms (Windows, Linux, Mac OS X, Solaris, BSD, plus other Unix
---- systems that support the `dlfcn` standard).
+--- 标准 C 不支持此函数，因此它仅在部分平台可用（Windows、Linux、Mac OS X、Solaris、BSD，
+--- 以及其他支持 `dlfcn` 标准的 Unix 系统）。
 --- @param libname  string
 --- @param funcname string
 --- @return function?, string?
 function package.loadlib(libname, funcname) end
 
+--- `require` 用于搜索 Lua 加载器的路径。
 ---
---- The path used by `require` to search for a Lua loader.
----
---- At start-up, Lua initializes this variable with the value of the environment
---- variable `LUA_PATH_5_4` or the environment variable `LUA_PATH` or with a
---- default path defined in `luaconf.h`, if those environment variables are not
---- defined. Any ";;" in the value of the environment variable is replaced by
---- the default path.
+--- 启动时，如果环境变量已定义，Lua 会用环境变量 `LUA_PATH_5_4` 或 `LUA_PATH` 的值来初始化该变量；
+--- 否则使用 `luaconf.h` 中定义的默认路径。环境变量值中的任何 ";;" 都会被替换为默认路径。
 package.path = ""
 
+--- 一个表，用于存放特定模块的加载器（参见 `require`）。
 ---
---- A table to store loaders for specific modules (see `require`).
----
---- This variable is only a reference to the real table; assignments to this
---- variable do not change the table used by `require`.
+--- 该变量只是对真实表的引用；对该变量赋值不会改变 `require` 使用的表。
 package.preload = {}
 
 --- @version 5.1, JIT
 package.loaders = {}
 
 --- @version >5.2
+--- `require` 用于控制如何加载模块的表。
 ---
---- A table used by require to control how to load modules.
+--- 该表中的每个条目都是一个 *搜索器函数*。查找模块时，`require` 会按升序依次调用这些搜索器，
+--- 并将模块名（传给 `require` 的参数）作为唯一参数。搜索器可以返回另一个函数（模块 *加载器*）
+--- 以及一个会传给该加载器的额外值；或者返回一个字符串来解释为什么没有找到该模块（如果无话可说则返回 **nil**）。
 ---
---- Each entry in this table is a *searcher function*. When looking for a
---- module, *require* calls each of these searchers in ascending order, with the
---- module name (the argument given to `require`) as its sole parameter. The
---- function can return another function (the module *loader*) plus an extra
---- value that will be passed to that loader, or a string explaining why it did
---- not find that module (or **nil** if it has nothing to say).
+--- Lua 会用四个搜索器初始化该表：
+--- - 第一个搜索器：在 `package.preload` 表中查找加载器。
+--- - 第二个搜索器：使用 `package.path`，按 `package.searchpath` 的规则将模块作为 Lua 库进行查找。
+--- - 第三个搜索器：使用 `package.cpath`，按 `package.searchpath` 的规则将模块作为 C 库进行查找；
+---   找到 C 库后先进行动态链接，然后按规则构造并查找 `luaopen_...` 的 C 函数作为加载器。
+--- - 第四个搜索器：尝试 *一体化加载器*；在 C 路径中查找给定模块根名的库（例如 `a.b.c` 会查找 `a`），
+---   若找到则在其中查找子模块的 open 函数（例如 `luaopen_a_b_c`）。
 ---
---- Lua initializes this table with four searcher functions.
----
---- The first searcher simply looks for a loader in the `package.preload` table.
----
---- The second searcher looks for a loader as a Lua library, using the path
---- stored at `package.path`. The search is done as described in function
---- `package.searchpath`.
----
---- The third searcher looks for a loader as a C library, using the path given
---- by the variable package.cpath`. Again, the search is done as described in
---- function `package.searchpath`. For instance, if the C path is the string
---- > "`./?.so;./?.dll;/usr/local/?/init.so`"
---- the searcher for module foo will try to open the files ``./foo.so, ./foo
---- .dll`, and ``/usr/local/foo/init.so`, in that order. Once it finds a C
---- library, this searcher first uses a dynamic link facility to link the
---- application with the library. Then it tries to find a C function inside the
---- library to be used as the loader. The name of this C function is the string
---- "`luaopen_`" concatenated with a copy of the module name where each dot is
---- replaced by an underscore. Moreover, if the module name has a hyphen, its
---- suffix after (and including) the first hyphen is removed. For instance, if
---- the module name is `a.b.c-v2.1`, the function name will be `luaopen_a_b_c`.
----
---- The fourth searcher tries an *all-in-one loader*. It searches the C path for
---- a library for the root name of the given module. For instance, when
---- requiring `a.b.c`, it will search for a C library for `a`. If found, it
---- looks into it for an open function for the submodule; in our example, that
---- would be `luaopen_a_b_c`. With this facility, a package can pack several C
---- submodules into one single library, with each submodule keeping its original
---- open function.
----
---- All searchers except the first one (preload) return as the extra value the
---- file name where the module was found, as returned by `package.searchpath`.
---- The first searcher returns no extra value.
+--- 除第一个（preload）外，其他搜索器都会把 `package.searchpath` 返回的“模块被找到的文件名”作为额外值返回；
+--- 第一个搜索器不返回额外值。
 package.searchers = {}
 
 --- @version >5.2, JIT
+--- 在给定路径中搜索指定名称。
 ---
---- Searches for the given name in the given path.
+--- 路径是一个字符串，其中包含一系列由分号分隔的 *模板*。对每个模板，本函数会将模板中的每个问号（如有）
+--- 替换为名称的一个副本，并将其中所有出现的 `sep`（默认是点号 `.`）替换为 `rep`
+--- （默认是系统的目录分隔符），然后尝试打开得到的文件名。
 ---
---- A path is a string containing a sequence of *templates* separated by
---- semicolons. For each template, the function replaces each interrogation mark
---- (if any) in the template with a copy of name wherein all occurrences of
---- `sep` (a dot, by default) were replaced by `rep` (the system's directory
---- separator, by default), and then tries to open the resulting file name.
----
---- For instance, if the path is the string
+--- 例如，如果路径为
 --- > "`./?.lua;./?.lc;/usr/local/?/init.lua`"
---- the search for the name `foo.a` will try to open the files `./foo/a.lua`,
---- `./foo/a.lc`, and `/usr/local/foo/a/init.lua`, in that order.
+--- 搜索名称 `foo.a` 时会按顺序尝试打开 `./foo/a.lua`、`./foo/a.lc`、`/usr/local/foo/a/init.lua`。
 ---
---- Returns the resulting name of the first file that it can open in read mode
---- (after closing the file), or **nil** plus an error message if none succeeds.
---- (This error message lists all file names it tried to open.)
+--- 返回第一个能够以只读模式打开的文件（在关闭文件后）的最终文件名；如果都失败，则返回 **nil** 以及错误消息
+--- （错误消息会列出所有尝试打开的文件名）。
 --- @param name  string
 --- @param path? string
 --- @param sep?  string
@@ -172,9 +116,8 @@ package.searchers = {}
 function package.searchpath(name, path, sep, rep) end
 
 --- @version 5.1, JIT
----
---- Sets a metatable for `module` with its `__index` field referring to the global environment, so that this module inherits values from the global environment. To be used as an option to function `module` .
----
+--- 为 `module` 设置一个元表，其 `__index` 字段指向全局环境，使该模块从全局环境继承值。
+--- 用作 `module` 函数的一个选项。
 --- @param module table
 function package.seeall(module) end
 
