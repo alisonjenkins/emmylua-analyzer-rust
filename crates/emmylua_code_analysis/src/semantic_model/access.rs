@@ -852,7 +852,18 @@ impl<'db> SemanticModel<'db> {
                 if let Some(LuaExpr::CallExpr(call)) = index_expr.get_prefix_expr()
                     && call.is_require()
                 {
-                    return None;
+                    let name = SmolStr::new(index_expr.get_index_key()?.get_path_part());
+                    let module_owner = self.require_module_owner(index_expr)?;
+                    let member_ref = self
+                        .members_of_owner_named(&module_owner, name.as_str())
+                        .first()
+                        .cloned()?;
+                    return Some(self.resolved_member(
+                        Some(member_ref.id.clone()),
+                        Some(member_ref.file_id),
+                        module_owner,
+                        name,
+                    ));
                 }
                 (
                     SemanticId::name(SmolStr::new(EXPR_OWNER)),
