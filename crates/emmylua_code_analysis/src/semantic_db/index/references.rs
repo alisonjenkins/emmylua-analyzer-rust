@@ -29,7 +29,7 @@ pub struct FileReferences {
     pub member_defs: HashMap<SemanticId, Vec<TextRange>>,
     /// Uses of a field nothing declares and no type explains (`vim.fn.stdpath`, `h.check`), keyed by
     /// root variable and dotted path (see `unresolved_member_key`).
-    pub unresolved_member_refs: HashMap<(SemanticId, SmolStr), Vec<TextRange>>,
+    pub unresolved_member_refs: HashMap<(SemanticId, Vec<SmolStr>), Vec<TextRange>>,
     /// Canonical identity-level dependencies of this file (P7).
     pub deps: FileDependencies,
 }
@@ -217,7 +217,7 @@ pub struct WorkspaceReferenceIndex {
     pub decl_refs: HashMap<SemanticId, Vec<(FileId, TextRange)>>,
     pub member_refs: HashMap<SemanticId, Vec<(FileId, TextRange)>>,
     pub member_defs: HashMap<SemanticId, Vec<(FileId, TextRange)>>,
-    pub unresolved_member_refs: HashMap<(SemanticId, SmolStr), Vec<(FileId, TextRange)>>,
+    pub unresolved_member_refs: HashMap<(SemanticId, Vec<SmolStr>), Vec<(FileId, TextRange)>>,
     by_file: HashMap<FileId, Arc<FileReferences>>,
 }
 
