@@ -476,4 +476,37 @@ mod tests {
         assert!(lines.contains(&4));
         Ok(())
     }
+
+    #[gtest]
+    fn test_references_of_an_assigned_class_field_include_the_field_and_its_uses() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class State
+                ---@field version? integer
+
+                ---@param s State
+                local function clear(s)
+                    s.vers<??>ion = nil
+                end
+
+                ---@param t State
+                local function show(t)
+                    print(t.version)
+                end
+            "#,
+        ));
+        let file_id = ws.def(&content);
+
+        let result = references(&ws.analysis, file_id, position, true)
+            .ok_or("failed to get references")
+            .or_fail()?;
+
+        let mut lines = result
+            .iter()
+            .map(|location| location.range.start.line)
+            .collect::<Vec<_>>();
+        lines.sort();
+        verify_eq!(lines, vec![2, 6, 11])
+    }
 }
