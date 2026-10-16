@@ -565,6 +565,7 @@ fn member_type_at_token(model: &SemanticModel<'_>, token: &LuaSyntaxToken) -> Op
     let prefix_ty = model.type_of_expr(prefix.get_syntax_id());
     let resolved = model.resolve_member(&index_expr)?;
     let member_id = resolved.member_id?;
+    let member_id = model.version_visible_sibling(&member_id).unwrap_or(member_id);
     let member_file = match &member_id {
         SemanticId::Member(key) => key.file_id,
         _ => return None,
@@ -961,6 +962,7 @@ fn member_overload_count(
         .members_of_owner(&member_info.owner)
         .into_iter()
         .filter(|member_ref| member_ref.name.as_str() == member_info.key.to_path().as_str())
+        .filter(|member_ref| model.is_member_ref_version_visible(member_ref))
         .count()
         .saturating_sub(1)
 }
@@ -1575,6 +1577,7 @@ fn build_member_hover(
     let Some(members) = model.members() else {
         return (humanize(model, typ), None);
     };
+    let member = &model.version_visible_sibling(member).unwrap_or_else(|| member.clone());
     let Some(member_info) = members.iter().find(|m| &m.id == member) else {
         return (humanize(model, typ), None);
     };

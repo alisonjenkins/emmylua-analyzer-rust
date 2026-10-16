@@ -1,3 +1,4 @@
+use super::member::member_version_visible;
 use super::prelude::*;
 use crate::check::checker::generic_constraint_mismatch::resolved_call_signatures;
 use crate::check::checker::param_count::callable_functions;
@@ -11,6 +12,34 @@ impl<'db> SemanticModel<'db> {
     /// Currently configured runtime version (used for `---@version` visibility checks).
     pub fn lua_version(&self) -> Option<LuaVersionNumber> {
         self.db().lua_version()
+    }
+    /// Whether the member's `---@version` conditions admit the configured runtime version.
+    pub fn is_member_ref_version_visible(&self, member_ref: &MemberRef) -> bool {
+        let Some(facts) = self.file_facts_of(member_ref.file_id) else {
+            return true;
+        };
+        let Some(member) = facts.member_by_id(&member_ref.id) else {
+            return true;
+        };
+        member_version_visible(self, facts, member)
+    }
+    /// For a member whose `---@version` excludes the configured runtime, the same-file, same-key sibling of its
+    /// owner that the runtime admits (`coroutine.running` is declared once per Lua version). `None` when the
+    /// member is itself visible or has no visible sibling.
+    pub fn version_visible_sibling(&self, member: &SemanticId) -> Option<SemanticId> {
+        let SemanticId::Member(key) = member else {
+            return None;
+        };
+        let current = self.file_facts_of(key.file_id)?.member_by_id(member)?;
+        let siblings = self.members_of_owner_named(&current.owner, current.key.to_path().as_str());
+        let current_ref = siblings.iter().find(|r| &r.id == member)?;
+        if self.is_member_ref_version_visible(current_ref) {
+            return None;
+        }
+        siblings
+            .iter()
+            .find(|r| r.file_id == key.file_id && self.is_member_ref_version_visible(r))
+            .map(|r| r.id.clone())
     }
     /// A model for any file on the same analysis database.
     pub fn model_for(&self, file_id: FileId) -> Self {
@@ -482,6 +511,7 @@ impl<'db> SemanticModel<'db> {
         owner: SemanticId,
         name: SmolStr,
     ) -> ResolvedMember {
+        let member_id = member_id.map(|id| self.version_visible_sibling(&id).unwrap_or(id));
         let mut member_type = None;
         let mut visibility = None;
         let mut is_method = false;
