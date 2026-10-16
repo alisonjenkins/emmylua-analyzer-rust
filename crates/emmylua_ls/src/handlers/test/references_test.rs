@@ -891,4 +891,33 @@ mod tests {
         lines.sort();
         verify_eq!(lines, vec![2, 6, 11])
     }
+
+    #[gtest]
+    fn test_references_of_member_of_a_table_returned_by_an_iife() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local M = {}
+                M.path = (function()
+                    local function iterate_parents(p) return p end
+                    return { iterate_parents = iterate_parents }
+                end)()
+                print(M.path.iterate_<??>parents(1))
+                print(M.path.iterate_parents(2))
+            "#,
+        ));
+        let file_id = ws.def(&content);
+
+        let result = references(&ws.analysis, file_id, position, true)
+            .ok_or("failed to get references")
+            .or_fail()?;
+
+        let mut lines = result
+            .iter()
+            .map(|location| location.range.start.line)
+            .collect::<Vec<_>>();
+        lines.sort();
+        lines.dedup();
+        verify_eq!(lines, vec![4, 6, 7])
+    }
 }
