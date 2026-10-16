@@ -1164,11 +1164,14 @@ impl<'db> SemanticModel<'db> {
         {
             cross_owners.push(module_owner);
         }
-        // `self` of `function Reader:m()` where `Reader` has no type: the methods declared on
-        // `Reader` are the members of `self`.
-        if prefix_ty
-            .as_ref()
-            .is_none_or(|ty| matches!(ty, LuaType::Unknown))
+        // `self` of `function Reader:m()` where `Reader` has no type (or only the anonymous table
+        // a class factory returns): the methods declared on `Reader` are the members of `self`.
+        if prefix_ty.as_ref().is_none_or(|ty| {
+            matches!(
+                ty,
+                LuaType::Unknown | LuaType::Table | LuaType::TableConst(_)
+            )
+        })
             && let Some(method_owner) = self.implicit_self_method_owner(&owner)
             && !cross_owners.contains(&method_owner)
         {
