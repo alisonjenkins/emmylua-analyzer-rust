@@ -1505,7 +1505,7 @@ fn trace_decl(
     // many routes. Graphs with loops keep the uncached path (see the type note on
     // `cache::TraceStateKey`).
     if tree.has_complex_control() {
-        return trace_decl_uncached(model, decl, tree, flow_id, options, mode, visited, path);
+        return trace_decl_budgeted(model, decl, tree, flow_id, options, mode, visited, path);
     }
     let key = cache::TraceStateKey {
         decl: decl.clone(),
@@ -1524,6 +1524,79 @@ fn trace_decl(
     model.trace_state_cache_mark_in_progress(key.clone());
     let result = trace_decl_uncached(model, decl, tree, flow_id, options, mode, visited, path);
     model.trace_state_cache_store(key, result.clone());
+    result
+}
+
+/// Walks one query may start in a flow graph with loops, labels or `break` before the
+/// trace gives up and answers with the declared type. Those graphs cannot use the state
+/// memo (the incoming path differs per route, and memoizing on the node alone changes
+/// narrowing results), and a chain of `n` guard blocks on the traced declaration costs
+/// 2^n walks without it. Sound queries need a few dozen walks; this only caps the blowup.
+const LOOP_GRAPH_TRACE_WALK_LIMIT: u32 = 4096;
+
+struct QueryWalks {
+    walks: u32,
+    exhausted: bool,
+}
+
+thread_local! {
+    /// One entry per query (a trace started with an empty `visited` set) in progress on
+    /// this thread; a nested query on another declaration gets its own budget.
+    static QUERY_WALKS: std::cell::RefCell<Vec<QueryWalks>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+struct QueryWalksScope;
+
+impl Drop for QueryWalksScope {
+    fn drop(&mut self) {
+        QUERY_WALKS.with(|stack| {
+            stack.borrow_mut().pop();
+        });
+    }
+}
+
+/// [`trace_decl_uncached`] under the per-query walk budget. A query that exhausts it
+/// returns `None`, so its caller falls back to the declared type.
+fn trace_decl_budgeted(
+    model: &SemanticModel,
+    decl: &SemanticId,
+    tree: &FlowTree,
+    flow_id: FlowId,
+    options: TraceOptions,
+    mode: TraceMode,
+    visited: &mut HashSet<FlowId>,
+    path: &mut PathState,
+) -> Option<LuaType> {
+    let is_query_root = visited.is_empty();
+    let _scope = is_query_root.then(|| {
+        QUERY_WALKS.with(|stack| {
+            stack.borrow_mut().push(QueryWalks {
+                walks: 0,
+                exhausted: false,
+            });
+        });
+        QueryWalksScope
+    });
+    let within_budget = QUERY_WALKS.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        let Some(query) = stack.last_mut() else {
+            return true;
+        };
+        query.walks = query.walks.saturating_add(1);
+        if query.walks > LOOP_GRAPH_TRACE_WALK_LIMIT {
+            query.exhausted = true;
+        }
+        !query.exhausted
+    });
+    if !within_budget {
+        return None;
+    }
+    let result = trace_decl_uncached(model, decl, tree, flow_id, options, mode, visited, path);
+    if is_query_root
+        && QUERY_WALKS.with(|stack| stack.borrow().last().is_some_and(|query| query.exhausted))
+    {
+        return None;
+    }
     result
 }
 
