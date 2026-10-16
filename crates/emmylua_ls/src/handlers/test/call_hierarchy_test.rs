@@ -234,6 +234,30 @@ mod tests {
     }
 
     #[gtest]
+    fn test_incoming_calls_through_a_lazy_module_table_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(incoming_from_module(
+            &mut ws,
+            r#"
+                local M = {}
+                function M.pi<??>ck(a) end
+                return M
+            "#,
+            r#"
+                local lazy = setmetatable({
+                    mod = nil, --- @module "mod"
+                }, {
+                    __index = function(_, key) return require(key) end
+                })
+                local function use_it()
+                    lazy.mod.pick(1)
+                end
+            "#,
+        ));
+        verify_eq!(got, vec![("use_it".to_string(), vec![7])])
+    }
+
+    #[gtest]
     fn test_incoming_top_level_calls_are_grouped_into_one_module_caller() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         let got = check!(incoming(
