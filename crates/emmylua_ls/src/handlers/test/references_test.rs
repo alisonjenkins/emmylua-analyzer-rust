@@ -648,6 +648,69 @@ mod tests {
     }
 
     #[gtest]
+    fn test_references_of_string_literal_key_use() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            r#"
+                local t = {
+                    ["name"] = 1,
+                }
+                print(t["na<??>me"], t.name)
+                t["name"] = 2
+            "#,
+            vec![],
+            vec![
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 2,
+                },
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 4,
+                },
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 4,
+                },
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 5,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_references_of_string_literal_key_in_constructor() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            r#"
+                local t = {
+                    ["na<??>me"] = 1,
+                }
+                print(t["name"], t.name)
+            "#,
+            vec![],
+            vec![
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 2,
+                },
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 4,
+                },
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 4,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_member_references_alias_cycle_does_not_stack_overflow() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
 

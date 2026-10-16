@@ -729,4 +729,58 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_string_key_in_table_constructor() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local t = {
+                    ["unt<??>il"] = 1,
+                }
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 2,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_string_key_use_finds_constructor_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local t = {
+                    ["until"] = 1,
+                    name = 2,
+                }
+                print(t["na<??>me"])
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 3,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_dotted_use_finds_string_key_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local t = {
+                    ["name"] = 1,
+                }
+                print(t.na<??>me)
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 2,
+            }],
+        ));
+        Ok(())
+    }
 }

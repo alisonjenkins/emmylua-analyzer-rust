@@ -3,7 +3,7 @@ mod goto_label;
 mod goto_module_file;
 mod goto_string;
 
-use emmylua_code_analysis::{EmmyLuaAnalysis, FileId};
+use emmylua_code_analysis::{EmmyLuaAnalysis, FileId, SemanticId};
 use emmylua_parser::{LuaAstNode, LuaAstToken, LuaStringToken, LuaTokenKind};
 use lsp_types::{
     ClientCapabilities, GotoDefinitionParams, GotoDefinitionResponse, OneOf, Position,
@@ -76,6 +76,10 @@ pub fn definition(
             goto_string::goto_str_tpl_ref_definition(&model, &analysis.db, string_token)
         {
             return Some(response);
+        }
+        // `t["name"]` and `["name"] = v` name the same field as `t.name` and `name = v`.
+        if let Some(decl @ SemanticId::Member(_)) = model.find_decl(token.clone().into()) {
+            return goto_def_definition::goto_def_definition(&model, &analysis.db, &decl, &token);
         }
         return None;
     }
