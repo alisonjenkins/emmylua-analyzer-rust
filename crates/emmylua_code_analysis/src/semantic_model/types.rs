@@ -139,6 +139,23 @@ impl<'db> SemanticModel<'db> {
             {
                 return Some(ty);
             }
+            // `function Class.method(self)`: an unannotated explicit `self` is the owner too.
+            if decl.name == "self"
+                && matches!(decl.kind, DeclKind::Param)
+                && let Some(closure_syntax) = decl.owner_syntax
+                && facts
+                    .signature_by_closure(closure_syntax)
+                    .is_some_and(|signature| {
+                        signature
+                            .param_names
+                            .first()
+                            .is_some_and(|name| name == "self")
+                    })
+                && self.param_type(closure_syntax, 0).is_none()
+                && let Some(ty) = self.method_owner_type(closure_syntax)
+            {
+                return Some(ty);
+            }
             // `for k, v in pairs(x)`: iteration variables are inferred from the iterator's return slots.
             if matches!(decl.kind, DeclKind::Local { is_iter: true, .. })
                 && let Some(ty) = self.infer_for_range_var(decl)

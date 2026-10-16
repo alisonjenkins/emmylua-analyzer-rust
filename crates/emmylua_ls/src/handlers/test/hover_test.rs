@@ -428,6 +428,46 @@ mod tests {
         Ok(())
     }
 
+    /// An explicit `self` first parameter of `function Class.method(self)` is the owner.
+    #[gtest]
+    fn test_hover_explicit_self_parameter_is_owner() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@class Counter
+                ---@field count integer
+                local Counter = {}
+
+                function Counter.bump(<??>self)
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(parameter) self: Counter {\n    count: integer,\n    bump: function,\n}\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// An annotated `self` parameter keeps its annotation.
+    #[gtest]
+    fn test_hover_annotated_explicit_self_parameter_wins() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@class Counter
+                local Counter = {}
+
+                ---@param self string
+                function Counter.bump(<??>self)
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(parameter) self: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     // M3 batch 2 retirement: depends on the old humanize rendering stack (constant value / alias / keyof / overloaded attributes / narrowing / cross-file declared type projection, etc.); see migration notes §M3.
     #[gtest]
     fn test_decl_desc() -> Result<()> {
