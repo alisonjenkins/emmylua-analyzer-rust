@@ -1366,4 +1366,65 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// A string method called on `string?` or `string|number` still gives its result type.
+    #[gtest]
+    fn test_hover_string_method_on_nullable_and_union_receivers() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_hover(
+            r#"
+                ---@type string?
+                local maybe
+                local up<??> = maybe:upper()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal up: string\n```".to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                ---@type string|number
+                local either
+                local up<??> = either:upper()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal up: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// No component of the receiver has the method: the result stays unknown rather than guessed.
+    #[gtest]
+    fn test_hover_method_missing_on_every_union_component_stays_unknown() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_hover(
+            r#"
+                ---@type number|boolean
+                local neither
+                local up<??> = neither:upper()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal up: unknown\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// `file:read()` returns `string|number|nil`, so string methods on its result resolve.
+    #[gtest]
+    fn test_hover_string_method_on_file_read_result() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_hover(
+            r#"
+                local h = io.popen("ls")
+                local out = h:read("*a")
+                local up<??> = out:upper()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal up: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
