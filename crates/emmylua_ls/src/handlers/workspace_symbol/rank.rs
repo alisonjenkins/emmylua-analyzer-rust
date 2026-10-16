@@ -6,18 +6,74 @@ pub enum MatchTier {
     Exact,
     Prefix,
     Substring,
+    /// Only LuaLS' letters-bag rule (`letters_match`) accepts the name.
+    Letters,
 }
 
 /// Smartcase: a query containing an uppercase letter matches case-sensitively,
-/// otherwise case is ignored. An empty query matches everything.
+/// otherwise case is ignored. An empty query matches everything. A name that
+/// fails exact/prefix/substring may still be accepted by the letters-bag rule.
 pub fn match_tier(text: &str, query: &str) -> Option<MatchTier> {
     if query.is_empty() {
         return Some(MatchTier::Substring);
     }
-    if query.chars().any(|c| c.is_uppercase()) {
-        return tier_of(text, query);
+    let tier = if query.chars().any(|c| c.is_uppercase()) {
+        tier_of(text, query)
+    } else {
+        tier_of(&text.to_lowercase(), &query.to_lowercase())
+    };
+    tier.or_else(|| letters_match(query, text).then_some(MatchTier::Letters))
+}
+
+/// LuaLS' `core/matchkey.lua`: the first letter of the query must start the
+/// name, a word of it (after a non-letter) or a camel-case hump, and every
+/// query letter must occur in the name, counted as a case-insensitive multiset.
+pub fn letters_match(query: &str, text: &str) -> bool {
+    let (query, text) = (query.as_bytes(), text.as_bytes());
+    if query.is_empty() {
+        return true;
     }
-    tier_of(&text.to_lowercase(), &query.to_lowercase())
+    query.len() <= text.len() && valid_first_letter(query[0], text) && letters_covered(query, text)
+}
+
+fn valid_first_letter(first: u8, text: &[u8]) -> bool {
+    let first = first.to_ascii_uppercase();
+    if first == text[0].to_ascii_uppercase() {
+        return true;
+    }
+    let Some(offset) = text[1..].iter().position(|&byte| byte == first) else {
+        // an uppercase letter may also start a lowercase word after a non-letter
+        return first.is_ascii_uppercase()
+            && text[1..].windows(2).any(|pair| {
+                !pair[0].is_ascii_alphabetic() && pair[1] == first.to_ascii_lowercase()
+            });
+    };
+    let at = offset + 1;
+    !text[at].is_ascii_uppercase() || !text[at - 1].is_ascii_uppercase()
+}
+
+fn letters_covered(query: &[u8], text: &[u8]) -> bool {
+    let mut needed = [0u8; 256];
+    let mut remaining = 0usize;
+    for byte in query {
+        let slot = &mut needed[byte.to_ascii_lowercase() as usize];
+        if *slot == u8::MAX {
+            return false;
+        }
+        *slot += 1;
+        remaining += 1;
+    }
+    for byte in text {
+        let slot = &mut needed[byte.to_ascii_lowercase() as usize];
+        if *slot > 0 {
+            *slot -= 1;
+            remaining -= 1;
+            if remaining == 0 {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn tier_of(text: &str, query: &str) -> Option<MatchTier> {
@@ -116,7 +172,9 @@ mod tests {
             ("NEEDLE_X", "needle", Some(MatchTier::Prefix)),
             ("xNEEDLE", "needle", Some(MatchTier::Substring)),
             // an uppercase letter in the query makes it case-sensitive
-            ("needle", "Needle", None),
+            // ... except the letters-bag rule, which always ignores case
+            ("needle", "Needle", Some(MatchTier::Letters)),
+            ("noodle", "Needle", None),
             ("Needle", "Needle", Some(MatchTier::Exact)),
             ("NeedleX", "Needle", Some(MatchTier::Prefix)),
             ("anything", "", Some(MatchTier::Substring)),
@@ -128,8 +186,53 @@ mod tests {
     }
 
     #[test]
-    fn test_tiers_sort_exact_prefix_substring() {
+    fn test_tiers_sort_exact_prefix_substring_letters() {
         assert!(MatchTier::Exact < MatchTier::Prefix);
         assert!(MatchTier::Prefix < MatchTier::Substring);
+        assert!(MatchTier::Substring < MatchTier::Letters);
+    }
+
+    #[test]
+    fn test_letters_match_table() {
+        let cases = [
+            // first letter starts the name, the rest are in it as a multiset
+            ("ran", "resolve_external_names", true),
+            ("pri", "pick_new_upstream", true),
+            // first letter starts a word after a non-letter
+            ("sele", "client_stream", true),
+            ("on_i", "get_os_config", true),
+            // first letter in the middle of a word is not a start
+            ("lan", "balance", false),
+            ("dis", "details", true),
+            // a camel-case hump counts, a capital after a capital does not
+            ("bar", "fooBar", true),
+            ("bar", "fooABar", false),
+            // letters are used up: two e's needed, one available
+            ("see", "s_e", false),
+            ("abcd", "abc", false),
+            ("xyz", "abc", false),
+            // case is ignored by this rule, whatever the query holds
+            ("WOR", "workspace", true),
+            ("Wor", "workspace", true),
+            ("", "anything", true),
+        ];
+        for (query, text, expected) in cases {
+            assert_eq!(
+                letters_match(query, text),
+                expected,
+                "{query:?} vs {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_letters_only_match_is_the_lowest_tier() {
+        assert_eq!(
+            match_tier("resolve_external_names", "ran"),
+            Some(MatchTier::Letters)
+        );
+        assert_eq!(match_tier("ran_x", "ran"), Some(MatchTier::Prefix));
+        assert_eq!(match_tier("xranx", "ran"), Some(MatchTier::Substring));
+        assert_eq!(match_tier("details", "xyz"), None);
     }
 }
