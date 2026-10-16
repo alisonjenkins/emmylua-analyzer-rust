@@ -131,6 +131,22 @@ mod tests {
     }
 
     #[gtest]
+    fn test_cancelled_token_returns_no_symbols() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(FIXTURE);
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        // Cancellation is not an error here: every file bails out early, so
+        // the result is an empty Nested response, members and globals alike.
+        let response = build_workspace_symbols(&ws.analysis, "".to_string(), cancel);
+        expect_that!(
+            response,
+            some(matches_pattern!(WorkspaceSymbolResponse::Nested(is_empty())))
+        );
+        Ok(())
+    }
+
+    #[gtest]
     fn test_unmatched_query_returns_nothing() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         ws.def(FIXTURE);
