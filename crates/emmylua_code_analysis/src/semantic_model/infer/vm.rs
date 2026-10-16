@@ -1113,7 +1113,12 @@ impl<'a> InferVm<'a> {
             && let Some(alias_owner) = self.model.aliased_global_owner(owner_id)
             && !owners.contains(&alias_owner)
         {
-            owners.push(alias_owner);
+            // `local lsp = vim.lsp` where `vim.lsp = require(...)`: the global path also stands for the module.
+            for resolved in self.model.resolve_owner_set(alias_owner.clone()) {
+                if !owners.contains(&resolved) {
+                    owners.push(resolved);
+                }
+            }
         }
         // `local x = {}` associated with `---@class MyClass`: also add the class def as a
         // member candidate so `@field` typed members (e.g. `unpack` overloads) are
