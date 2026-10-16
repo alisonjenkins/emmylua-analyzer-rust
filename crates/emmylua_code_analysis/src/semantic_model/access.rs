@@ -412,6 +412,14 @@ impl<'db> SemanticModel<'db> {
         let idx = vars
             .iter()
             .position(|var| var.to_expr().get_syntax_id() == expr.get_syntax_id())?;
+        // A trailing call fills every remaining target with its returns (`b, c = two()`).
+        if let Some(LuaExpr::CallExpr(call)) = values.last()
+            && idx + 1 >= values.len()
+        {
+            let call_ty = self.type_of_expr(call.get_syntax_id());
+            let ty = call_ty.get_result_slot_type(idx + 1 - values.len())?;
+            return (!matches!(ty, LuaType::Unknown | LuaType::Nil)).then_some(ty);
+        }
         let value = values.get(idx)?;
         // Pure name references `x = y` keep declaration/literal display (hover still shows `integer` rather than widened `number`);
         // Assignments that clearly produce a new value (calls/constructors) use the RHS type (`x = create()` removes the old `T?`).

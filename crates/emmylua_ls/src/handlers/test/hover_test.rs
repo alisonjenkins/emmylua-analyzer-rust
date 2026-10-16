@@ -1668,6 +1668,39 @@ mod tests {
         Ok(())
     }
 
+    /// Hovering an assignment target shows the slot of a multi-return call it receives, not the whole tuple.
+    #[gtest]
+    fn test_hover_assignment_target_takes_its_multi_return_slot() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local function two()
+                    return 1, "x"
+                end
+
+                local a
+                <??>a = two()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal a: number\n```".to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                local function two()
+                    return 1, "x"
+                end
+
+                local b, c
+                b, <??>c = two()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal c: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     /// A field whose type is a class lists the class members, like a local of that class does.
     #[gtest]
     fn test_hover_class_typed_field_expands_members() -> Result<()> {
