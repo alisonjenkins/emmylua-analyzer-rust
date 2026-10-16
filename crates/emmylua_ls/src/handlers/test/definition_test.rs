@@ -1448,4 +1448,31 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_method_through_local_declared_without_value() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Entry
+                local Entry = {}
+
+                ---@return Entry
+                function Entry.new() return setmetatable({}, Entry) end
+
+                function Entry:get_item() return 1 end
+
+                local function run()
+                    local e
+                    e = Entry.new()
+                    print(e:get_i<??>tem())
+                end
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 7
+            }]
+        ));
+        Ok(())
+    }
 }
