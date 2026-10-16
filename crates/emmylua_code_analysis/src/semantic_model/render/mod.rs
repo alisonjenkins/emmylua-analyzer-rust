@@ -12,8 +12,8 @@ use std::rc::Rc;
 use hashbrown::HashMap;
 
 use crate::{
-    AsyncState, GenericTplId, LuaFunctionType, LuaMemberKey, LuaType, LuaTypeDeclId, LuaUnionType,
-    VariadicType,
+    AsyncState, GenericTplId, InFiled, LuaFunctionType, LuaMemberKey, LuaType, LuaTypeDeclId,
+    LuaUnionType, VariadicType,
 };
 use crate::{
     GenericParam, LuaAliasCallType, LuaArrayType, LuaConditionalType, LuaMappedType, LuaObjectType,
@@ -85,6 +85,8 @@ pub struct TypeHumanizer<'a> {
     max_depth: u8,
     /// When rendering generic default arguments, whether to keep expanding defaults of referenced types (avoids recursive expansion).
     expand_defaults: bool,
+    /// Table literals being expanded, so a table that contains itself (`M.__index = M`) renders as `table` inside.
+    open_tables: Vec<InFiled<rowan::TextRange>>,
 }
 
 impl<'a> TypeHumanizer<'a> {
@@ -95,6 +97,7 @@ impl<'a> TypeHumanizer<'a> {
             depth: 0,
             max_depth: DEFAULT_MAX_DEPTH,
             expand_defaults: true,
+            open_tables: Vec::new(),
         }
     }
 
@@ -155,20 +158,26 @@ impl<'a> TypeHumanizer<'a> {
             }
             LuaType::StringConst(s) => write_escaped_string(s, w),
             LuaType::DocStringConst(s) => write_escaped_string(s, w),
-            LuaType::TableConst(_) => {
+            LuaType::TableConst(table) => {
                 // Anonymous table literals expand to named objects in Detailed/Normal rendering rather than a generic `table`;
                 // Runtime and declared members are also expanded uniformly through `member_infos`.
+                if self.open_tables.contains(table) {
+                    return w.write_str("table");
+                }
                 let infos = self.model.member_infos(ty);
                 if infos.is_empty() {
                     w.write_str("table")
                 } else {
                     let fields: Vec<(LuaMemberKey, LuaType)> =
                         infos.into_iter().map(|info| (info.key, info.typ)).collect();
-                    if self.level == RenderLevel::Detailed {
+                    self.open_tables.push(table.clone());
+                    let result = if self.level == RenderLevel::Detailed {
                         self.write_table_literal_detailed(&fields, w)
                     } else {
                         self.write_object(&fields, &[], w)
-                    }
+                    };
+                    self.open_tables.pop();
+                    result
                 }
             }
             LuaType::Ref(id) => self.write_ref(id, w),
