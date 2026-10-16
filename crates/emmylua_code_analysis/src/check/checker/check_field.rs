@@ -144,7 +144,12 @@ fn check_index_assign(
             || semantic_model
                 .members_of_owner(&target_id)
                 .iter()
-                .any(|member| member.name.starts_with('['))
+                .any(|member_ref| {
+                    semantic_model
+                        .file_facts_of(member_ref.file_id)
+                        .and_then(|facts| facts.member_by_id(&member_ref.id))
+                        .is_some_and(|member| member.is_index_signature)
+                })
             || is_mapped_alias(semantic_model, &def)
         {
             continue;
