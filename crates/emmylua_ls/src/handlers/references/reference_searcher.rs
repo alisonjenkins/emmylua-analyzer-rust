@@ -6,7 +6,9 @@
 
 use std::collections::HashSet;
 
-use emmylua_code_analysis::{FileId, SemanticDatabase, SemanticId, SemanticModel, TypeDef};
+use emmylua_code_analysis::{
+    FileId, LuaMemberKey, LuaType, SemanticDatabase, SemanticId, SemanticModel, TypeDef,
+};
 use emmylua_parser::{
     LuaAstNode, LuaAstToken, LuaCallExpr, LuaIndexExpr, LuaLiteralToken, LuaSyntaxToken,
 };
@@ -35,14 +37,21 @@ pub fn search_references(
     }
 
     // 2. Semantic declaration references (decl / member / typedef).
-    if let Some(decl) = model.find_decl(token.into()) {
+    if let Some(decl) = model.find_decl(token.clone().into()) {
         let ranges = match &decl {
             SemanticId::Decl(_) => {
                 decl_reference_ranges_with_aliases(db, &decl, include_declaration)
             }
             SemanticId::Member(_) => {
                 let mut ranges = Vec::new();
-                let members = same_slot_members(model, &decl);
+                let mut members = same_slot_members(model, &decl);
+                for field in class_fields_of_receiver(model, &token) {
+                    for member in same_slot_members(model, &field) {
+                        if !members.contains(&member) {
+                            members.push(member);
+                        }
+                    }
+                }
                 for member in &members {
                     for range in
                         member_reference_ranges_with_require(db, member, include_declaration)
@@ -107,6 +116,46 @@ fn member_slot(model: &SemanticModel<'_>, member: &SemanticId) -> Option<(Semant
         .name
         .to_string();
     Some((fact.owner.clone(), name))
+}
+
+/// The class fields (`---@field version? integer`) a key like `state.version` names through the
+/// type of its receiver: an assignment to a field of a typed receiver is a use of that field.
+fn class_fields_of_receiver(model: &SemanticModel<'_>, token: &LuaSyntaxToken) -> Vec<SemanticId> {
+    let Some(index_expr) = token.parent().and_then(LuaIndexExpr::cast) else {
+        return Vec::new();
+    };
+    let Some(key) = index_expr.get_index_key() else {
+        return Vec::new();
+    };
+    if key.get_range() != Some(token.text_range()) {
+        return Vec::new();
+    }
+    let Some(prefix) = index_expr.get_prefix_expr() else {
+        return Vec::new();
+    };
+    let receiver_type = model.type_of_expr(prefix.get_syntax_id());
+    let (LuaType::Ref(type_id) | LuaType::Def(type_id)) = &receiver_type else {
+        return Vec::new();
+    };
+    let Some(class) = model.type_def_of(type_id) else {
+        return Vec::new();
+    };
+    let member_key = LuaMemberKey::Name(key.get_path_part().into());
+    // Only the receiver's own `---@field`s: a parent class's field of the same name is another slot.
+    model
+        .member_infos_with_key_all(&receiver_type, &member_key)
+        .into_iter()
+        .filter_map(|info| info.id)
+        .filter(|id| {
+            let SemanticId::Member(member_key) = id else {
+                return false;
+            };
+            model
+                .file_facts_of(member_key.file_id)
+                .and_then(|facts| facts.member_by_id(id))
+                .is_some_and(|fact| fact.owner == class.id)
+        })
+        .collect()
 }
 
 /// Uses of the member whose receiver is only known by type (`local r = M.open(); r:close()`).
