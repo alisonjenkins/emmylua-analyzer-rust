@@ -867,7 +867,7 @@ impl SemanticDatabase {
     /// Every use of the field `key` (root variable, dotted path) that nothing declares and no type explains.
     pub fn unresolved_member_reference_ranges(
         &self,
-        key: &(SemanticId, smol_str::SmolStr),
+        key: &(SemanticId, Vec<smol_str::SmolStr>),
     ) -> Vec<(FileId, rowan::TextRange)> {
         let Some(_config) = self.config_input() else {
             return Vec::new();

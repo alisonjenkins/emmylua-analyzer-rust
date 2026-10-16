@@ -777,7 +777,7 @@ impl<'db> SemanticModel<'db> {
     pub fn unresolved_member_key(
         &self,
         index_expr: &LuaIndexExpr,
-    ) -> Option<(SemanticId, SmolStr)> {
+    ) -> Option<(SemanticId, Vec<SmolStr>)> {
         crate::semantic_db::query::unresolved_member_key(self.file_facts()?, index_expr)
     }
     pub fn resolve_member(&self, index_expr: &LuaIndexExpr) -> Option<ResolvedMember> {

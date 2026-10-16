@@ -798,6 +798,31 @@ mod tests {
     }
 
     #[gtest]
+    fn test_references_of_member_path_do_not_match_a_string_key_with_dots() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_references(
+            r#"
+                local h = dofile("harness.lua")
+                h.a.<??>b(1)
+                h["a.b"](2)
+                h.a.b(3)
+            "#,
+            vec![],
+            vec![
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 2,
+                },
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 4,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_references_of_member_of_unresolved_local() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_references(

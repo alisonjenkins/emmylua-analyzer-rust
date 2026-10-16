@@ -3467,14 +3467,15 @@ pub(crate) fn member_ref_from_index_expr(
 }
 
 /// Identity of a member access whose receiver is a plain name chain (`vim.fn.stdpath`, `h.check`):
-/// the root variable (local declaration or global name) and the dotted key path.
+/// the root variable (local declaration or global name) and the key path, one entry per segment
+/// (`h.a.b` and `h["a.b"]` differ).
 ///
 /// Two accesses with the same identity read the same field of the same variable, which is how
 /// uses are linked when nothing declares the field or types the receiver.
 pub(crate) fn unresolved_member_key(
     facts: &FileFacts,
     index_expr: &LuaIndexExpr,
-) -> Option<(SemanticId, SmolStr)> {
+) -> Option<(SemanticId, Vec<SmolStr>)> {
     let mut segments = vec![SmolStr::new(index_expr.get_index_key()?.get_path_part())];
     let mut current = index_expr.get_prefix_expr()?;
     loop {
@@ -3498,7 +3499,7 @@ pub(crate) fn unresolved_member_key(
         _ => return None,
     };
     segments.reverse();
-    Some((root, SmolStr::new(segments.join("."))))
+    Some((root, segments))
 }
 
 /// The global path a local stands for: `local api = vim.api` is `vim.api`, `local ngx = ngx` is `ngx`.
