@@ -1041,6 +1041,30 @@ fn decl_should_show_signature_tags(model: &SemanticModel<'_>, decl: &SemanticId)
         .is_some_and(|d| !matches!(d.kind, DeclKind::Param))
 }
 
+/// `require("mod")` types as the exported table plus the name of the exported local (`M`), which
+/// resolves to no type; that name is for navigation, not for display.
+fn without_module_name_identity(model: &SemanticModel<'_>, ty: &LuaType) -> LuaType {
+    let LuaType::Union(union) = ty else {
+        return ty.clone();
+    };
+    let members = union.into_vec();
+    if !members
+        .iter()
+        .any(|member| matches!(member, LuaType::TableConst(_)))
+    {
+        return ty.clone();
+    }
+    let kept = members
+        .iter()
+        .filter(|member| !matches!(member, LuaType::Ref(id) if model.type_def_of(id).is_none()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if kept.len() == members.len() {
+        return ty.clone();
+    }
+    LuaType::from_vec(kept)
+}
+
 fn build_decl_hover(
     model: &SemanticModel<'_>,
     typ: &LuaType,
@@ -1048,6 +1072,7 @@ fn build_decl_hover(
     call_fun: Option<&LuaFunctionType>,
     call_bindings: Option<&HashMap<GenericTplId, LuaType>>,
 ) -> (String, Option<HoverDescription>) {
+    let typ = &without_module_name_identity(model, typ);
     let Some(decls) = model.decls() else {
         return (humanize(model, typ), None);
     };
