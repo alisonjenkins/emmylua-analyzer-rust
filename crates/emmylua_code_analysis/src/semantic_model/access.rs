@@ -1086,7 +1086,50 @@ impl<'db> SemanticModel<'db> {
             return Some(self.resolved_member(Some(id), Some(file_id), owner, name));
         }
 
+        // `local api = vim.api; api.f`: look the member up on the aliased global path.
+        if let Some(path_owner) = self.aliased_path_owner(index_expr)
+            && let Some(member) = self
+                .members_of_owner_named(&path_owner, name.as_str())
+                .first()
+        {
+            return Some(self.resolved_member(
+                Some(member.id.clone()),
+                Some(member.file_id),
+                owner,
+                name,
+            ));
+        }
+
         Some(self.resolved_member(None, None, owner, name))
+    }
+    /// Owner named by the initializer of the local that prefixes `index_expr`
+    /// (`local api = vim.api` -> the owner of `vim.api` members).
+    fn aliased_path_owner(&self, index_expr: &LuaIndexExpr) -> Option<SemanticId> {
+        let LuaExpr::NameExpr(prefix) = index_expr.get_prefix_expr()? else {
+            return None;
+        };
+        let SemanticId::Decl(key) = self.resolve_name(prefix.get_position())? else {
+            return None;
+        };
+        let facts = self.file_facts_of(key.file_id)?;
+        let value = facts
+            .decl_by_id(&SemanticId::Decl(key.clone()))?
+            .value_expr_syntax?;
+        let model = self.model_for(key.file_id);
+        let value_node = value.to_node_from_root(model.chunk()?.syntax())?;
+        let LuaExpr::IndexExpr(init) = LuaExpr::cast(value_node)? else {
+            return None;
+        };
+        let (parent, segment) =
+            crate::semantic_db::query::member_ref_from_index_expr(facts, &init)?;
+        match parent {
+            SemanticId::Name(root) => Some(SemanticId::name(SmolStr::new(format!(
+                "{}.{}",
+                root.as_str(),
+                segment
+            )))),
+            _ => None,
+        }
     }
     /// Whether the prefix type is a named type with a same-named member (avoids runtime inferred members shadowing class `@field`).
     pub(crate) fn prefix_has_named_member(

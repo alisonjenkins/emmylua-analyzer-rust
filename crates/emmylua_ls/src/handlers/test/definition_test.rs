@@ -50,6 +50,30 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_field_through_local_alias_of_global_table() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "lib.lua",
+            r#"
+                vim = {}
+                vim.api = {}
+                function vim.api.get_lines() end
+            "#,
+        );
+        check!(ws.check_definition(
+            r#"
+                local api = vim.api
+                api.get_<??>lines()
+            "#,
+            vec![Expected {
+                file: "lib.lua".to_string(),
+                line: 3
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_basic_definition() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(
