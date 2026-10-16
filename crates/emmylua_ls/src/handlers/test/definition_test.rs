@@ -1479,4 +1479,30 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_method_defined_in_another_block_of_the_same_class() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "one.lua",
+            "---@class view.Shared\nlocal One = {}\n\nfunction One:first() end\n",
+        );
+        ws.def_file(
+            "two.lua",
+            "---@class view.Shared\nlocal Two = {}\n\nfunction Two:second() end\n",
+        );
+        check!(ws.check_definition(
+            r#"
+                ---@type view.Shared
+                local shared
+
+                shared:sec<??>ond()
+            "#,
+            vec![Expected {
+                file: "two.lua".to_string(),
+                line: 3
+            }]
+        ));
+        Ok(())
+    }
 }
