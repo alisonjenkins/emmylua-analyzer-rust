@@ -1174,6 +1174,20 @@ impl<'db> SemanticModel<'db> {
         {
             cross_owners.push(method_owner);
         }
+        // The fields `self.x = v` assigns in one method are fields of `self` in every other method of the same
+        // table, also when the table is built by a call (`local C = class()`) and so has no literal to search.
+        if matches!(owner, SemanticId::Decl(_))
+            && !matches!(
+                prefix_ty,
+                Some(LuaType::Ref(_) | LuaType::Def(_) | LuaType::Generic(_))
+            )
+        {
+            for related in crate::semantic_db::query::self_related_owners(self.view.db(), &owner) {
+                if !cross_owners.contains(&related) {
+                    cross_owners.push(related);
+                }
+            }
+        }
         // Explicit, deterministic preference order (replaces the previous
         // numeric score). The key is intentionally orderable, not weighted:
         //   1. non-resolved owners before the raw owner (`old_owner`);
