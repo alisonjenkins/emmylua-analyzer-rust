@@ -1384,7 +1384,7 @@ impl<'db> SemanticModel<'db> {
 }
 
 /// Removes nil from a type (used for generic for loop keys: the loop stops when the first value is nil).
-fn remove_nil_from_type(ty: LuaType) -> LuaType {
+pub(crate) fn remove_nil_from_type(ty: LuaType) -> LuaType {
     match ty {
         LuaType::Union(union) => {
             let types: Vec<LuaType> = union

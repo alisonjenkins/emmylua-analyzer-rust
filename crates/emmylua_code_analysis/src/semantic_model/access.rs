@@ -1077,7 +1077,9 @@ impl<'db> SemanticModel<'db> {
         }
 
         // Anonymous table whose metatable `__index` is a class table (`setmetatable({}, M)`).
-        if let Some(prefix_ty @ LuaType::TableConst(_)) = &prefix_ty
+        // A `nil | table` result of a function with early `return nil, err` still resolves the method.
+        let non_nil_prefix = prefix_ty.clone().map(super::types::remove_nil_from_type);
+        if let Some(prefix_ty @ LuaType::TableConst(_)) = &non_nil_prefix
             && let Some(info) = self.member_info(prefix_ty, &LuaMemberKey::Name(name.clone()))
             && let Some(id) = info.id
             && let Some(file_id) = info.file_id
