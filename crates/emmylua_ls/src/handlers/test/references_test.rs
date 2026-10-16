@@ -1277,4 +1277,31 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![1, 2])
     }
+
+    #[gtest]
+    fn test_references_of_class_field_count_keys_of_typed_local_and_nested_literals() -> Result<()>
+    {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class WinOpts
+                ---@field scroll<??>off? integer
+                ---@class Win
+                ---@field completion? WinOpts
+                ---@class Schema
+                ---@field window? Win
+
+                ---@type Schema
+                local config = { window = { completion = { scrolloff = 0 } } }
+
+                ---@return Schema
+                local function make()
+                    return { window = { completion = { scrolloff = 1 } } }
+                end
+
+                local loose = { scrolloff = 3 }
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 9])
+    }
 }

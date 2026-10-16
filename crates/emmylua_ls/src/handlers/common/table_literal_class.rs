@@ -1,11 +1,11 @@
 //! The class a table literal is expected to be, read from where the literal is written: the type
-//! of the parameter it is passed to (`set(1, { hl_group = "A" })`) or of the field of an enclosing
-//! literal. LuaLS counts the keys of such a literal as uses of that class's fields.
+//! of the parameter it is passed to (`set(1, { hl_group = "A" })`), of the local it initialises or of
+//! the field of an enclosing literal. LuaLS counts the keys of such a literal as uses of that class's fields.
 
 use emmylua_code_analysis::{LuaMemberKey, LuaType, SemanticId, SemanticModel};
 use emmylua_parser::{
-    LuaAssignStat, LuaAstNode, LuaCallArgList, LuaCallExpr, LuaIndexKey, LuaTableExpr,
-    LuaTableField,
+    LuaAssignStat, LuaAstNode, LuaAstToken, LuaCallArgList, LuaCallExpr, LuaExpr, LuaIndexKey,
+    LuaLocalStat, LuaTableExpr, LuaTableField,
 };
 
 /// The named type a table literal stands for, with `nil` stripped (`Opts?` -> `Opts`).
@@ -21,6 +21,12 @@ pub fn expected_class_of_table(model: &SemanticModel<'_>, table: &LuaTableExpr) 
             .into_iter()
             .next()?;
         return named_type(&member.typ);
+    }
+    // `---@type Opts local o = { key = v }`: the declared type of the local.
+    if let Some(stat) = table.syntax().parent().and_then(LuaLocalStat::cast) {
+        let name = stat.get_local_name_by_value(LuaExpr::TableExpr(table.clone()))?;
+        let decl = model.decl_by_offset(name.get_name_token()?.get_position())?;
+        return named_type(&model.type_of_decl(&decl)?);
     }
     // `self.client_state[id] = { key = v }`: the declared type of the assigned target.
     if let Some(assign) = table.syntax().parent().and_then(LuaAssignStat::cast) {

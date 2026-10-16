@@ -1448,4 +1448,33 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_key_in_nested_literal_of_typed_local_lists_class_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class WinOpts
+                ---@field scrolloff? integer
+                ---@class Win
+                ---@field completion? WinOpts
+                ---@class Schema
+                ---@field window? Win
+
+                ---@type Schema
+                local config = { window = { completion = { scroll<??>off = 0 } } }
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 9
+                },
+            ]
+        ));
+        Ok(())
+    }
 }
