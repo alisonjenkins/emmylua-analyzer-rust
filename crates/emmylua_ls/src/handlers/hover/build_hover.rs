@@ -21,7 +21,7 @@ use super::desc::{
     type_def_description,
 };
 use super::render::humanize;
-use super::usage_shape::render_usage_shape;
+use super::usage_shape::{render_member_usage_shape, render_usage_shape};
 
 /// Context projection result for table fields / value aliases: `show_unknown` marks
 /// unbound generics that were substituted with `unknown`, so member function signatures
@@ -1975,7 +1975,19 @@ fn build_member_hover(
         let code = format!("{}function {}({}){}", async_prefix, member_name, params, ret);
         return (code, Some(description));
     }
-    let mut rendered_typ = render_member_typ_with_default(model, &effective_typ);
+    let mut rendered_typ = if matches!(
+        effective_typ,
+        LuaType::Unknown | LuaType::Nil | LuaType::Table
+    ) || matches!(&effective_typ, LuaType::TableConst(table)
+        if model
+            .members_of_owner(&SemanticId::member(table.file_id, table.value))
+            .is_empty())
+    {
+        render_member_usage_shape(model, member_info)
+    } else {
+        None
+    }
+    .unwrap_or_else(|| render_member_typ_with_default(model, &effective_typ));
     if runtime_literal_ty.is_none()
         && member_is_nullable(model, &display_member_id)
         && !rendered_typ.ends_with('?')

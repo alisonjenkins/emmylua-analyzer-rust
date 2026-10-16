@@ -1769,6 +1769,50 @@ mod tests {
         Ok(())
     }
 
+    /// A `self` field that holds an empty or unknown value takes its shape from how the methods use it.
+    #[gtest]
+    fn test_hover_self_field_usage_shape() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local M = {}
+
+                function M:init()
+                    self.params = {}
+                    self.dao = nil
+                end
+
+                function M:run()
+                    self.params.acls = 1
+                    local g = self.params.group
+                    self.dao:page(1)
+                    return self.pa<??>rams
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(field) params: { acls: integer, group: unknown }\n```"
+                    .to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                local M = {}
+
+                function M:init()
+                    self.dao = nil
+                end
+
+                function M:run()
+                    return self.d<??>ao:page(1)
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(field) dao: { page: unknown }\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     /// Lua coerces a number to a string for the string library, so the subject accepts both.
     #[gtest]
     fn test_hover_string_library_accepts_number_subject() -> Result<()> {
