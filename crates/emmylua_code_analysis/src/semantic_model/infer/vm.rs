@@ -772,7 +772,8 @@ impl<'a> InferVm<'a> {
             return Some(bound.clone());
         }
         // Environment not filled -> compile the wrapping call and back-infer arg types.
-        let bound = closure_param_vm(self.model, closure_syntax, index);
+        let bound =
+            closure_param_vm_inherit(self.model, closure_syntax, index, self.computing.clone());
         if !matches!(bound, LuaType::Unknown) {
             self.closure_params
                 .insert((closure_syntax, index), bound.clone());
@@ -4319,6 +4320,18 @@ pub fn closure_param_vm(
     closure_syntax: LuaSyntaxId,
     param_index: usize,
 ) -> LuaType {
+    closure_param_vm_inherit(model, closure_syntax, param_index, HashSet::new())
+}
+
+/// Like `closure_param_vm`, but the nested VM starts with the caller's in-progress `computing`
+/// set. Without it a field assigned from its own callback param
+/// (`cfg.f(function(p) cfg.f = p end)`) restarts the cycle in a fresh VM forever.
+fn closure_param_vm_inherit(
+    model: &SemanticModel,
+    closure_syntax: LuaSyntaxId,
+    param_index: usize,
+    computing: HashSet<SemanticId>,
+) -> LuaType {
     let Some(tree) = model.syntax_tree() else {
         return LuaType::Unknown;
     };
@@ -4340,6 +4353,7 @@ pub fn closure_param_vm(
     compile(LuaExpr::CallExpr(call_expr), model.file_id(), &mut code);
     code.push(Instr::Result);
     let mut vm = InferVm::new(model, &code);
+    vm.computing = computing;
     let _ = vm.run();
     vm.closure_params
         .get(&(closure_syntax, param_index))
