@@ -611,6 +611,43 @@ mod tests {
     }
 
     #[gtest]
+    fn test_method_references_through_nullable_receiver() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        ws.def_file("b.lua", "local h = io.open('z')\nh:close()\n");
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local f = assert(io.open('x'))
+                f:cl<??>ose()
+                local g = io.open('y')
+                g:close()
+            "#,
+        ));
+        let file_id = ws.def(&content);
+
+        let result = references(&ws.analysis, file_id, position, false)
+            .ok_or("failed to get references")
+            .or_fail()?;
+
+        let mut uses: Vec<(String, u32)> = result
+            .iter()
+            .filter(|l| !l.uri.as_str().ends_with("io.lua"))
+            .map(|l| {
+                let file = l.uri.as_str().rsplit('/').next().unwrap_or_default();
+                (file.to_string(), l.range.start.line)
+            })
+            .collect();
+        uses.sort();
+        verify_eq!(
+            uses,
+            vec![
+                ("b.lua".to_string(), 1),
+                ("virtual_0.lua".to_string(), 2),
+                ("virtual_0.lua".to_string(), 4),
+            ]
+        )
+    }
+
+    #[gtest]
     fn test_member_references_alias_cycle_does_not_stack_overflow() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
 
