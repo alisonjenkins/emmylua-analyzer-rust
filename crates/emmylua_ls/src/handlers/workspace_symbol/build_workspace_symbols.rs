@@ -5,7 +5,7 @@ use std::{
 };
 
 use emmylua_code_analysis::{
-    Decl, DeclKind, EmmyLuaAnalysis, FileFacts, LuaDocument, Member, SemanticId,
+    Decl, DeclKind, EmmyLuaAnalysis, FileFacts, LuaDocument, Member, SemanticId, SemanticModel,
 };
 use emmylua_parser::LuaSyntaxKind;
 use lsp_types::{SymbolKind, SymbolTag, Uri, WorkspaceSymbol, WorkspaceSymbolResponse};
@@ -204,6 +204,7 @@ pub fn build_workspace_symbols(
                         member_container_name(facts, member),
                     )
                 });
+                push_global_path(model, facts, member, name, key_range, &mut file);
             }
         }
         let mut merged = merged.lock().expect("workspace symbols lock");
@@ -221,6 +222,81 @@ pub fn build_workspace_symbols(
     Some(WorkspaceSymbolResponse::Nested(
         best.into_iter().map(|candidate| candidate.symbol).collect(),
     ))
+}
+
+/// A path longer than this is not a real `a.b.c = v` chain; it also bounds a cyclic owner chain.
+const MAX_PATH_SEGMENTS: usize = 32;
+
+/// LuaLS also lists an assignment to a field of a global as the whole dotted
+/// path (`vim.ui.input = ...` is `vim.ui.input`, kind Variable) next to the
+/// field symbol. Table constructor fields and paths rooted in a local get no
+/// such symbol. The syntax tree is only consulted for paths that match.
+fn push_global_path(
+    model: &SemanticModel<'_>,
+    facts: &FileFacts,
+    member: &Member,
+    name: &str,
+    key_range: TextRange,
+    file: &mut FileSymbols<'_>,
+) {
+    let Some(path) = global_path(facts, member, name) else {
+        return;
+    };
+    if match_tier(&path, file.query).is_none() || !is_assigned_field(model, key_range) {
+        return;
+    }
+    file.add(&path, key_range, || (SymbolKind::VARIABLE, None, None));
+}
+
+fn global_path(facts: &FileFacts, member: &Member, name: &str) -> Option<String> {
+    let mut segments = vec![name];
+    let mut owner = &member.owner;
+    loop {
+        if segments.len() > MAX_PATH_SEGMENTS {
+            return None;
+        }
+        match owner {
+            SemanticId::Name(root) => {
+                segments.push(root);
+                break;
+            }
+            SemanticId::Decl(_) => {
+                let decl = facts.decl_by_id(owner)?;
+                if !matches!(decl.kind, DeclKind::Global) {
+                    return None;
+                }
+                segments.push(&decl.name);
+                break;
+            }
+            SemanticId::Member(_) => {
+                let parent = facts.member_by_id(owner)?;
+                segments.push(parent.key.get_name()?);
+                owner = &parent.owner;
+            }
+            SemanticId::TypeDef(_) | SemanticId::Signature(_) => return None,
+        }
+    }
+    segments.reverse();
+    Some(segments.join("."))
+}
+
+/// Whether the member key at `range` is the field of an index expression
+/// (`a.b = v`, `function a.b() end`) rather than a table constructor key.
+fn is_assigned_field(model: &SemanticModel<'_>, range: TextRange) -> bool {
+    let Some(tree) = model.syntax_tree() else {
+        return false;
+    };
+    let Some(token) = tree
+        .get_red_root()
+        .token_at_offset(range.start())
+        .right_biased()
+    else {
+        return false;
+    };
+    token
+        .parent_ancestors()
+        .take(2)
+        .any(|node| node.kind() == LuaSyntaxKind::IndexExpr.into())
 }
 
 fn member_symbol_kind(member: &Member) -> SymbolKind {
