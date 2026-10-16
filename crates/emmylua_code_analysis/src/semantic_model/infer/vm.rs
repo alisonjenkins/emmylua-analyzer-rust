@@ -4194,8 +4194,9 @@ pub(crate) fn unify_call_bindings(
                     let arg_ret = resolve_function_ret_defaults(arg_fun.get_ret(), arg_fun);
                     unify_call_bindings(model, param_fun.get_ret(), &arg_ret, bindings)
                 }
-            } else if matches!(arg, Function) {
-                // Erased `function` can be a fallback for any callback param.
+            } else if matches!(arg, Function | Unknown | Any) {
+                // Erased `function` can be a fallback for any callback param; an omitted or
+                // unknown argument does not tell the call apart from its candidates.
                 true
             } else {
                 false
