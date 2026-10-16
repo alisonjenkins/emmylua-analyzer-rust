@@ -128,6 +128,38 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_field_assigned_function_field_reaches_the_doc_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Logger
+                ---@field debug fun(...: any)
+                local log = {}
+                local M = {}
+                M.de<??>bug = log.debug
+            "#,
+            vec![at("", 2), at("", 5)]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_field_assigned_plain_doc_field_stays_on_the_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Logger
+                ---@field level integer
+                local log = {}
+                local M = {}
+                M.le<??>vel = log.level
+            "#,
+            vec![at("", 5)]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_definition_of_field_assigned_parameter_stays_on_the_field() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(
@@ -142,7 +174,7 @@ mod tests {
     }
 
     #[gtest]
-    fn test_definition_of_field_assigned_local_function_reaches_function()-> Result<()> {
+    fn test_definition_of_field_assigned_local_function_reaches_function() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(
             r#"

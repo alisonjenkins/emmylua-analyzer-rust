@@ -5,8 +5,10 @@
 
 use std::collections::HashSet;
 
-use emmylua_code_analysis::{ModuleExport, SemanticId, SemanticModel};
-use emmylua_parser::{LuaAstNode, LuaAstToken, LuaClosureExpr, LuaExpr, LuaIndexExpr, LuaReturnStat};
+use emmylua_code_analysis::{LuaType, ModuleExport, SemanticId, SemanticModel};
+use emmylua_parser::{
+    LuaAstNode, LuaAstToken, LuaClosureExpr, LuaExpr, LuaIndexExpr, LuaReturnStat,
+};
 
 /// Follow the value initialization chain of a local variable / member to its final declared identity.
 ///
@@ -185,6 +187,26 @@ fn returned_function(
         }
     }
     None
+}
+
+/// Whether a declaration stands for a function: a function expression, or a field/variable typed as one.
+pub fn is_function_valued(model: &SemanticModel<'_>, id: &SemanticId) -> bool {
+    if closure_of(model, id).is_some() {
+        return true;
+    }
+    let Some(file_id) = semantic_id_file(id) else {
+        return false;
+    };
+    let file_model = model.model_for(file_id);
+    let ty = match id {
+        SemanticId::Decl(_) => file_model.type_of_decl(id),
+        SemanticId::Member(_) => file_model.type_of_member(id),
+        _ => None,
+    };
+    matches!(
+        ty,
+        Some(LuaType::DocFunction(_) | LuaType::Signature(_) | LuaType::Function)
+    )
 }
 
 /// The function expression a declaration is initialised with.

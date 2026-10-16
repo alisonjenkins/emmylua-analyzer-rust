@@ -6,7 +6,7 @@ use emmylua_parser::LuaSyntaxToken;
 use lsp_types::{GotoDefinitionResponse, Location};
 
 use super::goto_def_definition::{goto_def_definition, location_of};
-use crate::handlers::common::{call_value_function, closure_of, resolve_alias_origin};
+use crate::handlers::common::{call_value_function, is_function_valued, resolve_alias_origin};
 
 pub(super) fn with_value_origin(
     analysis: &EmmyLuaAnalysis,
@@ -24,13 +24,17 @@ pub(super) fn with_value_origin(
     if matches!(decl, SemanticId::Member(_))
         && let Some(origin) = resolve_alias_origin(model, decl)
         && origin != *decl
-        && closure_of(model, &origin).is_some()
-        && let Some(found) = goto_def_definition(model, &analysis.db, &origin, token)
+        && is_function_valued(model, &origin)
     {
-        match found {
-            GotoDefinitionResponse::Scalar(location) => extra.push(location),
-            GotoDefinitionResponse::Array(found) => extra.extend(found),
-            GotoDefinitionResponse::Link(_) => {}
+        match &origin {
+            SemanticId::Member(key) => {
+                extra.extend(location_of(&analysis.db, key.file_id, key.key_range))
+            }
+            _ => match goto_def_definition(model, &analysis.db, &origin, token) {
+                Some(GotoDefinitionResponse::Scalar(location)) => extra.push(location),
+                Some(GotoDefinitionResponse::Array(found)) => extra.extend(found),
+                _ => {}
+            },
         }
     }
     if let Some((file_id, range)) = call_value_function(model, decl)
