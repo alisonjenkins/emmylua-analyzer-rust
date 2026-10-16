@@ -411,6 +411,14 @@ impl SemanticDatabase {
         self.main_root.clone()
     }
 
+    /// Directories of every registered workspace root (main, libraries and std).
+    pub fn workspace_root_paths(&self) -> Vec<PathBuf> {
+        self.workspace_roots
+            .iter()
+            .map(|entry| entry.root.clone())
+            .collect()
+    }
+
     pub(crate) fn strict_array_index(&self) -> bool {
         self.config
             .as_ref()

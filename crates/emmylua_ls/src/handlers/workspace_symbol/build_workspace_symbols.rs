@@ -1,19 +1,123 @@
-use std::{collections::HashSet, sync::Mutex};
+use std::{
+    cmp::Ordering,
+    collections::{BinaryHeap, HashSet},
+    sync::{Arc, Mutex},
+};
 
-use emmylua_code_analysis::{Decl, DeclKind, EmmyLuaAnalysis, FileFacts, Member, SemanticId};
+use emmylua_code_analysis::{
+    Decl, DeclKind, EmmyLuaAnalysis, FileFacts, LuaDocument, Member, SemanticId,
+};
 use emmylua_parser::LuaSyntaxKind;
-use lsp_types::{SymbolKind, SymbolTag, WorkspaceSymbol, WorkspaceSymbolResponse};
+use lsp_types::{SymbolKind, SymbolTag, Uri, WorkspaceSymbol, WorkspaceSymbolResponse};
+use rowan::TextRange;
 use tokio_util::sync::CancellationToken;
+
+use super::rank::{MatchTier, match_tier, path_rank};
 
 /// LuaLS stops at 1000 results; a one-letter query otherwise returns tens of thousands of symbols.
 const MAX_WORKSPACE_SYMBOLS: usize = 1000;
 
-/// if query contains uppercase, do case-sensitive match; otherwise, ignore case
-fn match_symbol(text: &str, query: &str) -> bool {
-    if query.chars().any(|c| c.is_uppercase()) {
-        text.contains(query)
-    } else {
-        text.to_lowercase().contains(&query.to_lowercase())
+/// Sort key: best match first, then project code before vendored code (library,
+/// std or remote files, and files under a dot-prefixed directory), then shorter
+/// names, shallower paths and a fixed location order so the same workspace
+/// always yields the same list.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct RankKey {
+    tier: MatchTier,
+    vendored: bool,
+    name_len: usize,
+    depth: usize,
+    uri: Arc<str>,
+    line: u32,
+    column: u32,
+}
+
+struct Candidate {
+    key: RankKey,
+    symbol: WorkspaceSymbol,
+}
+
+impl PartialEq for Candidate {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+impl Eq for Candidate {}
+impl PartialOrd for Candidate {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for Candidate {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.key.cmp(&other.key)
+    }
+}
+
+/// Collects the best `MAX_WORKSPACE_SYMBOLS` matches of one file (a max-heap, worst on top).
+struct FileSymbols<'a> {
+    document: LuaDocument<'a>,
+    uri: Uri,
+    uri_key: Arc<str>,
+    vendored: bool,
+    depth: usize,
+    query: &'a str,
+    best: BinaryHeap<Candidate>,
+}
+
+impl FileSymbols<'_> {
+    fn add(
+        &mut self,
+        name: &str,
+        range: TextRange,
+        build: impl FnOnce() -> (SymbolKind, Option<Vec<SymbolTag>>, Option<String>),
+    ) {
+        let Some(tier) = match_tier(name, self.query) else {
+            return;
+        };
+        let Some(lsp_range) = self.document.to_lsp_range(range) else {
+            return;
+        };
+        let key = RankKey {
+            tier,
+            vendored: self.vendored,
+            name_len: name.len(),
+            depth: self.depth,
+            uri: self.uri_key.clone(),
+            line: lsp_range.start.line,
+            column: lsp_range.start.character,
+        };
+        if self.best.len() >= MAX_WORKSPACE_SYMBOLS
+            && self.best.peek().is_some_and(|worst| key >= worst.key)
+        {
+            return;
+        }
+        let (kind, tags, container_name) = build();
+        self.best.push(Candidate {
+            key,
+            symbol: WorkspaceSymbol {
+                name: name.to_string(),
+                kind,
+                tags,
+                location: lsp_types::OneOf::Left(lsp_types::Location {
+                    uri: self.uri.clone(),
+                    range: lsp_range,
+                }),
+                container_name,
+                data: None,
+            },
+        });
+        if self.best.len() > MAX_WORKSPACE_SYMBOLS {
+            self.best.pop();
+        }
+    }
+}
+
+/// Keeps the best `MAX_WORKSPACE_SYMBOLS` of `candidates`, in no particular order.
+fn trim_to_best(candidates: &mut Vec<Candidate>) {
+    if candidates.len() > MAX_WORKSPACE_SYMBOLS {
+        candidates.select_nth_unstable(MAX_WORKSPACE_SYMBOLS);
+        candidates.truncate(MAX_WORKSPACE_SYMBOLS);
     }
 }
 
@@ -22,7 +126,8 @@ pub fn build_workspace_symbols(
     query: String,
     cancel_token: CancellationToken,
 ) -> Option<WorkspaceSymbolResponse> {
-    let symbols = Mutex::new(Vec::new());
+    let merged: Mutex<Vec<Candidate>> = Mutex::new(Vec::new());
+    let roots = analysis.db.workspace_root_paths();
     analysis.db.parallel_for_each_file(|file_id, model| {
         if cancel_token.is_cancelled() {
             return;
@@ -33,10 +138,26 @@ pub fn build_workspace_symbols(
         let Some(uri) = document.get_uri() else {
             return;
         };
-        let mut symbols = symbols.lock().expect("workspace symbols lock");
+        let location = analysis
+            .db
+            .file_path(file_id)
+            .map(|path| path_rank(&path, &roots));
+        let outside_main = analysis
+            .db
+            .workspace_id_of(file_id)
+            .is_some_and(|id| !id.is_main());
+        let mut file = FileSymbols {
+            document,
+            uri_key: Arc::from(uri.as_str()),
+            vendored: outside_main || location.is_some_and(|rank| rank.hidden_dir),
+            depth: location.map_or(usize::MAX, |rank| rank.depth),
+            uri,
+            query: &query,
+            best: BinaryHeap::new(),
+        };
         if let Some(decls) = model.decls() {
             for decl in decls.iter() {
-                if cancel_token.is_cancelled() || symbols.len() >= MAX_WORKSPACE_SYMBOLS {
+                if cancel_token.is_cancelled() {
                     return;
                 }
                 let kind = match decl.kind {
@@ -48,53 +169,23 @@ pub fn build_workspace_symbols(
                         local_symbol_kind(decl)
                     }
                 };
-                if !query.is_empty() && !match_symbol(&decl.name, &query) {
-                    continue;
-                }
-                let Some(lsp_range) = document.to_lsp_range(decl.name_range) else {
-                    continue;
-                };
-                symbols.push(WorkspaceSymbol {
-                    name: decl.name.to_string(),
-                    kind,
-                    tags: None,
-                    location: lsp_types::OneOf::Left(lsp_types::Location {
-                        uri: uri.clone(),
-                        range: lsp_range,
-                    }),
-                    container_name: None,
-                    data: None,
-                });
+                file.add(&decl.name, decl.name_range, || (kind, None, None));
             }
         }
         if let Some(facts) = model.file_facts() {
             for def in facts.type_defs.iter() {
-                if symbols.len() >= MAX_WORKSPACE_SYMBOLS {
+                if cancel_token.is_cancelled() {
                     return;
                 }
-                if !query.is_empty() && !match_symbol(&def.full_name, &query) {
-                    continue;
-                }
-                let Some(lsp_range) = document.to_lsp_range(def.name_range) else {
-                    continue;
-                };
-                symbols.push(WorkspaceSymbol {
-                    name: def.full_name.to_string(),
-                    kind: SymbolKind::CLASS,
-                    tags: None,
-                    location: lsp_types::OneOf::Left(lsp_types::Location {
-                        uri: uri.clone(),
-                        range: lsp_range,
-                    }),
-                    container_name: None,
-                    data: None,
+                file.add(&def.full_name, def.name_range, || {
+                    (SymbolKind::CLASS, None, None)
                 });
             }
             // `local t = { a = 1 }` is collected twice (under the local and under the
             // anonymous table) with the same id; keep the first, which names the local.
             let mut seen_members = HashSet::new();
             for member in facts.members.iter() {
-                if cancel_token.is_cancelled() || symbols.len() >= MAX_WORKSPACE_SYMBOLS {
+                if cancel_token.is_cancelled() {
                     return;
                 }
                 if !seen_members.insert(&member.id) {
@@ -103,31 +194,32 @@ pub fn build_workspace_symbols(
                 let Some(name) = member.key.get_name() else {
                     continue;
                 };
-                if !query.is_empty() && !match_symbol(name, &query) {
-                    continue;
-                }
                 let Some(key_range) = member.id.member_key_range() else {
                     continue;
                 };
-                let Some(lsp_range) = document.to_lsp_range(key_range) else {
-                    continue;
-                };
-                symbols.push(WorkspaceSymbol {
-                    name: name.to_string(),
-                    kind: member_symbol_kind(member),
-                    tags: member.deprecated.then(|| vec![SymbolTag::DEPRECATED]),
-                    location: lsp_types::OneOf::Left(lsp_types::Location {
-                        uri: uri.clone(),
-                        range: lsp_range,
-                    }),
-                    container_name: member_container_name(facts, member),
-                    data: None,
+                file.add(name, key_range, || {
+                    (
+                        member_symbol_kind(member),
+                        member.deprecated.then(|| vec![SymbolTag::DEPRECATED]),
+                        member_container_name(facts, member),
+                    )
                 });
             }
         }
+        let mut merged = merged.lock().expect("workspace symbols lock");
+        merged.extend(file.best);
+        if merged.len() > 2 * MAX_WORKSPACE_SYMBOLS {
+            trim_to_best(&mut merged);
+        }
     });
+    if cancel_token.is_cancelled() {
+        return Some(WorkspaceSymbolResponse::Nested(Vec::new()));
+    }
+    let mut best = merged.into_inner().expect("workspace symbols lock");
+    trim_to_best(&mut best);
+    best.sort();
     Some(WorkspaceSymbolResponse::Nested(
-        symbols.into_inner().expect("workspace symbols lock"),
+        best.into_iter().map(|candidate| candidate.symbol).collect(),
     ))
 }
 
