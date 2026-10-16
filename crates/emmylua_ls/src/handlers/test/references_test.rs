@@ -1277,4 +1277,21 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![1, 2])
     }
+
+    #[gtest]
+    fn test_references_of_function_in_nested_table_of_a_module_returned_by_a_call() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "tester.lua",
+            "-- a tester\n\n\nlocal tester = {\n    test = {},\n}\n\nfunction tester.init()\n    return tester\nend\n\nfunction tester.test.equal(a, b)\n    return a == b\nend\n\nreturn tester.init()\n",
+        );
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local tester = require("tester")
+                local same = tester.test.equ<??>al
+                tester.test.equal(1, 1)
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 3, 11])
+    }
 }
