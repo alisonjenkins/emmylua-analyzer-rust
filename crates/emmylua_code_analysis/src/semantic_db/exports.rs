@@ -352,6 +352,26 @@ pub(crate) fn build_require_alias_contributions(
         }
     }
 
+    // `vim.lsp = require("vim.lsp")` / `{ lsp = require("vim.lsp") }`: a field holding a module
+    // shares the module's members, so other files' `vim.lsp.f` reach `f`.
+    for member in &facts.members {
+        if member.doc_type_syntax.is_some() || member.is_index_signature {
+            continue;
+        }
+        let Some(value_syntax) = member.value_syntax else {
+            continue;
+        };
+        let Some(LuaExpr::CallExpr(call)) = value_syntax
+            .to_node_from_root(&root)
+            .and_then(LuaExpr::cast)
+        else {
+            continue;
+        };
+        if let Some(module_file) = require_module_file_from_call(db, config, facts.file_id, &call) {
+            targets.insert(member.id.clone(), module_file);
+        }
+    }
+
     targets
         .into_iter()
         .map(|(decl, module_file)| RequireAliasContribution {

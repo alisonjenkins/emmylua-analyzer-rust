@@ -1129,4 +1129,76 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_through_global_field_assigned_a_required_module() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "lsp_mod.lua",
+            r#"
+                local lsp = {}
+                function lsp.get_client() end
+                return lsp
+            "#,
+        );
+        ws.def_file(
+            "glob.lua",
+            r#"
+                vim = {}
+                vim.lsp = require("lsp_mod")
+            "#,
+        );
+        check!(ws.check_definition(
+            r#"
+                vim.lsp.get_<??>client()
+            "#,
+            vec![Expected {
+                file: "lsp_mod.lua".to_string(),
+                line: 2
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_through_global_field_assigned_a_deferred_module() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "defer.lua",
+            r#"
+                ---@generic T
+                ---@param root string
+                ---@param mod T
+                ---@return T
+                function defer(root, mod)
+                    return setmetatable({ _sub = mod }, { __index = function() end })
+                end
+            "#,
+        );
+        ws.def_file(
+            "lsp_mod.lua",
+            r#"
+                local lsp = defer("x", { a = 1 })
+                function lsp.get_client() end
+                return lsp
+            "#,
+        );
+        ws.def_file(
+            "glob.lua",
+            r#"
+                vim = {}
+                vim.lsp = require("lsp_mod")
+            "#,
+        );
+        check!(ws.check_definition(
+            r#"
+                vim.lsp.get_<??>client()
+            "#,
+            vec![Expected {
+                file: "lsp_mod.lua".to_string(),
+                line: 2
+            }]
+        ));
+        Ok(())
+    }
 }

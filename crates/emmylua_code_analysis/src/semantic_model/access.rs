@@ -1322,11 +1322,19 @@ impl<'db> SemanticModel<'db> {
                 self.require_module_member_owner_of_expr(&paren.get_expr()?, depth + 1)
             }
             LuaExpr::IndexExpr(index_expr) => {
-                let parent = self.require_module_member_owner_of_expr(
-                    &index_expr.get_prefix_expr()?,
-                    depth + 1,
-                )?;
-                let name = SmolStr::new(index_expr.get_index_key()?.get_path_part());
+                let (parent, name) = match self
+                    .require_module_member_owner_of_expr(&index_expr.get_prefix_expr()?, depth + 1)
+                {
+                    Some(parent) => (
+                        parent,
+                        SmolStr::new(index_expr.get_index_key()?.get_path_part()),
+                    ),
+                    // `vim.lsp = require("vim.lsp")` in another file: the path `vim.lsp` is
+                    // not require-rooted, but its assigned member still holds the module.
+                    None => self
+                        .analysis()
+                        .member_ref_of_index(self.view.file_id(), index_expr.get_syntax_id())?,
+                };
                 let members = self.members_of_owner_named(&parent, name.as_str());
                 let member = members.first()?;
                 self.member_value_owner_of(&member)
@@ -1366,6 +1374,16 @@ impl<'db> SemanticModel<'db> {
                 let decl =
                     facts.find_visible_decl_before_offset(&name, name_expr.get_position())?;
                 Some(decl.id.clone())
+            }
+            LuaExpr::CallExpr(call) => {
+                let model = self.model_for(member.file_id);
+                match model
+                    .require_module_file_of_call(&call)
+                    .and_then(|module_file| model.module_export_owner_of(module_file))
+                {
+                    Some(owner) => Some(owner),
+                    None => Some(member.id.clone()),
+                }
             }
             _ => Some(member.id.clone()),
         }
