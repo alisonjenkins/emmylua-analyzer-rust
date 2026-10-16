@@ -6,6 +6,7 @@ use std::{
 
 use emmylua_code_analysis::{
     Decl, DeclKind, EmmyLuaAnalysis, FileFacts, LuaDocument, Member, SemanticId, SemanticModel,
+    TypeDef, TypeDefKind,
 };
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaExpr, LuaIndexExpr, LuaSyntaxKind, LuaSyntaxNode,
@@ -208,6 +209,7 @@ pub fn build_workspace_symbols(
                     )
                 });
                 push_global_path(model, facts, member, name, key_range, &mut file);
+                push_enum_path(facts, member, name, key_range, &mut file);
             }
         }
         let mut merged = merged.lock().expect("workspace symbols lock");
@@ -322,6 +324,43 @@ fn push_global_path(
         }
     };
     file.add(&path, key_range, || (SymbolKind::VARIABLE, None, None));
+}
+
+/// LuaLS lists every `---@enum` member under its whole path (`ns.Color.RED`, kind
+/// Variable) as well as under its own name, and matches the query against the path.
+fn push_enum_path(
+    facts: &FileFacts,
+    member: &Member,
+    name: &str,
+    key_range: TextRange,
+    file: &mut FileSymbols<'_>,
+) {
+    let Some(def) = enum_owning(facts, member) else {
+        return;
+    };
+    let path = format!("{}.{name}", def.full_name);
+    file.add(&path, key_range, || (SymbolKind::VARIABLE, None, None));
+}
+
+/// The `---@enum` whose runtime table holds `member`: the table is the owner (`local E = {}` and
+/// `E.A = 1`) or sits inside the annotated statement (`local E = { A = 1 }`, `M.E = { A = 1 }`).
+fn enum_owning<'a>(facts: &'a FileFacts, member: &Member) -> Option<&'a TypeDef> {
+    let is_enum = |def: &&TypeDef| def.kind == TypeDefKind::Enum;
+    match &member.owner {
+        SemanticId::Decl(_) => {
+            let owner_syntax = facts.decl_by_id(&member.owner)?.owner_syntax?;
+            facts
+                .type_defs_by_owner_syntax(owner_syntax)
+                .find(|def| is_enum(def))
+        }
+        SemanticId::Member(table) => facts.type_defs.iter().find(|def| {
+            is_enum(def)
+                && def
+                    .owner_syntax
+                    .is_some_and(|syntax| syntax.get_range().contains_range(table.key_range))
+        }),
+        _ => None,
+    }
 }
 
 enum GlobalPath {
