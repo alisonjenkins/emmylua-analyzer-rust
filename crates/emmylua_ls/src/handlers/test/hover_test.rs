@@ -1854,4 +1854,19 @@ mod tests {
         }
         Ok(())
     }
+
+    /// io.open hovers with LuaLS's name for the failure message return.
+    #[gtest]
+    fn test_hover_io_open_names_errmsg() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        let (content, position) =
+            ProviderVirtualWorkspace::handle_file_content("local f, e = io.<??>open('x')")?;
+        let file_id = ws.def(&content);
+        let hover = crate::handlers::hover::hover(&ws.analysis, file_id, position)
+            .ok_or("no hover")
+            .or_fail()?;
+        let hover_text = format!("{hover:?}");
+        verify_that!(hover_text, contains_substring("errmsg: string?"))?;
+        Ok(())
+    }
 }
