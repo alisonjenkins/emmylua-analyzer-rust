@@ -1,4 +1,4 @@
-mod reference_searcher;
+pub(crate) mod reference_searcher;
 
 use crate::context::{RequestOutcome, ServerContextSnapshot, analysis_query};
 use emmylua_code_analysis::{EmmyLuaAnalysis, FileId};

@@ -195,6 +195,164 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_param_lists_its_reassignments() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local function f(bufnr)
+                    bufnr = tostring(bufnr)
+                    return buf<??>nr
+                end
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 1,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 2,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_local_lists_assignments_in_nested_closures() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local res
+                run(function() res = 1 end)
+                run(function() res = 2 end)
+                print(re<??>s)
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 1,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 2,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 3,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_local_alias_of_a_function_lists_origin_and_alias() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local M = {}
+                function M.target() end
+                local alias = M.target
+                ali<??>as()
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 3,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_local_alias_of_a_stdlib_function() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_definition(
+            r#"
+                local format = string.format
+                local s = for<??>mat("%d", 1)
+            "#,
+            vec![
+                Expected {
+                    file: "string.lua".to_string(),
+                    line: 118,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 1,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_unreassigned_local_stays_single() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local value = 1
+                print(val<??>ue)
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 1,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_field_lists_every_assignment() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local fs = {}
+                fs.clone = 1
+                fs.clone = 2
+                print(fs.clo<??>ne)
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 3,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_field_skips_assignments_through_other_variables() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local t = {}
+                local a = t
+                local b = t
+                a.x = 1
+                b.x = 2
+                print(a.<??>x)
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 4,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_basic_definition() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(
@@ -400,10 +558,16 @@ mod tests {
                 local test = t.test
                 te<??>st()
             "#,
-            vec![VirtualLocation {
-                file: "test.lua".to_string(),
-                line: 1
-            }]
+            vec![
+                VirtualLocation {
+                    file: "test.lua".to_string(),
+                    line: 1
+                },
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 2
+                }
+            ]
         ));
 
         Ok(())
@@ -433,10 +597,16 @@ mod tests {
                 local new = require("test").new
                 new<??>("A")
             "#,
-            vec![Expected {
-                file: "test.lua".to_string(),
-                line: 7
-            }]
+            vec![
+                Expected {
+                    file: "test.lua".to_string(),
+                    line: 7
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 1
+                }
+            ]
         ));
         Ok(())
     }
@@ -519,10 +689,16 @@ mod tests {
                 local create = require('a')
                 create<??>()
             "#,
-            vec![Expected {
-                file: "a.lua".to_string(),
-                line: 1
-            }]
+            vec![
+                Expected {
+                    file: "a.lua".to_string(),
+                    line: 1
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 1
+                }
+            ]
         ));
         Ok(())
     }
@@ -557,10 +733,16 @@ mod tests {
                 local create = require('b').create
                 create<??>()
             "#,
-            vec![Expected {
-                file: "a.lua".to_string(),
-                line: 4
-            }]
+            vec![
+                Expected {
+                    file: "a.lua".to_string(),
+                    line: 4
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 1
+                }
+            ]
         ));
         Ok(())
     }
@@ -693,10 +875,16 @@ mod tests {
                 local zipLatest = require('b').zipLatest
                 zipLatest<??>()
             "#,
-            vec![Expected {
-                file: "a.lua".to_string(),
-                line: 4,
-            }],
+            vec![
+                Expected {
+                    file: "a.lua".to_string(),
+                    line: 4,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 1,
+                },
+            ],
         ));
         Ok(())
     }
@@ -777,6 +965,10 @@ mod tests {
                 },
                 Expected {
                     file: "".to_string(),
+                    line: 3,
+                },
+                Expected {
+                    file: "".to_string(),
                     line: 7,
                 },
                 Expected {
@@ -807,10 +999,16 @@ mod tests {
             local a
             a.ne<??>gate = 0
             "#,
-            vec![Expected {
-                file: "".to_string(),
-                line: 5,
-            },],
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 3,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 5,
+                },
+            ],
         ));
         Ok(())
     }
