@@ -17,6 +17,7 @@ mod flow;
 mod for_range_var_infer_test;
 mod generic_infer_test;
 mod generic_test;
+mod global_alias_member_test;
 mod infer_str_tpl_test;
 mod inherit_type;
 mod mathlib_test;
