@@ -7,7 +7,7 @@ use std::{
 use emmylua_code_analysis::{
     Decl, DeclKind, EmmyLuaAnalysis, FileFacts, LuaDocument, Member, SemanticId, SemanticModel,
 };
-use emmylua_parser::LuaSyntaxKind;
+use emmylua_parser::{LuaAstNode, LuaExpr, LuaIndexExpr, LuaSyntaxKind};
 use lsp_types::{SymbolKind, SymbolTag, Uri, WorkspaceSymbol, WorkspaceSymbolResponse};
 use rowan::TextRange;
 use tokio_util::sync::CancellationToken;
@@ -239,16 +239,43 @@ fn push_global_path(
     key_range: TextRange,
     file: &mut FileSymbols<'_>,
 ) {
-    let Some(path) = global_path(facts, member, name) else {
-        return;
+    let known = match global_path(facts, member, name) {
+        Some(GlobalPath::Known(path)) => Some(path),
+        Some(GlobalPath::FromSyntax) => None,
+        None => return,
     };
-    if match_tier(&path, file.query).is_none() || !is_assigned_field(model, key_range) {
+    if known
+        .as_ref()
+        .is_some_and(|path| match_tier(path, file.query).is_none())
+    {
         return;
     }
+    let Some(index_expr) = assigned_index_expr(model, key_range) else {
+        return;
+    };
+    let path = match known {
+        Some(path) => path,
+        None => {
+            let Some(path) = syntax_path(&LuaExpr::IndexExpr(index_expr)) else {
+                return;
+            };
+            if match_tier(&path, file.query).is_none() {
+                return;
+            }
+            path
+        }
+    };
     file.add(&path, key_range, || (SymbolKind::VARIABLE, None, None));
 }
 
-fn global_path(facts: &FileFacts, member: &Member, name: &str) -> Option<String> {
+enum GlobalPath {
+    Known(String),
+    /// The analysis names the owner of a path with three or more segments
+    /// wrongly (`a.b.b.c`), so the path has to be read from the source.
+    FromSyntax,
+}
+
+fn global_path(facts: &FileFacts, member: &Member, name: &str) -> Option<GlobalPath> {
     let mut segments = vec![name];
     let mut owner = &member.owner;
     loop {
@@ -257,6 +284,9 @@ fn global_path(facts: &FileFacts, member: &Member, name: &str) -> Option<String>
         }
         match owner {
             SemanticId::Name(root) => {
+                if root.matches('.').count() >= 2 {
+                    return Some(GlobalPath::FromSyntax);
+                }
                 segments.push(root);
                 break;
             }
@@ -277,26 +307,37 @@ fn global_path(facts: &FileFacts, member: &Member, name: &str) -> Option<String>
         }
     }
     segments.reverse();
-    Some(segments.join("."))
+    Some(GlobalPath::Known(segments.join(".")))
 }
 
-/// Whether the member key at `range` is the field of an index expression
-/// (`a.b = v`, `function a.b() end`) rather than a table constructor key.
-fn is_assigned_field(model: &SemanticModel<'_>, range: TextRange) -> bool {
-    let Some(tree) = model.syntax_tree() else {
-        return false;
-    };
-    let Some(token) = tree
+/// The index expression whose field is the member key at `range` (`a.b = v`,
+/// `function a.b() end`); a table constructor key has none.
+fn assigned_index_expr(model: &SemanticModel<'_>, range: TextRange) -> Option<LuaIndexExpr> {
+    let token = model
+        .syntax_tree()?
         .get_red_root()
         .token_at_offset(range.start())
-        .right_biased()
-    else {
-        return false;
-    };
+        .right_biased()?;
     token
         .parent_ancestors()
         .take(2)
-        .any(|node| node.kind() == LuaSyntaxKind::IndexExpr.into())
+        .find_map(LuaIndexExpr::cast)
+}
+
+/// `a.b.c` as written; `None` for anything that is not a plain name chain.
+fn syntax_path(expr: &LuaExpr) -> Option<String> {
+    match expr {
+        LuaExpr::NameExpr(name) => name.get_name_text(),
+        LuaExpr::IndexExpr(index) => {
+            let prefix = syntax_path(&index.get_prefix_expr()?)?;
+            Some(format!(
+                "{prefix}.{}",
+                index.get_index_key()?.get_path_part()
+            ))
+        }
+        LuaExpr::ParenExpr(paren) => syntax_path(&paren.get_expr()?),
+        _ => None,
+    }
 }
 
 fn member_symbol_kind(member: &Member) -> SymbolKind {

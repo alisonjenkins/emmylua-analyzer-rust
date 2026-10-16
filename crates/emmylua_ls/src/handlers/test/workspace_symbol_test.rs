@@ -530,6 +530,23 @@ mod tests {
     }
 
     #[gtest]
+    fn test_deep_global_paths_are_named_by_their_source_text() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+            ngx.shared.cfgdata.zdeep = function() end
+            a.b.c.d.e.zdeeper = 1
+            "#,
+        );
+        expect_that!(
+            kind_of(&query(&ws, "zdeep"), "ngx.shared.cfgdata.zdeep"),
+            some(eq(SymbolKind::VARIABLE))
+        );
+        expect_that!(count_of(&query(&ws, "zdeeper"), "a.b.c.d.e.zdeeper"), eq(1));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_function_statements_on_global_paths_are_dotted() -> Result<()> {
         let ws = dotted_workspace();
         expect_that!(count_of(&query(&ws, "zfun"), "GT.zfun"), eq(1));
