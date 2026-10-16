@@ -721,7 +721,7 @@ mod tests {
                 RingBuffer:<??>get(1)
             "#,
             VirtualHoverResult {
-                value: "```lua\n(method) RingBuffer:get(index: integer) -> string?\n```\n\n---\n\n@*param* `index` — 索引".to_string(),
+                value: "```lua\n(method) RingBuffer:get(index: integer)\n  -> item: string?\n\n```\n\n---\n\n@*param* `index` — 索引".to_string(),
             },
         ));
         Ok(())
@@ -1190,6 +1190,61 @@ mod tests {
             "#,
             VirtualHoverResult {
                 value: "```lua\nlocal f: file? {\n    close: function,\n    flush: function,\n    lines: function,\n    read: function,\n    seek: function,\n    setvbuf: function,\n    write: function,\n}\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// The std file functions name their failure returns as the Lua manual does.
+    #[gtest]
+    fn test_std_os_remove_return_names() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_hover(
+            r#"
+                local ok, msg, code = os.<??>remove("x")
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction os.remove(filename: string)\n  -> suc: true?\n  -> errmsg: string?\n  -> errcode: integer?\n (+1 overloads)\n```\n\n---\n\nDeletes the file (or empty directory, on POSIX systems) with the given name.\nIf this function fails, it returns **nil**, plus a string describing the\nerror and the error code. Otherwise, it returns true.".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// Named returns print at a call site too, and for a function declared in another file.
+    #[gtest]
+    fn test_named_returns_print_at_call_site() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@return true? result
+                ---@return string err
+                local function mine(x) end
+
+                local a, b = <??>mine(1)
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal function mine(x)\n  -> result: true?\n  -> err: string\n\n```"
+                    .to_string(),
+            },
+        ));
+        ws.def_file(
+            "lib.lua",
+            r#"
+                local M = {}
+                ---@return integer? start
+                ---@return string? err
+                function M.find(s) end
+                return M
+            "#,
+        );
+        check!(ws.check_hover(
+            r#"
+                local lib = require("lib")
+                local a, b = lib.<??>find("x")
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction M.find(s: any)\n  -> start: integer?\n  -> err: string?\n\n```"
+                    .to_string(),
             },
         ));
         Ok(())

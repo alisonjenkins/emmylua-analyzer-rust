@@ -108,9 +108,9 @@ function os.difftime(t2, t1) end
 --- if a shell is available.
 --- @overload fun(): boolean
 --- @param command string
---- @return true|nil
---- @return 'exit'|'signal'
---- @return integer
+--- @return true? suc
+--- @return 'exit'|'signal' exitcode
+--- @return integer code
 function os.execute(command) end
 
 --- @version 5.1, JIT
@@ -155,8 +155,9 @@ function os.getenv(varname) end
 --- If this function fails, it returns **nil**, plus a string describing the
 --- error and the error code. Otherwise, it returns true.
 --- @param filename string
---- @return true|nil result
---- @return string err
+--- @return true? suc
+--- @return string? errmsg
+--- @return integer? errcode
 function os.remove(filename) end
 
 ---
@@ -165,8 +166,9 @@ function os.remove(filename) end
 --- code. Otherwise, it returns true.
 --- @param oldname string
 --- @param newname string
---- @return true|nil result
---- @return string err
+--- @return true? suc
+--- @return string? errmsg
+--- @return integer? errcode
 function os.rename(oldname, newname) end
 
 ---
