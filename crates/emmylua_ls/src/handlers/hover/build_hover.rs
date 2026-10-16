@@ -1009,8 +1009,22 @@ fn build_decl_hover(
                 humanize(model, &param_ty)
             };
             let constraint = param_generic_constraint(model, closure_syntax, &param_ty);
+            let shown_ty = if matches!(typ, LuaType::Unknown) {
+                &param_ty
+            } else {
+                typ
+            };
             let code = if let Some(constraint) = constraint {
                 format!("(parameter) {}: {} extends {}", name, type_text, constraint)
+            } else if let Some(class_lines) = class_member_lines(model, shown_ty)
+                && !class_lines.is_empty()
+            {
+                format!(
+                    "(parameter) {}: {} {{\n{}\n}}",
+                    name,
+                    type_text,
+                    class_lines.join("\n")
+                )
             } else {
                 format!("(parameter) {}: {}", name, type_text)
             };
@@ -1216,6 +1230,7 @@ fn widen_decl_const(ty: &LuaType) -> LuaType {
 
 /// Rendered member list lines for a named type (`    field: number?,`; function members -> `function`).
 fn class_member_lines(model: &SemanticModel<'_>, ty: &LuaType) -> Option<Vec<String>> {
+    let ty = &strip_nullable(ty);
     if !matches!(ty, LuaType::Ref(_) | LuaType::Def(_)) {
         return None;
     }
