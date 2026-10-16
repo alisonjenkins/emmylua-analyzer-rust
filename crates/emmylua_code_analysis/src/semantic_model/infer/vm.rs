@@ -4242,7 +4242,8 @@ pub(crate) fn unify_call_bindings(
                         .filter(|t| !matches!(t, Nil))
                         .all(|p| unify_call_bindings(model, p, arg, bindings))
                 } else {
-                    false
+                    pv.iter()
+                        .any(|p| unify_call_bindings(model, p, arg, bindings))
                 }
             }
         }
@@ -4285,11 +4286,33 @@ pub(crate) fn unify_call_bindings(
                 || (matches!(param, Function) && matches!(arg, DocFunction(_) | Signature(_)))
             {
                 true
+            } else if let Some(target) = resolve_alias_chain(model, param) {
+                // An alias nested in a union (`mode?: iolib.OpenMode`) is not expanded by the
+                // caller, which only expands a bare alias parameter.
+                unify_call_bindings(model, &target, arg, bindings)
             } else {
                 unify::unify_bindings(param, arg, bindings)
             }
         }
     }
+}
+
+/// Follows `Ref`/`Def` aliases to the first non-alias type; `None` when `ty` is not an alias
+/// or the chain does not end within `MAX_ALIAS_HOPS` (alias cycles such as `A = B`, `B = A`).
+fn resolve_alias_chain(model: &SemanticModel, ty: &LuaType) -> Option<LuaType> {
+    const MAX_ALIAS_HOPS: usize = 8;
+    let mut current = ty.clone();
+    for _ in 0..MAX_ALIAS_HOPS {
+        let (LuaType::Ref(id) | LuaType::Def(id)) = &current else {
+            return (&current != ty).then_some(current);
+        };
+        let def = model.type_def_of(id)?;
+        if def.kind != TypeDefKind::Alias {
+            return (&current != ty).then_some(current);
+        }
+        current = model.alias_target(&def)?;
+    }
+    None
 }
 
 pub(crate) fn score_param_match(param_ty: &LuaType, arg_ty: &LuaType) -> i32 {
