@@ -1720,7 +1720,12 @@ impl FactsBuilder {
                 // Parameters and locals in the function body belong to the closure scope and must not inherit the outer `---@type`.
                 // Signature docs still belong to the outer statement (LocalStat/FuncStat), so save them now and use them in
                 // collect_signature; after collect_params, the body uses the closure owner.
-                let statement_owner = self.current_owner_syntax;
+                // A closure that is a table field's value takes the docs written above the field.
+                let statement_owner = closure
+                    .get_parent::<LuaTableField>()
+                    .map(|field| field.get_syntax_id())
+                    .filter(|field| self.doc_comment_owners.contains(field))
+                    .or(self.current_owner_syntax);
                 self.current_owner_syntax = Some(closure.get_syntax_id());
                 self.collect_params(closure);
                 self.collect_signature(closure, statement_owner);

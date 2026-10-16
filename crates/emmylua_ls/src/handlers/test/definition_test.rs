@@ -1994,4 +1994,30 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_field_of_annotated_param_in_the_literal_of_the_same_named_class()
+    -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local lsp = {}
+
+                ---@class lsp.Range
+                ---@field start integer
+
+                lsp.Range = {
+                    ---@param range lsp.Range
+                    to_vim = function(range)
+                        return range.sta<??>rt
+                    end,
+                }
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 4
+            }]
+        ));
+        Ok(())
+    }
 }
