@@ -990,4 +990,21 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![4, 6, 7])
     }
+
+    #[gtest]
+    fn test_references_of_a_require_field_held_in_a_table_constructor() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "util.lua",
+            "local M = {}\nfunction M.create() end\nreturn M\n",
+        );
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local lsp = { util = require 'util' }
+                lsp.util.crea<??>te()
+                lsp.util.create()
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![1, 2, 3])
+    }
 }
