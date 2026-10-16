@@ -304,6 +304,91 @@ mod tests {
         Ok(())
     }
 
+    // 25 files x 50 substring matches (1250 > the cap) plus one exact match in
+    // the file that sorts last: the exact match must survive the cut, first.
+    fn ranking_workspace() -> ProviderVirtualWorkspace {
+        let mut ws = ProviderVirtualWorkspace::new();
+        for file in 0..25 {
+            let source: String = (0..50)
+                .map(|i| format!("local xneedle_{file}_{i} = 1\n"))
+                .collect();
+            ws.def_file(&format!("a_{file:02}.lua"), &source);
+        }
+        ws.def_file("zzz_last.lua", "local needle = 1\n");
+        ws
+    }
+
+    fn located_names(symbols: &[WorkspaceSymbol]) -> Vec<(String, String, u32, u32)> {
+        symbols
+            .iter()
+            .map(|symbol| match &symbol.location {
+                lsp_types::OneOf::Left(location) => (
+                    symbol.name.clone(),
+                    location.uri.to_string(),
+                    location.range.start.line,
+                    location.range.start.character,
+                ),
+                lsp_types::OneOf::Right(location) => {
+                    (symbol.name.clone(), location.uri.to_string(), 0, 0)
+                }
+            })
+            .collect()
+    }
+
+    #[gtest]
+    fn test_exact_match_survives_the_cap_and_comes_first() -> Result<()> {
+        let ws = ranking_workspace();
+        let symbols = query(&ws, "needle");
+        expect_that!(symbols.len(), eq(1000));
+        expect_that!(
+            symbols.first().map(|symbol| symbol.name.as_str()),
+            some(eq("needle"))
+        );
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_results_are_ordered_by_tier_then_name_length() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "a.lua",
+            "local zz_needle = 1\nlocal needle_long_name = 1\nlocal needle_x = 1\nlocal needle = 1\n",
+        );
+        let names: Vec<String> = query(&ws, "needle")
+            .into_iter()
+            .map(|symbol| symbol.name)
+            .collect();
+        expect_that!(
+            names,
+            elements_are![
+                eq("needle"),
+                eq("needle_x"),
+                eq("needle_long_name"),
+                eq("zz_needle")
+            ]
+        );
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_result_order_is_stable_across_runs() -> Result<()> {
+        let ws = ranking_workspace();
+        let first = located_names(&query(&ws, "needle"));
+        for _ in 0..5 {
+            expect_that!(located_names(&query(&ws, "needle")), eq(&first));
+        }
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_empty_query_is_capped_and_stable() -> Result<()> {
+        let ws = ranking_workspace();
+        let first = located_names(&query(&ws, ""));
+        expect_that!(first.len(), eq(1000));
+        expect_that!(located_names(&query(&ws, "")), eq(&first));
+        Ok(())
+    }
+
     #[gtest]
     fn test_unmatched_query_returns_nothing() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
