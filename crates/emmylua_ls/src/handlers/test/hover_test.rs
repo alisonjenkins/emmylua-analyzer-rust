@@ -1087,4 +1087,21 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// `file:read()` returns `string|number|nil`, so string methods on its result resolve.
+    #[gtest]
+    fn test_hover_string_method_on_file_read_result() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_hover(
+            r#"
+                local h = io.popen("ls")
+                local out = h:read("*a")
+                local up<??> = out:upper()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal up: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }

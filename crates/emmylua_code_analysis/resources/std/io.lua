@@ -110,8 +110,8 @@ function io.popen(prog, mode) end
 ---
 --- Equivalent to `io.input():read(···)`.
 --- @param ... std.readmode
---- @return any
---- @return any ...
+--- @return string|number|nil
+--- @return string|number|nil ...
 --- @nodiscard
 function io.read(...) end
 
@@ -208,8 +208,8 @@ function file:lines(...) end
 --- on end of file. If `number` is zero, it reads nothing and returns an
 --- empty string, or **nil** on end of file.
 --- @param ... std.readmode
---- @return any
---- @return any ...
+--- @return string|number|nil
+--- @return string|number|nil ...
 --- @nodiscard
 function file:read(...) end
 
