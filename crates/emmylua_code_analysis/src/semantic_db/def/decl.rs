@@ -45,6 +45,9 @@ pub struct Decl {
     /// True for the implicit `self` parameter of colon-defined methods.
     /// Its name range points at the colon so unused-self diagnostics can grey out the colon.
     pub is_implicit_self: bool,
+    /// For an implicit `self`: the owner of the table the method is defined on (`M` in `function M:f()`).
+    /// Fields reached through `self` belong to this owner, whichever method they are read or written in.
+    pub self_owner: Option<SemanticId>,
     /// `---@type` annotation type node (uniquely identified by `LuaSyntaxId`).
     pub doc_type_syntax: Option<LuaSyntaxId>,
     /// Module name from `---@module "name"` (resolved as ModuleRef type).
@@ -76,6 +79,7 @@ impl Decl {
             owner_syntax: None,
             doc_type_syntax: None,
             is_implicit_self: false,
+            self_owner: None,
             module_path: None,
             deprecated: false,
             readonly: false,

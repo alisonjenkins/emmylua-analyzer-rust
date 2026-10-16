@@ -15,6 +15,11 @@ impl<'db> SemanticModel<'db> {
             .insert(owner.clone(), result.clone());
         result
     }
+    /// Other owners whose fields are the same fields as `owner`'s: the table a method is defined on
+    /// and the `self` of every method of that table in this file.
+    pub fn self_related_owners(&self, owner: &SemanticId) -> Vec<SemanticId> {
+        crate::semantic_db::query::self_related_owners(self.db(), owner)
+    }
     /// Members of an owner with a specific name.
     pub fn members_of_owner_named(&self, owner: &SemanticId, name: &str) -> MemberList {
         let key = (owner.clone(), SmolStr::new(name));

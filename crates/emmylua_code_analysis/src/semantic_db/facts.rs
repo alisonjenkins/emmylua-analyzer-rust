@@ -2018,6 +2018,7 @@ impl FactsBuilder {
         let mut name = None;
         let mut is_method = false;
         let mut self_range = None;
+        let mut self_owner = None;
         if let Some(func_stat) = closure.get_parent::<LuaFuncStat>() {
             if let Some(func_name) = func_stat.get_func_name() {
                 match func_name {
@@ -2029,6 +2030,9 @@ impl FactsBuilder {
                             is_method = index_token.is_colon();
                             if is_method {
                                 self_range = Some(index_token.syntax().text_range());
+                                self_owner = index_expr.get_prefix_expr().and_then(|prefix| {
+                                    self.resolve_member_owner(prefix, &mut Vec::new())
+                                });
                             }
                         }
                         name = index_expr
@@ -2065,6 +2069,9 @@ impl FactsBuilder {
         // (instead of an invisible/zero-width range inside the parameter list).
         if is_method && let Some(self_range) = self_range {
             self.add_implicit_self_decl(SmolStr::new("self"), self_range);
+            if let Some(decl) = self.decls.last_mut() {
+                decl.self_owner = self_owner;
+            }
         }
 
         let mut docs = doc_owner.and_then(|owner| self.signature_doc_map.remove(&owner));
