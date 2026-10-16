@@ -1209,4 +1209,19 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 10])
     }
+
+    #[gtest]
+    fn test_references_of_an_undeclared_global_function_across_files() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file("hook_a.lua", "before_each(function() end)\n");
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                -- provided by the test framework
+                before<??>_each(function() end)
+                before_each(function() end)
+                local before_each_count = 0
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![0, 2, 3])
+    }
 }
