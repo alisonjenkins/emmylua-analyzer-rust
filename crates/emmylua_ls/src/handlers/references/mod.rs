@@ -68,7 +68,21 @@ pub fn references(
         }
     };
 
-    search_references(&model, &analysis.db, token, include_declaration)
+    let locations = search_references(&model, &analysis.db, token, include_declaration)?;
+    if model.is_std_file(file_id) {
+        return Some(locations);
+    }
+    // LuaLS does not list the library stub of a standard function among its references.
+    Some(
+        locations
+            .into_iter()
+            .filter(|location| {
+                !analysis
+                    .get_file_id(&location.uri)
+                    .is_some_and(|id| model.is_std_file(id))
+            })
+            .collect(),
+    )
 }
 
 pub struct ReferencesCapabilities;

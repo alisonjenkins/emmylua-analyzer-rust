@@ -324,4 +324,34 @@ mod tests {
         assert!(lines.contains(&4));
         Ok(())
     }
+
+    #[gtest]
+    fn test_references_of_a_stdlib_function_leave_out_its_stub() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local a = string.for<??>mat("%d", 1)
+                local b = string.format("%d", 2)
+            "#,
+        ));
+        let file_id = ws.def(&content);
+
+        let result = references(&ws.analysis, file_id, position, true)
+            .ok_or("failed to get references")
+            .or_fail()?;
+
+        let uris = result
+            .iter()
+            .map(|location| location.uri.as_str().to_string())
+            .collect::<Vec<_>>();
+        verify_that!(
+            uris.iter().filter(|uri| uri.contains("virtual_")).count(),
+            eq(2)
+        )?;
+        verify_that!(
+            uris.iter().any(|uri| uri.contains("/resources/std/")),
+            eq(false)
+        )?;
+        Ok(())
+    }
 }
