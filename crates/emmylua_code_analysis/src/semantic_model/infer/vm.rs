@@ -614,6 +614,17 @@ impl<'a> InferVm<'a> {
             self.computing.insert(decl.clone());
             let mut ty = self.model.type_of_decl_at(&decl, offset);
             self.computing.remove(&decl);
+            // `local client` assigned in another function (`M.setup`): a function that runs later
+            // sees the union of those assignments, not the declaration's initial nil.
+            if matches!(ty, LuaType::Unknown | LuaType::Nil)
+                && self.model.is_uninitialized_plain_local(&decl)
+                && self.model.is_read_in_nested_closure(&decl, offset)
+                && let Some(facts) = self.model.file_facts()
+                && let Some(info) = facts.decl_by_id(&decl)
+                && let Some(assigned) = self.model.infer_delayed_definition_type(info)
+            {
+                ty = LuaType::from_vec(vec![assigned, LuaType::Nil]);
+            }
             // Lua semantics: an uninitialized local reads as nil in an expression. Use nil
             // only when no declaration/flow type can provide information; do not change
             // iteration variables, `---@type`, module/class-associated declarations, etc.
