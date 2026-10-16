@@ -15,7 +15,9 @@ use emmylua_parser::{
 use lsp_types::{GotoDefinitionResponse, Location};
 use rowan::TextSize;
 
-use crate::handlers::common::{call_value_function, expected_class_of_table, resolve_alias_origin};
+use crate::handlers::common::{
+    call_value_function, expected_classes_of_table, resolve_alias_origin,
+};
 use crate::handlers::references::reference_searcher::same_name_global_decls;
 use crate::util::parse_desc;
 
@@ -163,9 +165,7 @@ fn goto_member_definition(
     {
         // `---@type T local t = { ... }`, `set(1, { key = v })`, a nested literal: the class the
         // declared local, parameter or enclosing literal's field names.
-        if let Some(class) = expected_class_of_table(model, &table) {
-            prefix_types.push(class);
-        }
+        prefix_types.extend(expected_classes_of_table(model, &table));
     }
 
     let mut member_ids = vec![decl.clone()];

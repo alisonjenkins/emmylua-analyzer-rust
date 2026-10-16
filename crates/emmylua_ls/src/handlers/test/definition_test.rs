@@ -1477,4 +1477,44 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_key_in_literal_nested_under_a_union_typed_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Rng
+                ---@field start integer
+
+                ---@class TextEdit
+                ---@field range Rng|nil
+
+                ---@class Replace
+                ---@field replace Rng
+
+                ---@class Item
+                ---@field edit? TextEdit|Replace
+
+                ---@param item Item
+                local function confirm(item) end
+
+                confirm({
+                    edit = {
+                        ra<??>nge = { start = 1 },
+                    },
+                })
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 5
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 18
+                },
+            ]
+        ));
+        Ok(())
+    }
 }
