@@ -3,20 +3,17 @@
 --- @version JIT
 
 --- @version JIT
---- The string buffer library allows high-performance manipulation of string-like data.
+--- 字符串缓冲区库允许对类字符串数据进行高性能操作。
 ---
---- Unlike Lua strings, which are constants, string buffers are mutable sequences of 8-bit (binary-transparent) characters. Data can be stored, formatted and encoded into a string buffer and later converted, extracted or decoded.
+--- 与 Lua 字符串（常量）不同，字符串缓冲区是可变的 8 位（二进制透明）字符序列。数据可以存储、格式化并编码到字符串缓冲区中，之后再转换、提取或解码。
 ---
---- The convenient string buffer API simplifies common string manipulation tasks, that would otherwise require creating many intermediate strings. String buffers improve performance by eliminating redundant memory copies, object creation, string interning and garbage collection overhead. In conjunction with the FFI library, they allow zero-copy operations.
+--- 便捷的字符串缓冲区 API 简化了常见的字符串处理任务，否则这些任务通常需要创建大量中间字符串。字符串缓冲区通过消除冗余的内存拷贝、对象创建、字符串驻留以及垃圾回收开销来提升性能；与 FFI 库结合时，还能实现零拷贝操作。
 ---
---- The string buffer library also includes a high-performance serializer for Lua objects.
+--- 字符串缓冲区库还包含一个用于 Lua 对象的高性能序列化器。
 ---
+--- ## 流式序列化
 ---
---- ## Streaming Serialization
----
---- In some contexts, it's desirable to do piecewise serialization of large datasets, also known as streaming.
----
---- This serialization format can be safely concatenated and supports streaming. Multiple encodings can simply be appended to a buffer and later decoded individually:
+--- 在某些场景下，希望对大型数据集进行分片序列化（也称 streaming）。该序列化格式可安全拼接并支持流式：可以把多个编码简单地追加到一个缓冲区，之后再分别解码：
 ---
 --- ```lua
 --- local buf = buffer.new()
@@ -26,30 +23,30 @@
 --- local copy2 = buf:decode()
 --- ```
 ---
---- Here's how to iterate over a stream:
+--- 下面展示如何迭代一个流：
 ---
 --- ```lua
 --- while #buf ~= 0 do
 ---   local obj = buf:decode()
----   -- Do something with obj.
+---   -- 对 obj 做些处理。
 --- end
 --- ```
 ---
---- Since the serialization format doesn't prepend a length to its encoding, network applications may need to transmit the length, too.
---- Serialization Format Specification
+--- 由于该序列化格式不会在编码前附加长度信息，网络应用可能还需要同时传输长度。
 ---
---- This serialization format is designed for internal use by LuaJIT applications. Serialized data is upwards-compatible and portable across all supported LuaJIT platforms.
+--- 该序列化格式主要供 LuaJIT 应用内部使用。序列化数据向上兼容，并可在所有支持的 LuaJIT 平台间移植。
 ---
---- It's an 8-bit binary format and not human-readable. It uses e.g. embedded zeroes and stores embedded Lua string objects unmodified, which are 8-bit-clean, too. Encoded data can be safely concatenated for streaming and later decoded one top-level object at a time.
+--- 它是 8 位二进制格式，非人类可读，可能包含嵌入的零字节；并且会原样存储嵌入的 Lua 字符串对象（同样是 8 位透明）。编码后的数据可以安全拼接以用于流式处理，并可在之后按“顶层对象”逐个解码。
 ---
---- The encoding is reasonably compact, but tuned for maximum performance, not for minimum space usage. It compresses well with any of the common byte-oriented data compression algorithms.
+--- 该编码相对紧凑，但优化目标是最大性能而非最小空间占用；它也能很好地被常见的按字节数据压缩算法压缩。
 ---
---- Although documented here for reference, this format is explicitly not intended to be a 'public standard' for structured data interchange across computer languages (like JSON or MessagePack). Please do not use it as such.
+--- 尽管本文档给出了说明，但该格式明确不打算作为跨语言结构化数据交换的“公共标准”（如 JSON 或 MessagePack）；请不要这样使用。
 ---
---- The specification is given below as a context-free grammar with a top-level object as the starting point. Alternatives are separated by the | symbol and * indicates repeats. Grouping is implicit or indicated by {…}. Terminals are either plain hex numbers, encoded as bytes, or have a .format suffix.
+--- 规范以无上下文文法给出，以顶层对象为起点。备选项以 `|` 分隔，`*` 表示重复。分组是隐式的，或用 `{…}` 表示。终结符要么是以字节编码的十六进制数，要么带有 `.format` 后缀。
 ---
 --- ```
---- object → nil | false | true
+--- object    → nil | false | true
+--- ```
 ---           | null | lightud32 | lightud64
 ---           | int | num | tab | tab_mt
 ---           | int64 | uint64 | complex
@@ -120,72 +117,66 @@
 --- Even though each LuaJIT VM instance is single-threaded (but you can create multiple VMs), FFI data structures can be accessed concurrently. Be careful when reading/writing FFI cdata from/to buffers to avoid concurrent accesses or modifications. In particular, the memory referenced by `buf:set(cdata, len)` must not be modified while buffer readers are working on it. Shared, but read-only memory mappings of files are OK, but only if the file does not change.
 local buffer = {}
 
---- A buffer object is a garbage-collected Lua object. After creation with `buffer.new()`, it can (and should) be reused for many operations. When the last reference to a buffer object is gone, it will eventually be freed by the garbage collector, along with the allocated buffer space.
+--- 缓冲区对象是由垃圾回收管理的 Lua 对象。通过 `buffer.new()` 创建后，它可以（也应该）在多个操作中复用。当最后一个对缓冲区对象的引用消失后，它最终会由垃圾回收器释放，包括其分配的缓冲区空间。
 ---
---- Buffers operate like a FIFO (first-in first-out) data structure. Data can be appended (written) to the end of the buffer and consumed (read) from the front of the buffer. These operations may be freely mixed.
+--- 缓冲区以 FIFO（先进先出）数据结构方式工作：数据可以被追加（写入）到缓冲区末尾，也可以从缓冲区头部被消费（读取）；这些操作可以任意混合。
 ---
---- The buffer space that holds the characters is managed automatically — it grows as needed and already consumed space is recycled. Use `buffer.new(size)` and `buf:free()`, if you need more control.
+--- 用于保存字符的缓冲区空间由系统自动管理——按需增长，并会回收已消费的空间。如需更细粒度的控制，可使用 `buffer.new(size)` 与 `buf:free()`。
 ---
---- The maximum size of a single buffer is the same as the maximum size of a Lua string, which is slightly below two gigabytes. For huge data sizes, neither strings nor buffers are the right data structure — use the FFI library to directly map memory or files up to the virtual memory limit of your OS.
----
+--- 单个缓冲区的最大大小与 Lua 字符串的最大大小相同，略低于 2GB。对于超大数据规模，字符串和缓冲区都不是合适的数据结构——应使用 FFI 库直接映射内存或文件，直到操作系统的虚拟内存限制。
 --- @version JIT
 --- @class string.buffer: table
 local buf = {}
 
---- A string, number, or any object obj with a __tostring metamethod to the buffer.
----
+--- 要写入缓冲区的数据：字符串、数字，或带有 `__tostring` 元方法的对象 `obj`。
 --- @alias string.buffer.data string | number | table
 
---- Appends a string str, a number num or any object obj with a `__tostring` metamethod to the buffer. Multiple arguments are appended in the given order.
+--- 向缓冲区追加一个字符串 `str`、数字 `num`，或任何带有 `__tostring` 元方法的对象 `obj`。多个参数会按给定顺序依次追加。
 ---
---- Appending a buffer to a buffer is possible and short-circuited internally. But it still involves a copy. Better combine the buffer writes to use a single buffer.
----
+--- 将一个缓冲区追加到另一个缓冲区是可行的，并会在内部进行短路处理，但仍然会发生一次拷贝；更好的做法是合并写入，尽量使用同一个缓冲区完成写入。
 --- @param data string.buffer.data
 --- @param ...? string.buffer.data
 --- @return string.buffer
 function buf:put(data, ...) end
 
---- Appends the formatted arguments to the buffer. The format string supports the same options as string.format().
----
+--- 将格式化后的参数追加到缓冲区。格式字符串支持与 `string.format()` 相同的选项。
 --- @param format string
 --- @param ...    string.buffer.data
 --- @return string.buffer
 function buf:putf(format, ...) end
 
---- Appends the given len number of bytes from the memory pointed to by the FFI cdata object to the buffer. The object needs to be convertible to a (constant) pointer.
----
+--- 将 FFI cdata 对象指向的内存中 `len` 个字节追加到缓冲区。该对象需要可转换为（常量）指针。
 --- @param cdata ffi.cdata*
 --- @param len   integer
 --- @return string.buffer
 function buf:putcdata(cdata, len) end
 
---- This method allows zero-copy consumption of a string or an FFI cdata object as a buffer. It stores a reference to the passed string str or the FFI cdata object in the buffer. Any buffer space originally allocated is freed. This is not an append operation, unlike the `buf:put*()` methods.
+--- 该方法允许将一个字符串或 FFI cdata 对象以“零拷贝”的方式作为缓冲区来消费。它会在缓冲区中保存对传入字符串 `str` 或 FFI cdata 对象的引用，并释放原本为缓冲区分配的任何空间。
 ---
---- After calling this method, the buffer behaves as if `buf:free():put(str)` or `buf:free():put(cdata, len)` had been called. However, the data is only referenced and not copied, as long as the buffer is only consumed.
+--- 调用该方法后，缓冲区的行为等同于调用 `buf:free():put(str)` 或 `buf:free():put(cdata, len)`，但只要缓冲区只被消费（读取），数据仅被引用而不会被复制。
 ---
---- In case the buffer is written to later on, the referenced data is copied and the object reference is removed (copy-on-write semantics).
+--- 如果之后对缓冲区进行写入，则会把被引用的数据拷贝到内部缓冲区，并移除对象引用（写时复制语义）。
 ---
---- The stored reference is an anchor for the garbage collector and keeps the originally passed string or FFI cdata object alive.
----
+--- 保存的引用会作为垃圾回收器的锚点，确保原本传入的字符串或 FFI cdata 对象保持存活。
 --- @param str string.buffer.data
 --- @return string.buffer
 --- @overload fun(self: string.buffer, cdata: ffi.cdata*, len: integer): string.buffer
 function buf:set(str) end
 
---- Reset (empty) the buffer. The allocated buffer space is not freed and may be reused.
+--- 重置（清空）缓冲区。已分配的缓冲区空间不会被释放，并可被复用。
 --- @return string.buffer
 function buf:reset() end
 
---- The buffer space of the buffer object is freed. The object itself remains intact, empty and may be reused.
+--- 释放缓冲区对象所占用的缓冲区空间。对象本身仍然存在，处于空状态并可被复用。
 ---
---- Note: you normally don't need to use this method. The garbage collector automatically frees the buffer space, when the buffer object is collected. Use this method, if you need to free the associated memory immediately.
+--- 注意：通常不需要使用该方法。缓冲区对象被回收时，垃圾回收器会自动释放其缓冲区空间。只有在你需要立即释放关联内存时才应使用此方法。
 function buf:free() end
 
---- The reserve method reserves at least size bytes of write space in the buffer. It returns an uint8_t * FFI cdata pointer ptr that points to this space.
+--- `reserve` 方法会在缓冲区中至少预留 `size` 字节的写入空间，并返回一个指向该空间的 `uint8_t *` FFI cdata 指针 `ptr`。
 ---
---- The available length in bytes is returned in len. This is at least size bytes, but may be more to facilitate efficient buffer growth. You can either make use of the additional space or ignore len and only use size bytes.
+--- 可用长度（字节）会通过 `len` 返回：它至少为 `size`，但为了便于高效扩容，可能会更大。你可以利用这部分额外空间，也可以忽略 `len`，只使用 `size` 字节。
 ---
---- This, along with `buf:commit()` allow zero-copy use of C read-style APIs:
+--- 该方法与 `buf:commit()` 配合，可对 C 风格的 read API 实现零拷贝写入：
 ---
 --- ```lua
 --- local MIN_SIZE = 65536
@@ -198,42 +189,45 @@ function buf:free() end
 --- until false
 --- ```
 ---
---- The reserved write space is not initialized. At least the used bytes must be written to before calling the commit method. There's no need to call the commit method, if nothing is added to the buffer (e.g. on error).
+--- 预留的写入空间不会被初始化。在调用 `commit` 之前，至少需要把实际使用的 `used` 字节写入该空间。如果没有向缓冲区添加任何内容（例如发生错误），则无需调用 `commit`。
 --- @param size integer
 --- @return ffi.cdata* ptr 指向该空间的 `uint8_t *` FFI cdata 指针。
 --- @return integer len    可用长度（字节）。
 function buf:reserve(size) end
 
---- Appends the used bytes of the previously returned write space to the buffer data.
+--- 将先前 `reserve` 返回的写入空间中实际使用的 `used` 字节追加到缓冲区数据中。
 --- @param used integer
 --- @return string.buffer
 function buf:commit(used) end
 
---- Skips (consumes) len bytes from the buffer up to the current length of the buffer data.
+--- 从缓冲区中跳过（消费）`len` 个字节，最多到当前缓冲区数据长度为止。
 --- @param len integer
 --- @return string.buffer
 function buf:skip(len) end
 
---- Consumes the buffer data and returns one or more strings. If called without arguments, the whole buffer data is consumed. If called with a number, up to `len` bytes are consumed. A `nil` argument consumes the remaining buffer space (this only makes sense as the last argument). Multiple arguments consume the buffer data in the given order.
+--- 消费缓冲区数据并返回一个或多个字符串。多个参数会按给定顺序依次消费缓冲区数据。
 ---
---- Note: a zero length or no remaining buffer data returns an empty string and not `nil`.
+--- - 不带参数调用时，消费整个缓冲区数据。
+--- - 以数字参数调用时，最多消费 `len` 字节。
+--- - 参数为 `nil` 时，会消费剩余的缓冲区空间（这通常只应作为最后一个参数使用）。
 ---
+--- 注意：当长度为 0 或没有剩余缓冲区数据时，返回的是空字符串而不是 `nil`。
 --- @param len? integer
 --- @param ...  integer | nil
 --- @return string ...
 function buf:get(len, ...) end
 
---- Creates a string from the buffer data, but doesn't consume it. The buffer remains unchanged.
+--- 从缓冲区数据创建一个字符串，但不会消费数据；缓冲区保持不变。
 ---
---- Buffer objects also define a `__tostring metamethod`. This means buffers can be passed to the global `tostring()` function and many other functions that accept this in place of strings. The important internal uses in functions like `io.write()` are short-circuited to avoid the creation of an intermediate string object.
+--- 缓冲区对象还定义了 `__tostring` 元方法。这意味着缓冲区可以传给全局 `tostring()` 函数，以及许多可以用它代替字符串的函数。在诸如 `io.write()` 之类的函数中，一些关键的内部用法会被短路处理，以避免创建中间字符串对象。
 --- @return string
 function buf:tostring() end
 
---- Returns an uint8_t * FFI cdata pointer ptr that points to the buffer data. The length of the buffer data in bytes is returned in len.
+--- 返回一个指向缓冲区数据的 `uint8_t *` FFI cdata 指针 `ptr`，并通过 `len` 返回缓冲区数据的字节长度。
 ---
---- The returned pointer can be directly passed to C functions that expect a buffer and a length. You can also do bytewise reads (`local x = ptr[i]`) or writes (`ptr[i] = 0x40`) of the buffer data.
+--- 返回的指针可直接传给需要“缓冲区 + 长度”的 C 函数。你也可以对缓冲区数据进行逐字节读取（`local x = ptr[i]`）或写入（`ptr[i] = 0x40`）。
 ---
---- In conjunction with the `buf:skip()` method, this allows zero-copy use of C write-style APIs:
+--- 结合 `buf:skip()` 方法，可以对 C 风格的 write API 实现零拷贝写入：
 ---
 --- ```lua
 --- repeat
@@ -245,78 +239,73 @@ function buf:tostring() end
 --- until n >= len
 --- ```
 ---
---- Unlike Lua strings, buffer data is not implicitly zero-terminated. It's not safe to pass ptr to C functions that expect zero-terminated strings. If you're not using len, then you're doing something wrong.
----
+--- 与 Lua 字符串不同，缓冲区数据不会隐式以 0 结尾。把 `ptr` 传给期望以 0 结尾字符串的 C 函数并不安全。如果你不使用 `len`，那很可能是在做错事。
 --- @return ffi.cdata* ptr 指向缓冲区数据的 `uint8_t *` FFI cdata 指针。
 --- @return integer len    缓冲区数据的字节长度。
 function buf:ref() end
 
---- Serializes (encodes) the Lua object to the buffer
+--- 将 Lua 对象序列化（编码）到缓冲区。
 ---
---- This function may throw an error when attempting to serialize unsupported object types, circular references or deeply nested tables.
+--- 尝试序列化不支持的对象类型、循环引用或嵌套很深的表时，该函数可能会抛出错误。
 --- @param obj string.buffer.data
 --- @return string.buffer
 function buf:encode(obj) end
 
---- De-serializes one object from the buffer.
+--- 从缓冲区反序列化（解码）一个对象。
 ---
---- The returned object may be any of the supported Lua types — even `nil`.
+--- 返回的对象可以是任意受支持的 Lua 类型——甚至可以是 `nil`。
 ---
---- This function may throw an error when fed with malformed or incomplete encoded data.
+--- 当输入的数据格式错误或编码数据不完整时，该函数可能会抛出错误。
 ---
---- Leaves any left-over data in the buffer.
+--- 解码后会把未消费的剩余数据保留在缓冲区中。
 ---
---- Attempting to de-serialize an FFI type will throw an error, if the FFI library is not built-in or has not been loaded, yet.
----
+--- 如果尝试反序列化 FFI 类型，而 FFI 库未内建或尚未加载，则会抛出错误。
 --- @return string.buffer.data|nil obj
 function buf:decode() end
 
---- Serializes (encodes) the Lua object obj
+--- 序列化（编码）Lua 对象 `obj`。
 ---
---- This function may throw an error when attempting to serialize unsupported object types, circular references or deeply nested tables.
+--- 尝试序列化不支持的对象类型、循环引用或嵌套很深的表时，该函数可能会抛出错误。
 --- @param obj string.buffer.data
 --- @return string
 function buffer.encode(obj) end
 
---- De-serializes (decodes) the string to a Lua object
+--- 将字符串反序列化（解码）为 Lua 对象。
 ---
---- The returned object may be any of the supported Lua types — even `nil`.
+--- 返回的对象可以是任意受支持的 Lua 类型——甚至可以是 `nil`。
 ---
---- Throws an error when fed with malformed or incomplete encoded data.
---- Throws an error when there's left-over data after decoding a single top-level object.
+--- 当输入的数据格式错误或编码数据不完整时会抛出错误。
+--- 当解码单个顶层对象后仍有剩余数据时也会抛出错误。
 ---
---- Attempting to de-serialize an FFI type will throw an error, if the FFI library is not built-in or has not been loaded, yet.
----
+--- 如果尝试反序列化 FFI 类型，而 FFI 库未内建或尚未加载，则会抛出错误。
 --- @param str string
 --- @return string.buffer.data|nil obj
 function buffer.decode(str) end
 
---- Creates a new buffer object.
+--- 创建一个新的缓冲区对象。
 ---
---- The optional size argument ensures a minimum initial buffer size. This is strictly an optimization when the required buffer size is known beforehand. The buffer space will grow as needed, in any case.
+--- 可选参数 `size` 用于确保最小的初始缓冲区大小。当你预先知道所需缓冲区大小时，这严格来说只是一次优化；无论如何，缓冲区空间都会按需增长。
 ---
---- The optional table options sets various serialization options.
----
+--- 可选的表参数 `options` 用于设置各种序列化选项。
 --- @param size?    integer
 --- @param options? string.buffer.serialization.opts
 --- @return string.buffer
 function buffer.new(size, options) end
 
---- Serialization Options
+--- 序列化选项
 ---
---- The options table passed to buffer.new() may contain the following members (all optional):
+--- 传给 `buffer.new()` 的 `options` 表可以包含以下成员（全部可选）：
 ---
---- * `dict` is a Lua table holding a dictionary of strings that commonly occur as table keys of objects you are serializing. These keys are compactly encoded as indexes during serialization. A well chosen dictionary saves space and improves serialization performance.
+--- - `dict`：一个 Lua 表，保存一组在你要序列化的对象中经常作为表键出现的字符串字典。序列化时这些键会被紧凑地编码为索引。选择合适的字典可以节省空间并提升序列化性能。
+--- - `metatable`：一个 Lua 表，保存一组用于你要序列化的表对象的元表字典。
 ---
---- * `metatable` is a Lua table holding a dictionary of metatables for the table objects you are serializing.
+--- `dict` 需要是字符串数组，`metatable` 需要是表数组；两者都从索引 1 开始且不能有空洞（中间不能出现 nil）。这些表会被锚定在缓冲区对象中，并在内部被改造为双向索引（不要自己这么做，只需传入普通数组）。在把它们传给 `buffer.new()` 之后，这些表不得再被修改。
 ---
---- dict needs to be an array of strings and metatable needs to be an array of tables. Both starting at index 1 and without holes (no nil inbetween). The tables are anchored in the buffer object and internally modified into a two-way index (don't do this yourself, just pass a plain array). The tables must not be modified after they have been passed to buffer.new().
+--- 编码器与解码器使用的 `dict` 与 `metatable` 必须一致。把最常见的条目放在前面，并在末尾扩展以保证向后兼容——这样旧的编码仍然能被读取。你也可以将某些索引设为 false 来显式放弃向后兼容；解码使用了这些索引的旧编码时会抛出错误。
 ---
---- The dict and metatable tables used by the encoder and decoder must be the same. Put the most common entries at the front. Extend at the end to ensure backwards-compatibility — older encodings can then still be read. You may also set some indexes to false to explicitly drop backwards-compatibility. Old encodings that use these indexes will throw an error when decoded.
+--- 编码时，如果某个元表不在 `metatable` 字典中，则会被忽略；解码会返回一个元表为 nil 的表。
 ---
---- Metatables that are not found in the metatable dictionary are ignored when encoding. Decoding returns a table with a nil metatable.
----
---- Note: parsing and preparation of the options table is somewhat expensive. Create a buffer object only once and recycle it for multiple uses. Avoid mixing encoder and decoder buffers, since the buf:set() method frees the already allocated buffer space:
+--- 注意：解析并准备 `options` 表的开销相对较高。建议只创建一次缓冲区对象并在多次使用中复用。避免混用编码与解码缓冲区，因为 `buf:set()` 会释放已分配的缓冲区空间：
 ---
 --- ```lua
 --- local options = {
