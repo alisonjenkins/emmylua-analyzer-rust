@@ -1063,7 +1063,8 @@ impl<'db> SemanticModel<'db> {
                 LuaType::Generic(generic) => self
                     .type_def_of(generic.get_base_type_id_ref())
                     .is_some_and(|def| def.kind == TypeDefKind::Class),
-                _ => false,
+                LuaType::Union(_) | LuaType::Unknown | LuaType::Any | LuaType::Nil => false,
+                _ => true,
             };
             if is_class {
                 let key = LuaMemberKey::Name(name.clone());
