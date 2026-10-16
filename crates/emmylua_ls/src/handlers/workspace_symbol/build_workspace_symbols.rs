@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::{collections::HashSet, sync::Mutex};
 
 use emmylua_code_analysis::{DeclKind, EmmyLuaAnalysis, FileFacts, Member, SemanticId};
 use emmylua_parser::LuaSyntaxKind;
@@ -75,9 +75,15 @@ pub fn build_workspace_symbols(
                     data: None,
                 });
             }
+            // `local t = { a = 1 }` is collected twice (under the local and under the
+            // anonymous table) with the same id; keep the first, which names the local.
+            let mut seen_members = HashSet::new();
             for member in facts.members.iter() {
                 if cancel_token.is_cancelled() {
                     return;
+                }
+                if !seen_members.insert(&member.id) {
+                    continue;
                 }
                 let Some(name) = member.key.get_name() else {
                     continue;
