@@ -61,7 +61,8 @@ impl WorkspaceTypeIndex {
             };
             let new_defs: Vec<TypeDef> = defs
                 .iter()
-                .filter(|def| def.id != type_id)
+                // Several files can declare the same class under one id; only this file's go.
+                .filter(|def| !(def.id == type_id && def.file_id == file_id))
                 .cloned()
                 .collect();
             if new_defs.is_empty() {

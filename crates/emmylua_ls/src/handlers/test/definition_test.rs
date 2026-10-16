@@ -1448,4 +1448,87 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_class_name_keeps_blocks_of_other_files_after_one_is_updated() -> Result<()>
+    {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file("a.lua", "---@class view.Shared\nlocal A = {}\n");
+        ws.def_file("b.lua", "---@class view.Shared\nlocal B = {}\n");
+        // An open or edited file is re-indexed; the other files' blocks of the class stay.
+        ws.def_file("b.lua", "---@class view.Shared\nlocal B = {}\n");
+        check!(ws.check_definition(
+            r#"
+                ---@class vi<??>ew.Shared
+                local C = {}
+            "#,
+            vec![
+                Expected {
+                    file: "a.lua".to_string(),
+                    line: 0
+                },
+                Expected {
+                    file: "b.lua".to_string(),
+                    line: 0
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 1
+                },
+            ]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_method_defined_in_another_block_of_the_same_class() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "one.lua",
+            "---@class view.Shared\nlocal One = {}\n\nfunction One:first() end\n",
+        );
+        ws.def_file(
+            "two.lua",
+            "---@class view.Shared\nlocal Two = {}\n\nfunction Two:second() end\n",
+        );
+        check!(ws.check_definition(
+            r#"
+                ---@type view.Shared
+                local shared
+
+                shared:sec<??>ond()
+            "#,
+            vec![Expected {
+                file: "two.lua".to_string(),
+                line: 3
+            }]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_self_field_when_another_block_of_the_class_defines_the_same_method()
+    -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "narrow.lua",
+            "---@class view.Menu\nlocal narrow = {}\n\nnarrow.open = function(self, offset)\n    return offset\nend\n",
+        );
+        check!(ws.check_definition(
+            r#"
+                ---@class view.Menu
+                ---@field width integer
+                local wide = {}
+
+                wide.open = function(self, offset)
+                    return self.wi<??>dth + offset
+                end
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 2
+            }]
+        ));
+        Ok(())
+    }
 }
