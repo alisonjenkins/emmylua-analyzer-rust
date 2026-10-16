@@ -4178,6 +4178,13 @@ pub(crate) fn unify_call_bindings(
                 }
             }
         }
+        Ref(id) | Def(id)
+            if arg != param
+                && !matches!(arg, Unknown | Any)
+                && unify_through_alias(model, id, arg, bindings) =>
+        {
+            true
+        }
         SelfInfer => {
             matches!(
                 arg,
@@ -4222,6 +4229,38 @@ pub(crate) fn unify_call_bindings(
             }
         }
     }
+}
+
+/// Alias chains deeper than this are treated as cyclic (`---@alias A B`, `---@alias B A`).
+const MAX_ALIAS_UNIFY_DEPTH: usize = 8;
+
+thread_local! {
+    static ALIAS_UNIFY_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Unify a call argument with the target of the alias `id`, so a literal argument
+/// matches a parameter typed as an alias of literals (`iolib.OpenMode`).
+fn unify_through_alias(
+    model: &SemanticModel,
+    id: &LuaTypeDeclId,
+    arg: &LuaType,
+    bindings: &mut unify::TplBindings,
+) -> bool {
+    let Some(target) = model
+        .type_def_of(id)
+        .filter(|def| def.kind == TypeDefKind::Alias)
+        .and_then(|def| model.alias_target(&def))
+    else {
+        return false;
+    };
+    let depth = ALIAS_UNIFY_DEPTH.with(|d| d.get());
+    if depth >= MAX_ALIAS_UNIFY_DEPTH {
+        return false;
+    }
+    ALIAS_UNIFY_DEPTH.with(|d| d.set(depth + 1));
+    let ok = unify_call_bindings(model, &target, arg, bindings);
+    ALIAS_UNIFY_DEPTH.with(|d| d.set(depth));
+    ok
 }
 
 pub(crate) fn score_param_match(param_ty: &LuaType, arg_ty: &LuaType) -> i32 {

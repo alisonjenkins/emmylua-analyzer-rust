@@ -15,4 +15,11 @@ mod test {
         let ty = ws.expr_ty("io.output()");
         assert_eq!(ws.humanize_type(ty), "file");
     }
+
+    #[test]
+    fn test_call_passing_literal_to_optional_param_of_alias() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let ty = ws.expr_ty("io.open('x', 'r')");
+        assert_eq!(ws.humanize_type(ty), "file?");
+    }
 }

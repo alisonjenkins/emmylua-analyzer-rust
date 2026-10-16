@@ -27,6 +27,38 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_method_on_io_open_result() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_definition(
+            r#"
+                local f = io.open("x", "r")
+                f:clo<??>se()
+            "#,
+            vec![Expected {
+                file: "io.lua".to_string(),
+                line: 152,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_method_on_io_popen_result() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_definition(
+            r#"
+                local p = io.popen("ls")
+                p:clo<??>se()
+            "#,
+            vec![Expected {
+                file: "io.lua".to_string(),
+                line: 152,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_definition_of_field_on_inline_require() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         ws.def_file(
