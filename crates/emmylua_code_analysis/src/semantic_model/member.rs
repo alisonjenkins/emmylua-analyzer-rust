@@ -234,6 +234,10 @@ fn direct_member_info(
             let def = model.type_def_of(&generic.get_base_type_id())?;
             if def.kind == TypeDefKind::Alias {
                 let expanded = expand_alias_generic(model, prefix_type);
+                // An alias that does not expand (`T - ?`) comes back unchanged; looking it up again would never end.
+                if expanded == *prefix_type {
+                    return None;
+                }
                 return direct_member_info(model, &expanded, key);
             }
             let bindings: TplBindings = generic
@@ -692,7 +696,9 @@ fn collect_members(
                 && def.kind == TypeDefKind::Alias
             {
                 let expanded = expand_alias_generic(model, prefix_type);
-                collect_members(model, &expanded, None, None, visited, out, filter);
+                if expanded != *prefix_type {
+                    collect_members(model, &expanded, None, None, visited, out, filter);
+                }
                 return;
             }
             let def = model.type_def_of(&generic.get_base_type_id());
