@@ -1076,6 +1076,13 @@ impl<'db> SemanticModel<'db> {
         {
             cross_owners.push(module_owner);
         }
+        // A value typed by `---@module "m"` (a lazily required table field): the module's members.
+        if let Some(LuaType::ModuleRef(module_file)) = &prefix_ty
+            && let Some(module_owner) = self.module_export_owner_of(*module_file)
+            && !cross_owners.contains(&module_owner)
+        {
+            cross_owners.push(module_owner);
+        }
         // `self` of `function Reader:m()` where `Reader` has no type: the methods declared on
         // `Reader` are the members of `self`.
         if prefix_ty

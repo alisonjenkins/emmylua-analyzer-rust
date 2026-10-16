@@ -915,6 +915,7 @@ impl<'db> SemanticModel<'db> {
         if let Some(facts) = self.file_facts_of(member_file)
             && let Some(member_def) = facts.member_by_id(member)
             && !matches!(member_def.owner, SemanticId::TypeDef(_))
+            && member_def.module_path.is_none()
             && let Some(value_syntax) = member_def.value_syntax
         {
             // Table-literal fields keep the expression type from construction (`[key] = 1`, named fields
