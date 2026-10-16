@@ -1427,4 +1427,108 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// An unannotated parameter takes its shape from the fields the body reads, writes and calls.
+    #[gtest]
+    fn test_hover_unannotated_param_usage_shape() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local function f(<??>a, b)
+                    a.x = 1
+                    a.y = {}
+                    a.z = "s"
+                    a.w = function() end
+                    a.flag = true
+                    b.other = 2
+                    return a.read, a:call(), a["quoted"]
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(parameter) a: { [\"quoted\"]: unknown, call: unknown, flag: boolean, read: unknown, w: function, x: integer, y: table, z: string }\n```"
+                    .to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// The shape is shown at every use of the parameter, not only at its declaration.
+    #[gtest]
+    fn test_hover_unannotated_param_usage_shape_at_use() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local function f(a)
+                    local kind = a.kind
+                    return a<??>.name
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(parameter) a: { kind: unknown, name: unknown }\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// A local whose initialiser is unknown gets the same usage shape.
+    #[gtest]
+    fn test_hover_unknown_local_usage_shape() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local t<??> = make()
+                t.code = 0
+                print(t.stderr)
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal t: { code: integer, stderr: unknown }\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// Only direct field uses count; a nested access contributes its first key.
+    #[gtest]
+    fn test_hover_usage_shape_ignores_nested_and_unused() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local function f(<??>c)
+                    c.d.e = 3
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(parameter) c: { d: unknown }\n```".to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                local function g(<??>u)
+                    return 1
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(parameter) u: unknown\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// An annotated parameter keeps its declared type; no shape is synthesised.
+    #[gtest]
+    fn test_hover_annotated_param_keeps_declared_type() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@param a any
+                local function f(<??>a)
+                    return a.x
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(parameter) a: any\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }

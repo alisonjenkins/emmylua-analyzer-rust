@@ -2,6 +2,7 @@ mod build_hover;
 pub(crate) mod desc;
 mod keyword_hover;
 pub(crate) mod render;
+mod usage_shape;
 
 use super::RegisterCapabilities;
 use crate::context::{RequestOutcome, ServerContextSnapshot, analysis_query};
