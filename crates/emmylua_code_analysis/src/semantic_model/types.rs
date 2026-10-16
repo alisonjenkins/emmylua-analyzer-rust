@@ -582,6 +582,8 @@ impl<'db> SemanticModel<'db> {
         let generic_params = &docs.generic_params;
         let (key_id, value_id) = match generic_params.len() {
             n if n >= 2 => (GenericTplId::Type(0), GenericTplId::Type(1)),
+            // `ipairs` declares only the value parameter `V`; its key is always an integer.
+            1 if name.as_str() == "ipairs" => (GenericTplId::Type(1), GenericTplId::Type(0)),
             _ => return None,
         };
         // alias expansion (`MatchersObject` -> object).

@@ -891,4 +891,38 @@ mod tests {
         lines.sort();
         verify_eq!(lines, vec![2, 6, 11])
     }
+
+    #[gtest]
+    fn test_references_of_field_through_ipairs_over_a_typed_array() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Result
+                ---@field sour<??>ce string
+
+                ---@param results Result[]
+                local function show(results)
+                    for _, r in ipairs(results) do
+                        print(r.source)
+                    end
+                    for k, r in pairs(results) do
+                        print(r.source)
+                    end
+                end
+            "#,
+        ));
+        let file_id = ws.def(&content);
+
+        let result = references(&ws.analysis, file_id, position, true)
+            .ok_or("failed to get references")
+            .or_fail()?;
+
+        let mut lines = result
+            .iter()
+            .map(|location| location.range.start.line)
+            .collect::<Vec<_>>();
+        lines.sort();
+        lines.dedup();
+        verify_eq!(lines, vec![2, 7, 10])
+    }
 }
