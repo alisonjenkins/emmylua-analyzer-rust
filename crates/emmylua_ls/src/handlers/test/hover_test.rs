@@ -1088,6 +1088,23 @@ mod tests {
         Ok(())
     }
 
+    /// No component of the receiver has the method: the result stays unknown rather than guessed.
+    #[gtest]
+    fn test_hover_method_missing_on_every_union_component_stays_unknown() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_hover(
+            r#"
+                ---@type number|boolean
+                local neither
+                local up<??> = neither:upper()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal up: unknown\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     /// `file:read()` returns `string|number|nil`, so string methods on its result resolve.
     #[gtest]
     fn test_hover_string_method_on_file_read_result() -> Result<()> {
