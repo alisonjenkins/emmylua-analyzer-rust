@@ -4,6 +4,23 @@ mod tests {
     use googletest::prelude::*;
 
     #[gtest]
+    fn test_cursor_at_start_of_identifier() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_implementation(
+            r#"
+                local function <??>save()
+                end
+                save()
+            "#,
+            vec![VirtualLocation {
+                file: "".to_string(),
+                line: 1,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_1() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         ws.def_file(
