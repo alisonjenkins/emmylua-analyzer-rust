@@ -503,6 +503,53 @@ mod tests {
     }
 
     #[gtest]
+    fn test_method_references_through_unannotated_constructor_with_error_return() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_references(
+            r#"
+                local M = {}
+                local Reader = {}
+                Reader.__index = Reader
+
+                function M.open(path)
+                    if not path then return nil, "no path" end
+                    return setmetatable({ path = path }, Reader)
+                end
+
+                function Reader:cl<??>ose()
+                end
+
+                return M
+            "#,
+            vec![(
+                "a.lua",
+                r#"
+                    local reader = require("virtual_0")
+                    local r = assert(reader.open("x"))
+                    r:close()
+                    local q, err = reader.open("y")
+                    q:close()
+                "#,
+            )],
+            vec![
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 10,
+                },
+                VirtualLocation {
+                    file: "a.lua".to_string(),
+                    line: 3,
+                },
+                VirtualLocation {
+                    file: "a.lua".to_string(),
+                    line: 5,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_method_references_through_unannotated_class_without_doc_class() -> Result<()> {
         check_unannotated_constructor_method_references(
             r#"
