@@ -2,6 +2,7 @@ use super::prelude::*;
 use crate::check::checker::generic_constraint_mismatch::resolved_call_signatures;
 use crate::check::checker::param_count::callable_functions;
 use crate::check::checker::param_type_check::callable_candidates_uncached;
+use emmylua_parser::LuaAstToken;
 
 impl<'db> SemanticModel<'db> {
     /// Currently configured runtime version (used for `---@version` visibility checks).
@@ -169,6 +170,31 @@ impl<'db> SemanticModel<'db> {
     }
     /// Syntax location -> semantic declaration (mirrors old `find_decl`; M0 supports Decl / Member / TypeDef):
     /// Definition name -> declaration name hit -> index member key -> doc name type -> name use point.
+    /// `require("mod").field` -> the module file's member for `field`.
+    pub fn require_field_member(&self, index_expr: &LuaIndexExpr) -> Option<SemanticId> {
+        let LuaExpr::CallExpr(call) = index_expr.get_prefix_expr()? else {
+            return None;
+        };
+        if !call.is_require() {
+            return None;
+        }
+        let arg = call.get_args_list()?.get_args().next()?;
+        let LuaLiteralToken::String(module_name) = arg
+            .syntax()
+            .descendants_with_tokens()
+            .filter_map(|it| it.into_token())
+            .find_map(LuaLiteralToken::cast)?
+        else {
+            return None;
+        };
+        let key = index_expr.get_index_key()?.get_path_part();
+        let module_file = self.module_file_of(&module_name.get_value())?;
+        self.file_facts_of(module_file)?
+            .members
+            .iter()
+            .find(|member| member.key.to_path() == key)
+            .map(|member| member.id.clone())
+    }
     pub fn find_decl(
         &self,
         node_or_token: rowan::NodeOrToken<LuaSyntaxNode, LuaSyntaxToken>,
@@ -201,6 +227,9 @@ impl<'db> SemanticModel<'db> {
         {
             if let Some(resolved) = self.resolve_member(&index_expr) {
                 return resolved.member_id;
+            }
+            if let Some(member) = self.require_field_member(&index_expr) {
+                return Some(member);
             }
         }
         // 3. Doc name type (the `Old` in `---@type Old`) -> TypeDef.
