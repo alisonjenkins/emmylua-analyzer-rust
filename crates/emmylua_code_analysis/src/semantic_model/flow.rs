@@ -2584,6 +2584,17 @@ fn coerce_table_assign_to_narrowed(
     {
         return table_ty;
     }
+    // `{}` assigned to a variable declared as a class (`---@type K` + `shared = {}`) is that
+    // class: the empty literal would hide the class's runtime methods.
+    if narrowed_before == base_before
+        && is_empty_table_literal(model, &value_ty)
+        && let LuaType::Ref(id) | LuaType::Def(id) = narrowed_before
+        && model
+            .type_def_of(id)
+            .is_some_and(|def| def.kind == TypeDefKind::Class)
+    {
+        return narrowed_before.clone();
+    }
     if narrowed_before == base_before {
         // Non-branch narrowing (e.g. assigning an object return directly after `---@type A`) keeps the original assignment type semantics;
         // the member query layer continues to merge declared fields; do not override here.

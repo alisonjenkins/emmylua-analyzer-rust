@@ -1060,4 +1060,32 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// `{}` assigned to a global declared `---@type K` stays a `K`: the class's runtime
+    /// methods remain reachable.
+    #[gtest]
+    fn test_hover_method_of_global_declared_class_assigned_empty_table() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "k.lua",
+            r#"
+                ---@class K
+                local K = {}
+
+                ---@return string
+                function K.name() end
+            "#,
+        );
+        check!(ws.check_hover(
+            r#"
+                ---@type K
+                shared = {}
+                local n<??> = shared.name()
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal n: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
