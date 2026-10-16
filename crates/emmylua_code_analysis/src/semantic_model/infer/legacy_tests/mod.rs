@@ -35,6 +35,7 @@ mod return_unwrap_test;
 mod semantic_generic_test;
 mod semantic_infer_test;
 mod static_cal_cmp;
+mod stdlib_call_return_test;
 mod syntax_error_test;
 mod tuple_test;
 mod type_check_test;

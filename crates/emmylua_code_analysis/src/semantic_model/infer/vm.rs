@@ -4171,7 +4171,10 @@ pub(crate) fn unify_call_bindings(
                         .filter(|t| !matches!(t, Nil))
                         .all(|p| unify_call_bindings(model, p, arg, bindings))
                 } else {
-                    false
+                    matches!(arg, Unknown | Any)
+                        || pv
+                            .iter()
+                            .any(|p| unify_call_bindings(model, p, arg, bindings))
                 }
             }
         }
