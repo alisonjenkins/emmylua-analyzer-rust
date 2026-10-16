@@ -9,6 +9,8 @@ use lsp_types::{
     CallHierarchyIncomingCall, CallHierarchyItem, CallHierarchyOutgoingCall, SymbolKind,
 };
 use rowan::TextRange;
+
+use crate::handlers::common::value_origin_sites;
 use serde::{Deserialize, Serialize};
 
 /// Serializable encoding for `SemanticId` (identity = file + range).
@@ -338,21 +340,53 @@ pub fn build_outgoing_hierarchy(
         let Some(from_range) = document.to_lsp_range(callee.text_range()) else {
             continue;
         };
-        let key = SemanticIdData::from(&target);
-        if let Some(&slot) = slots.get(&key) {
-            calls[slot].from_ranges.push(from_range);
-            continue;
+        let mut targets = vec![target.clone()];
+        for origin in origin_targets(db, &model, &target) {
+            if !targets.contains(&origin) {
+                targets.push(origin);
+            }
         }
-        let Some(to) = build_call_hierarchy_item(&model, db, &target) else {
-            continue;
-        };
-        slots.insert(key, calls.len());
-        calls.push(CallHierarchyOutgoingCall {
-            to,
-            from_ranges: vec![from_range],
-        });
+        for target in targets {
+            let key = SemanticIdData::from(&target);
+            if let Some(&slot) = slots.get(&key) {
+                calls[slot].from_ranges.push(from_range);
+                continue;
+            }
+            let Some(to) = build_call_hierarchy_item(&model, db, &target) else {
+                continue;
+            };
+            slots.insert(key, calls.len());
+            calls.push(CallHierarchyOutgoingCall {
+                to,
+                from_ranges: vec![from_range],
+            });
+        }
     }
     Some(calls)
+}
+
+/// The functions a called field or alias is set to (`M.f = local_fn`); LuaLS lists them as
+/// definitions of the call beside the field itself.
+fn origin_targets(
+    db: &SemanticDatabase,
+    model: &SemanticModel<'_>,
+    target: &SemanticId,
+) -> Vec<SemanticId> {
+    value_origin_sites(model, target)
+        .into_iter()
+        .filter_map(|(file_id, range)| {
+            let origin_model = SemanticModel::new(db, file_id);
+            let token = origin_model
+                .chunk()?
+                .syntax()
+                .token_at_offset(range.start())
+                .right_biased()?;
+            if token.kind() != LuaTokenKind::TkName.into() {
+                return None;
+            }
+            origin_model.find_decl(token.into())
+        })
+        .collect()
 }
 
 /// The closure of the function named by `name_token` (the `f` of `function f`,

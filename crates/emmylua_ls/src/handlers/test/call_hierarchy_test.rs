@@ -239,6 +239,24 @@ mod tests {
     }
 
     #[gtest]
+    fn test_outgoing_lists_function_a_field_is_set_to() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let got = check!(outgoing(
+            &mut ws,
+            r#"
+                local function impl() end
+                local M = { work = impl }
+                local function r<??>un()
+                    M.work()
+                end
+            "#
+        ));
+        let mut names: Vec<String> = got.iter().map(|(name, _)| name.clone()).collect();
+        names.sort();
+        verify_eq!(names, vec!["impl".to_string(), "work".to_string()])
+    }
+
+    #[gtest]
     fn test_outgoing_of_closure_assigned_to_a_field() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         let got = check!(outgoing(
