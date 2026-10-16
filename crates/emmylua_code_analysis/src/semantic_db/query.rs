@@ -3409,6 +3409,41 @@ pub(crate) fn member_ref_from_index_expr(
     Some((owner, name))
 }
 
+/// Identity of a member access whose receiver is a plain name chain (`vim.fn.stdpath`, `h.check`):
+/// the root variable (local declaration or global name) and the dotted key path.
+///
+/// Two accesses with the same identity read the same field of the same variable, which is how
+/// uses are linked when nothing declares the field or types the receiver.
+pub(crate) fn unresolved_member_key(
+    facts: &FileFacts,
+    index_expr: &LuaIndexExpr,
+) -> Option<(SemanticId, SmolStr)> {
+    let mut segments = vec![SmolStr::new(index_expr.get_index_key()?.get_path_part())];
+    let mut current = index_expr.get_prefix_expr()?;
+    loop {
+        match current {
+            LuaExpr::ParenExpr(paren) => current = paren.get_expr()?,
+            LuaExpr::IndexExpr(parent) => {
+                segments.push(SmolStr::new(parent.get_index_key()?.get_path_part()));
+                current = parent.get_prefix_expr()?;
+            }
+            _ => break,
+        }
+    }
+    let root = match current {
+        LuaExpr::NameExpr(name_expr) => {
+            let name = name_expr.get_name_text()?;
+            match facts.find_visible_decl_before_offset(&name, name_expr.get_position()) {
+                Some(decl) if !matches!(decl.kind, DeclKind::Global) => decl.id.clone(),
+                _ => SemanticId::name(SmolStr::new(name)),
+            }
+        }
+        _ => return None,
+    };
+    segments.reverse();
+    Some((root, SmolStr::new(segments.join("."))))
+}
+
 fn resolve_expr_root(
     facts: &FileFacts,
     expr: LuaExpr,

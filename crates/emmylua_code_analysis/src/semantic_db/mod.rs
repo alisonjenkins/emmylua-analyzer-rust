@@ -864,6 +864,24 @@ impl SemanticDatabase {
         out
     }
 
+    /// Every use of the field `key` (root variable, dotted path) that nothing declares and no type explains.
+    pub fn unresolved_member_reference_ranges(
+        &self,
+        key: &(SemanticId, smol_str::SmolStr),
+    ) -> Vec<(FileId, rowan::TextRange)> {
+        let Some(_config) = self.config_input() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for &ws_id in query::all_workspace_ids(self) {
+            let index = query::workspace_reference_index_for(self, ws_id);
+            if let Some(ranges) = index.unresolved_member_refs.get(key) {
+                out.extend(ranges.iter().copied());
+            }
+        }
+        out
+    }
+
     /// All definition sites of a member (Member) (cross-file, aggregated through sharded reference index).
     pub fn member_definition_ranges(&self, member: &SemanticId) -> Vec<(FileId, rowan::TextRange)> {
         let Some(_config) = self.config_input() else {
