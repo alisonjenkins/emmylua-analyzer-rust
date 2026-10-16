@@ -159,7 +159,16 @@ impl<'db> SemanticModel<'db> {
             .expr_type
             .insert(key, cache::CacheEntry::InProgress);
         let gave_up_before = flow::gave_up_events();
-        let ty = infer::infer_expr(self, expr_syntax);
+        let mut ty = infer::infer_expr(self, expr_syntax);
+        // A call of a required function-valued module: the value-level pass cannot see the body of
+        // the function in the other file.
+        if matches!(ty, LuaType::Unknown)
+            && let Some(returned) = self
+                .analysis()
+                .required_call_return_lua(self.view.file_id(), expr_syntax)
+        {
+            ty = returned;
+        }
         let mut cache = self.cache.borrow_mut();
         if flow::gave_up_events() == gave_up_before {
             cache
