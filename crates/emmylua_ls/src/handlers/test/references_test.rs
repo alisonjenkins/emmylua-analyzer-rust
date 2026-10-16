@@ -1410,4 +1410,50 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 14])
     }
+
+    #[gtest]
+    fn test_references_of_field_of_local_reassigned_from_a_typed_call() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Item
+                ---@field icon string|nil
+
+                ---@return Item
+                local function format() end
+
+                local function build(cond)
+                    local item = { icon = "a" }
+                    if cond then
+                        item = format()
+                    end
+                    item.ic<??>on = "b"
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 8, 12])
+    }
+
+    #[gtest]
+    fn test_references_of_class_field_include_assignments_through_a_reassigned_local() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Item
+                ---@field eq<??>ual integer|nil
+
+                ---@return Item
+                local function format() end
+
+                local function build(cond)
+                    local item = { word = "a" }
+                    if cond then
+                        item = format()
+                    end
+                    item.equal = 1
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 12])
+    }
 }

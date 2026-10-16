@@ -1667,4 +1667,41 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_field_of_local_reassigned_from_a_typed_call() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Item
+                ---@field icon string|nil
+
+                ---@return Item
+                local function format() end
+
+                local function build(cond)
+                    local item = { icon = "a" }
+                    if cond then
+                        item = format()
+                    end
+                    item.ic<??>on = "b"
+                end
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 8
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 12
+                },
+            ]
+        ));
+        Ok(())
+    }
 }
