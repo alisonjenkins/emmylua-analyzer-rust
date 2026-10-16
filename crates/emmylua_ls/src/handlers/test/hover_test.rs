@@ -892,6 +892,42 @@ mod tests {
         Ok(())
     }
 
+    /// `#t` is an integer, not the type of `t`.
+    #[gtest]
+    fn test_hover_length_operator_is_integer() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@type string[]
+                local items = {}
+
+                local <??>count = #items
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal count: integer\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// Indexing an array with `#items` yields the element type.
+    #[gtest]
+    fn test_hover_array_indexed_by_length() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@type string[]
+                local items = {}
+
+                local <??>last = items[#items]
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal last: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     /// Generic arguments keep their parameter positions: `Pair<int, string>.second` is `string`.
     #[gtest]
     fn test_hover_generic_field_access_projected_multi_param() -> Result<()> {
