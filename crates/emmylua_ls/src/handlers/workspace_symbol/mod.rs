@@ -1,4 +1,5 @@
 mod build_workspace_symbols;
+mod rank;
 
 pub(crate) use build_workspace_symbols::build_workspace_symbols;
 use lsp_types::{
