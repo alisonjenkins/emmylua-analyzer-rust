@@ -783,12 +783,29 @@ fn module_stat_flow(stat: LuaStat) -> ModuleReturnFlow {
         },
         LuaStat::ReturnStat(return_stat) => {
             let mut flow = ModuleReturnFlow::default();
-            if let Some(expr) = return_stat.get_expr_list().next() {
+            if let Some(expr) = return_stat.get_expr_list().next()
+                && !is_early_exit_return_expr(&expr)
+            {
                 flow.first_expr = Some(expr);
             }
             flow
         }
         _ => ModuleReturnFlow::fallthrough(),
+    }
+}
+
+/// `return error("...")` / `return nil` inside a guard (`if not cache then return error(..) end`)
+/// leave the module without exporting anything; the module's own `return M` comes later.
+fn is_early_exit_return_expr(expr: &LuaExpr) -> bool {
+    match expr {
+        LuaExpr::LiteralExpr(literal) => {
+            matches!(literal.get_literal(), Some(LuaLiteralToken::Nil(_)))
+        }
+        LuaExpr::CallExpr(call) => matches!(
+            call.get_prefix_expr(),
+            Some(LuaExpr::NameExpr(name)) if name.get_name_text().as_deref() == Some("error")
+        ),
+        _ => false,
     }
 }
 

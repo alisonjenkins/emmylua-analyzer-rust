@@ -1247,4 +1247,37 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// A guard that bails out with `return error(..)` does not make that call the module's export.
+    #[gtest]
+    fn test_hover_call_of_module_with_early_error_return() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "dns.lua",
+            r#"
+                local _M = {}
+
+                local cache = nil
+                do
+                    if not cache then
+                        return error("failed to create the cache")
+                    end
+                end
+
+                ---@return string
+                function _M.lookup(host) end
+
+                return _M
+            "#,
+        );
+        check!(ws.check_hover(
+            r#"
+                local r<??> = require("dns").lookup("x")
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal r: string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
