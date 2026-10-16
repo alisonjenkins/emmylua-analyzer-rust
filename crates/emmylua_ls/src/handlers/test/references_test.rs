@@ -372,6 +372,46 @@ mod tests {
     }
 
     #[gtest]
+    fn test_references_of_field_on_inline_require() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "mod_a.lua",
+            r#"
+                local M = {}
+                function M.translate(s) return s end
+                return M
+            "#,
+        );
+        check!(ws.check_references(
+            r#"
+                local tr = require("mod_a").trans<??>late
+            "#,
+            vec![(
+                "b.lua",
+                r#"
+                    local x = require("mod_a")
+                    x.translate("s")
+                "#,
+            )],
+            vec![
+                VirtualLocation {
+                    file: "mod_a.lua".to_string(),
+                    line: 2,
+                },
+                VirtualLocation {
+                    file: "virtual_0.lua".to_string(),
+                    line: 1,
+                },
+                VirtualLocation {
+                    file: "b.lua".to_string(),
+                    line: 2,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_member_references_alias_cycle_does_not_stack_overflow() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
 
