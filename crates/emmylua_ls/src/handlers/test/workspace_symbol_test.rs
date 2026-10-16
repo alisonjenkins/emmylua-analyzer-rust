@@ -473,6 +473,19 @@ mod tests {
         Ok(())
     }
 
+    // A lowercase query ignores case, a query with an uppercase letter does not.
+    #[gtest]
+    fn test_query_case_sensitivity() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def("local CaseMixed = 1\nlocal casemixed2 = 2\n");
+        expect_that!(count_of(&query(&ws, "casemixed"), "CaseMixed"), eq(1));
+        expect_that!(count_of(&query(&ws, "casemixed"), "casemixed2"), eq(1));
+        expect_that!(count_of(&query(&ws, "CaseMixed"), "CaseMixed"), eq(1));
+        expect_that!(query(&ws, "CASEMIXED"), is_empty());
+        expect_that!(count_of(&query(&ws, "Casemixed"), "casemixed2"), eq(0));
+        Ok(())
+    }
+
     #[gtest]
     fn test_unmatched_query_returns_nothing() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
