@@ -909,6 +909,24 @@ mod tests {
     }
 
     #[gtest]
+    fn test_references_of_a_global_function_defined_in_several_files() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file("shout_a.lua", "function shout(x) end\nshout(1)\n");
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                -- a standalone script with its own copy
+                -- of the helper
+                function shout(x) end
+                sho<??>ut(2)
+            "#,
+        ));
+        verify_eq!(
+            reference_lines(&content, position, &mut ws),
+            vec![0, 1, 3, 4]
+        )
+    }
+
+    #[gtest]
     fn test_references_of_field_through_ipairs_over_a_typed_array() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
         let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(

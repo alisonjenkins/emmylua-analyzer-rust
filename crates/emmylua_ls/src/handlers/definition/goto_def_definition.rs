@@ -16,6 +16,7 @@ use lsp_types::{GotoDefinitionResponse, Location};
 use rowan::TextSize;
 
 use crate::handlers::common::{call_value_function, resolve_alias_origin};
+use crate::handlers::references::reference_searcher::same_name_global_decls;
 use crate::util::parse_desc;
 
 pub fn goto_def_definition(
@@ -47,6 +48,20 @@ pub fn goto_def_definition(
             for location in assignment_sites(model, db, decl) {
                 if !locations.contains(&location) {
                     locations.push(location);
+                }
+            }
+            // The same global declared in other files is the same variable.
+            for sibling in same_name_global_decls(model, decl).iter().skip(1) {
+                let SemanticId::Decl(sibling_key) = sibling else {
+                    continue;
+                };
+                let sites = location_of(db, sibling_key.file_id, sibling_key.name_range)
+                    .into_iter()
+                    .chain(assignment_sites(model, db, sibling));
+                for location in sites {
+                    if !locations.contains(&location) {
+                        locations.push(location);
+                    }
                 }
             }
             Some(match locations.len() {
