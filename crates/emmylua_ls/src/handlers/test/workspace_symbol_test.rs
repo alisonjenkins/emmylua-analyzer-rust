@@ -671,4 +671,119 @@ mod tests {
         );
         Ok(())
     }
+
+    const DOTTED_FIXTURE: &str = r#"
+        GT = { zconst = 1 }
+        GT.zset = 3
+        UNDECL.zfld = 2
+        vim.ui.zinput = function() end
+        function GT.zfun() end
+        function GT:zmeth() end
+        GT.zdup = 1
+        GT.zdup = 2
+        local lt = {}
+        lt.zloc = 1
+        lt.deeper.zloc2 = 1
+        local function f()
+            GT.zin_fn = 1
+        end
+    "#;
+
+    fn dotted_workspace() -> ProviderVirtualWorkspace {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(DOTTED_FIXTURE);
+        ws
+    }
+
+    #[gtest]
+    fn test_assignment_to_global_path_is_a_dotted_variable() -> Result<()> {
+        let ws = dotted_workspace();
+        expect_that!(
+            kind_of(&query(&ws, "zset"), "GT.zset"),
+            some(eq(SymbolKind::VARIABLE))
+        );
+        expect_that!(
+            kind_of(&query(&ws, "zfld"), "UNDECL.zfld"),
+            some(eq(SymbolKind::VARIABLE))
+        );
+        expect_that!(
+            kind_of(&query(&ws, "zin_fn"), "GT.zin_fn"),
+            some(eq(SymbolKind::VARIABLE))
+        );
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_nested_global_path_names_the_whole_path() -> Result<()> {
+        let ws = dotted_workspace();
+        expect_that!(
+            kind_of(&query(&ws, "zinput"), "vim.ui.zinput"),
+            some(eq(SymbolKind::VARIABLE))
+        );
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_deep_global_paths_are_named_by_their_source_text() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+            ngx.shared.cfgdata.zdeep = function() end
+            a.b.c.d.e.zdeeper = 1
+            "#,
+        );
+        expect_that!(
+            kind_of(&query(&ws, "zdeep"), "ngx.shared.cfgdata.zdeep"),
+            some(eq(SymbolKind::VARIABLE))
+        );
+        expect_that!(count_of(&query(&ws, "zdeeper"), "a.b.c.d.e.zdeeper"), eq(1));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_function_statements_on_global_paths_are_dotted() -> Result<()> {
+        let ws = dotted_workspace();
+        expect_that!(count_of(&query(&ws, "zfun"), "GT.zfun"), eq(1));
+        expect_that!(count_of(&query(&ws, "zmeth"), "GT.zmeth"), eq(1));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_dotted_symbol_is_one_per_assignment_site() -> Result<()> {
+        let ws = dotted_workspace();
+        expect_that!(count_of(&query(&ws, "zdup"), "GT.zdup"), eq(2));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_dotted_symbol_matches_a_query_naming_the_root() -> Result<()> {
+        let ws = dotted_workspace();
+        expect_that!(count_of(&query(&ws, "GT.zset"), "GT.zset"), eq(1));
+        expect_that!(count_of(&query(&ws, "UNDECL"), "UNDECL.zfld"), eq(1));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_constructor_field_and_local_paths_are_not_dotted() -> Result<()> {
+        let ws = dotted_workspace();
+        expect_that!(count_of(&query(&ws, "zconst"), "GT.zconst"), eq(0));
+        expect_that!(count_of(&query(&ws, "zloc"), "lt.zloc"), eq(0));
+        expect_that!(count_of(&query(&ws, "zloc2"), "lt.deeper.zloc2"), eq(0));
+        // the plain member symbols are still there
+        expect_that!(count_of(&query(&ws, "zconst"), "zconst"), eq(1));
+        expect_that!(count_of(&query(&ws, "zloc"), "zloc"), eq(1));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_dotted_symbol_carries_no_container() -> Result<()> {
+        let ws = dotted_workspace();
+        let symbols = query(&ws, "zset");
+        let dotted = symbols.iter().find(|symbol| symbol.name == "GT.zset");
+        expect_that!(
+            dotted.map(|symbol| symbol.container_name.clone()),
+            some(none())
+        );
+        Ok(())
+    }
 }
