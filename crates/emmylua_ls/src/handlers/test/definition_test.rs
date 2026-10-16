@@ -1517,4 +1517,64 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_key_in_literal_inside_a_string_keyed_table_of_classes() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Elem
+                ---@field kind string
+                ---@field default any
+
+                local M = {}
+
+                ---@type table<string, Elem>
+                M.schema = {
+                    base = {
+                        ki<??>nd = 'string',
+                        default = 1,
+                    },
+                }
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 10
+                },
+            ]
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_key_in_literal_inside_an_array_of_classes() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class Elem
+                ---@field kind string
+
+                ---@type Elem[]
+                local list = {
+                    { ki<??>nd = 'y' },
+                }
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 6
+                },
+            ]
+        ));
+        Ok(())
+    }
 }

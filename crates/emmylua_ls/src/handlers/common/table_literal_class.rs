@@ -8,9 +8,17 @@ use emmylua_parser::{
     LuaLocalStat, LuaTableExpr, LuaTableField,
 };
 
-/// The named types a table literal stands for, with `nil` stripped (`Opts?` -> `Opts`). A union
+/// The classes a table literal stands for, with `nil` stripped (`Opts?` -> `Opts`). A union
 /// (`TextEdit|InsertReplaceEdit`) gives every class in it.
 pub fn expected_classes_of_table(model: &SemanticModel<'_>, table: &LuaTableExpr) -> Vec<LuaType> {
+    let mut types = expected_types_of_table(model, table);
+    types.retain(is_class_type);
+    types
+}
+
+/// Classes plus the containers (`Elem[]`, `table<string, Elem>`) a literal is declared as: the
+/// literals inside a container are its element type.
+fn expected_types_of_table(model: &SemanticModel<'_>, table: &LuaTableExpr) -> Vec<LuaType> {
     if let Some(field) = table.syntax().parent().and_then(LuaTableField::cast) {
         // `{ outer = { key = v } }`: the type of `outer` in the enclosing literal's class.
         let (Some(parent_table), Some(key)) =
@@ -18,11 +26,16 @@ pub fn expected_classes_of_table(model: &SemanticModel<'_>, table: &LuaTableExpr
         else {
             return Vec::new();
         };
-        let member_key = LuaMemberKey::Name(key.get_path_part().into());
+        let member_key = matches!(key, LuaIndexKey::Name(_) | LuaIndexKey::String(_))
+            .then(|| LuaMemberKey::Name(key.get_path_part().into()));
         let mut out = Vec::new();
-        for parent_class in expected_classes_of_table(model, &parent_table) {
-            for member in model.member_infos_with_key_all(&parent_class, &member_key) {
-                push_named_types(&member.typ, &mut out);
+        for parent in expected_types_of_table(model, &parent_table) {
+            if let Some(element) = container_element_type(&parent) {
+                push_named_types(&element, &mut out);
+            } else if let Some(member_key) = &member_key {
+                for member in model.member_infos_with_key_all(&parent, member_key) {
+                    push_named_types(&member.typ, &mut out);
+                }
             }
         }
         return out;
@@ -124,9 +137,33 @@ pub fn class_fields_of_table_key(
     out
 }
 
+fn is_class_type(ty: &LuaType) -> bool {
+    match ty {
+        LuaType::Ref(_) | LuaType::Def(_) => true,
+        LuaType::Generic(generic) => generic.get_base_type_id_ref().get_name() != "table",
+        _ => false,
+    }
+}
+
+/// The type of the values of `Elem[]` and `table<K, Elem>`.
+fn container_element_type(ty: &LuaType) -> Option<LuaType> {
+    match ty {
+        LuaType::Array(array) => Some(array.get_base().clone()),
+        LuaType::TableGeneric(params) => params.get(1).cloned(),
+        LuaType::Generic(generic) if generic.get_base_type_id_ref().get_name() == "table" => {
+            generic.get_params().get(1).cloned()
+        }
+        _ => None,
+    }
+}
+
 fn push_named_types(ty: &LuaType, out: &mut Vec<LuaType>) {
     match ty {
-        LuaType::Ref(_) | LuaType::Def(_) | LuaType::Generic(_) => {
+        LuaType::Ref(_)
+        | LuaType::Def(_)
+        | LuaType::Generic(_)
+        | LuaType::Array(_)
+        | LuaType::TableGeneric(_) => {
             if !out.contains(ty) {
                 out.push(ty.clone());
             }

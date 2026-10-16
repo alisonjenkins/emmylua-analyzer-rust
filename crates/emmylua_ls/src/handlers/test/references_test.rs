@@ -1304,4 +1304,28 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 9])
     }
+
+    #[gtest]
+    fn test_references_of_class_field_count_keys_inside_containers_of_the_class() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Elem
+                ---@field ki<??>nd string
+
+                local M = {}
+
+                ---@type table<string, Elem>
+                M.schema = {
+                    base = { kind = 'string' },
+                }
+
+                ---@type Elem[]
+                local list = {
+                    { kind = 'y' },
+                }
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 8, 13])
+    }
 }
