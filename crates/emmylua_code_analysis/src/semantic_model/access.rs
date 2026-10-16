@@ -962,7 +962,26 @@ impl<'db> SemanticModel<'db> {
 
         // 3.5 Prefix type is an anonymous table (TableConst) -> its table-field members.
         //     Handles the `y` in `T.x.y` after `local T = { x = { y = 1 } }`.
-        if let Some(LuaType::TableConst(in_field)) = prefix_ty.as_ref() {
+        //     A module's type is its class plus its table, so a union is searched for its table too.
+        let table_const = match prefix_ty.as_ref() {
+            Some(LuaType::TableConst(table)) => Some(table.clone()),
+            Some(LuaType::Union(union)) => {
+                let mut tables =
+                    union
+                        .into_vec()
+                        .into_iter()
+                        .filter_map(|component| match component {
+                            LuaType::TableConst(table) => Some(table),
+                            _ => None,
+                        });
+                match (tables.next(), tables.next()) {
+                    (Some(table), None) => Some(table),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        if let Some(in_field) = table_const.as_ref() {
             let table_owner = SemanticId::member(in_field.file_id, in_field.value);
             let mut table_owners = vec![table_owner];
             // TableConst for named local tables (`local checker = { ... }`) must also resolve
