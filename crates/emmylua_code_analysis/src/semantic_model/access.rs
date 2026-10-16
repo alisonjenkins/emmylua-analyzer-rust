@@ -1270,17 +1270,25 @@ impl<'db> SemanticModel<'db> {
             return false;
         };
         let prefix_ty = self.prefix_type_for_member_resolution(&prefix);
-        let type_id = match &prefix_ty {
-            LuaType::Ref(id) | LuaType::Def(id) => Some(id),
-            LuaType::Generic(generic) => Some(generic.get_base_type_id_ref()),
-            _ => None,
+        // `W?` and `W|fun()` name the member through the `W` component.
+        let components = match &prefix_ty {
+            LuaType::Union(union) => union.into_vec(),
+            other => vec![other.clone()],
         };
-        let Some(def) = type_id.and_then(|id| self.type_def_of(id)) else {
-            return false;
-        };
-        self.members_of_owner(&def.id)
-            .iter()
-            .any(|member| member.name == *name)
+        components.iter().any(|component| {
+            let type_id = match component {
+                LuaType::Ref(id) | LuaType::Def(id) => Some(id),
+                LuaType::Generic(generic) => Some(generic.get_base_type_id_ref()),
+                _ => None,
+            };
+            type_id
+                .and_then(|id| self.type_def_of(id))
+                .is_some_and(|def| {
+                    self.members_of_owner(&def.id)
+                        .iter()
+                        .any(|member| member.name == *name)
+                })
+        })
     }
     /// Whether the require module export declares this member (same-name assignments do not shadow exported members).
     pub(crate) fn require_module_has_member(
