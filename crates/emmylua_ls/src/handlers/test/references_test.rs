@@ -1456,4 +1456,44 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 12])
     }
+
+    #[gtest]
+    fn test_references_of_class_field_count_string_keys_of_a_typed_literal() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Span
+                ---@field start integer
+                ---@field en<??>d integer
+
+                ---@param s Span
+                local function stop(s)
+                    return s['end']
+                end
+
+                stop({ start = 1, ['end'] = 2 })
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![3, 7, 10])
+    }
+
+    #[gtest]
+    fn test_references_of_string_key_in_a_typed_literal_include_the_class_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Span
+                ---@field start integer
+                ---@field end integer
+
+                ---@param s Span
+                local function stop(s)
+                    return s['end']
+                end
+
+                stop({ start = 1, ['e<??>nd'] = 2 })
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![3, 7, 10])
+    }
 }

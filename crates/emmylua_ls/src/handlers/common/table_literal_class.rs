@@ -131,7 +131,7 @@ pub fn class_fields_of_table_key(
     else {
         return Vec::new();
     };
-    let LuaIndexKey::Name(_) = key else {
+    let (LuaIndexKey::Name(_) | LuaIndexKey::String(_)) = key else {
         return Vec::new();
     };
     // LuaLS indexes the keys of a call argument's own table as uses of the parameter class's
