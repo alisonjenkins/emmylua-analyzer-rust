@@ -1084,4 +1084,26 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 7, 8])
     }
+
+    #[gtest]
+    fn test_references_of_class_field_used_as_a_key_of_an_assigned_table() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Slot
+                ---@field cur<??>rent integer
+
+                ---@class Holder
+                ---@field slots table<integer, Slot?>
+                local Holder = {}
+
+                function Holder:attach(id)
+                    self.slots[id] = {
+                        current = 0,
+                    }
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 10])
+    }
 }

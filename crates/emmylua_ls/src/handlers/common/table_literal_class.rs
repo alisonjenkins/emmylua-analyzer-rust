@@ -4,7 +4,8 @@
 
 use emmylua_code_analysis::{LuaMemberKey, LuaType, SemanticId, SemanticModel};
 use emmylua_parser::{
-    LuaAstNode, LuaCallArgList, LuaCallExpr, LuaIndexKey, LuaTableExpr, LuaTableField,
+    LuaAssignStat, LuaAstNode, LuaCallArgList, LuaCallExpr, LuaIndexKey, LuaTableExpr,
+    LuaTableField,
 };
 
 /// The named type a table literal stands for, with `nil` stripped (`Opts?` -> `Opts`).
@@ -20,6 +21,15 @@ pub fn expected_class_of_table(model: &SemanticModel<'_>, table: &LuaTableExpr) 
             .into_iter()
             .next()?;
         return named_type(&member.typ);
+    }
+    // `self.client_state[id] = { key = v }`: the declared type of the assigned target.
+    if let Some(assign) = table.syntax().parent().and_then(LuaAssignStat::cast) {
+        let (vars, values) = assign.get_var_and_expr_list();
+        let index = values
+            .iter()
+            .position(|value| value.get_syntax_id() == table.get_syntax_id())?;
+        let var = vars.get(index)?;
+        return named_type(&model.type_of_expr(var.to_expr().get_syntax_id()));
     }
     let call = table
         .syntax()
