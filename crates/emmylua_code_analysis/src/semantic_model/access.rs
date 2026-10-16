@@ -1309,6 +1309,16 @@ impl<'db> SemanticModel<'db> {
         let tree = self.syntax_tree_of(member.file_id)?;
         let node = value_syntax.to_node_from_root(&tree.get_red_root())?;
         let value_expr = LuaExpr::cast(node)?;
+        // `util = require 'mod'` / `M.util = require('mod')`: the field holds the required module.
+        if matches!(value_expr, LuaExpr::CallExpr(_) | LuaExpr::NameExpr(_)) {
+            let member_model = self.model_for(member.file_id);
+            if let Some(owner) = member_model
+                .require_module_file_of_expr(&value_expr)
+                .and_then(|module_file| member_model.module_export_owner_of(module_file))
+            {
+                return Some(owner);
+            }
+        }
         match value_expr {
             LuaExpr::TableExpr(table) => {
                 Some(SemanticId::member(member.file_id, table.get_range()))
