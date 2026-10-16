@@ -16,23 +16,30 @@
 --- @class debuglib
 debug = {}
 
---- 进入与用户的交互模式，运行用户输入的每个字符串。使用简单的命令和
---- 其他调试工具，用户可以检查全局和局部变量、更改它们的值、计算表达式
---- 等等。仅包含单词 `cont` 的行会结束此函数，使调用者继续执行。
 ---
---- 注意，`debug.debug` 的命令在词法上不嵌套在任何函数内，因此无法
---- 直接访问局部变量。
+--- Enters an interactive mode with the user, running each string that the user
+--- enters. Using simple commands and other debug facilities, the user can
+--- inspect global and local variables, change their values, evaluate
+--- expressions, and so on. A line containing only the word `cont` finishes this
+--- function, so that the caller continues its execution.
+---
+--- Note that commands for `debug.debug` are not lexically nested within any
+--- function, and so have no direct access to local variables.
 function debug.debug() end
 
 --- @version 5.1
---- 返回对象 `o` 的环境。
+---
+--- Returns the environment of object `o` .
+---
 --- @param o any
 --- @return table
 --- @nodiscard
 function debug.getfenv(o) end
 
---- 以三个值返回线程的当前钩子设置：当前钩子函数、当前钩子掩码和当前
---- 钩子计数（由 `debug.sethook` 函数设置）。
+---
+--- Returns the current hook settings of the thread, as three values: the
+--- current hook function, the current hook mask, and the current hook count
+--- (as set by the `debug.sethook` function).
 --- @param thread? thread
 --- @return function? hook
 --- @return string mask
@@ -68,20 +75,26 @@ function debug.gethook(thread) end
 --- |+ "L" # `activelines`
 --- | string
 
---- 返回一个包含函数信息的表。你可以直接给出函数，或者给 `f` 一个数字值，
---- 表示在给定线程的调用栈中第 `f` 层运行的函数：第0层是当前函数
---- （`getinfo` 本身）；第1层是调用 `getinfo` 的函数（尾调用除外，
---- 它们不计入栈）；依此类推。如果 `f` 是一个大于活动函数数量的数字，
---- 则 `getinfo` 返回 **nil**。
 ---
---- 返回的表可以包含 `lua_getinfo` 返回的所有字段，字符串 `what` 描述
---- 要填充哪些字段。`what` 的默认值是获取所有可用信息，但不包括有效行的表。
---- 如果存在选项 '`f`'，则添加一个名为 `func` 的字段，包含函数本身。
---- 如果存在选项 '`L`'，则添加一个名为 `activelines` 的字段，包含有效行的表。
+--- Returns a table with information about a function. You can give the
+--- function directly, or you can give a number as the value of `f`,
+--- which means the function running at level `f` of the call stack
+--- of the given thread: level 0 is the current function (`getinfo` itself);
+--- level 1 is the function that called `getinfo` (except for tail calls, which
+--- do not count on the stack); and so on. If `f` is a number larger than
+--- the number of active functions, then `getinfo` returns **nil**.
 ---
---- 例如，表达式 `debug.getinfo(1,"n").name` 返回一个包含当前函数名称的表
---- （如果能找到合理的名称），表达式 `debug.getinfo(print)` 返回一个包含
---- 关于 `print` 函数所有可用信息的表。
+--- The returned table can contain all the fields returned by `lua_getinfo`,
+--- with the string `what` describing which fields to fill in. The default for
+--- `what` is to get all information available, except the table of valid
+--- lines. If present, the option '`f`' adds a field named `func` with the
+--- function itself. If present, the option '`L`' adds a field named
+--- `activelines` with the table of valid lines.
+---
+--- For instance, the expression `debug.getinfo(1,"n").name` returns a table
+--- with a name for the current function, if a reasonable name can be found,
+--- and the expression `debug.getinfo(print)` returns a table with all available
+--- information about the `print` function.
 --- @overload fun(f: int|function, what?: debuglib.InfoWhat): debuglib.DebugInfo?
 --- @param thread thread
 --- @param f      integer|function
@@ -91,18 +104,26 @@ function debug.gethook(thread) end
 function debug.getinfo(thread, f, what) end
 
 --- @version >5.2, JIT
---- 此函数返回栈中第 `level` 层函数的索引为 `local` 的局部变量的名称和值。
---- 此函数不仅访问显式的局部变量，还包括参数、临时变量等。
 ---
---- 第一个参数或局部变量的索引为1，依此类推，按照它们在代码中声明的顺序，
---- 仅计算函数当前作用域中活动的变量。负索引指向可变参数；-1 是第一个
---- 可变参数。如果给定索引没有变量，函数返回 **nil**，当调用时层级超出
---- 范围则引发错误。（你可以调用 `debug.getinfo` 来检查层级是否有效。）
+--- This function returns the name and the value of the local variable with
+--- index `local` of the function at level `level f` of the stack. This function
+--- accesses not only explicit local variables, but also parameters,
+--- temporaries, etc.
 ---
---- 以 '(' （左括号）开头的变量名表示没有已知名称的变量（内部变量，如循环
---- 控制变量和保存时没有调试信息的代码块中的变量）。
+--- The first parameter or local variable has index 1, and so on, following the
+--- order that they are declared in the code, counting only the variables that
+--- are active in the current scope of the function. Negative indices refer to
+--- vararg parameters; -1 is the first vararg parameter. The function returns
+--- **nil** if there is no variable with the given index, and raises an error
+--- when called with a level out of range. (You can call `debug.getinfo` to
+--- check whether the level is valid.)
 ---
---- 参数 `f` 也可以是一个函数。在这种情况下，`getlocal` 仅返回函数参数的名称。
+--- Variable names starting with '(' (open parenthesis) represent variables with
+--- no known names (internal variables such as loop control variables, and
+--- variables from chunks saved without debug information).
+---
+--- The parameter `f` may also be a function. In that case, `getlocal` returns
+--- only the name of function parameters.
 --- @overload fun(f: integer, integer): string?, any?
 --- @overload fun(f: function, integer): string?
 --- @overload fun(thread: thread, f: function, integer): string?
@@ -115,12 +136,16 @@ function debug.getinfo(thread, f, what) end
 function debug.getlocal(thread, f, index) end
 
 --- @version 5.1
---- 此函数返回栈中第 `level` 层函数的索引为 `index` 的局部变量的名称和值。
---- 第一个参数或局部变量的索引为 1，依此类推，直到最后一个活跃的局部变量。
---- 如果不存在给定索引的局部变量，函数将返回 **nil**；如果调用的 `level` 超出范围，则会引发错误。
---- （你可以调用 `debug.getinfo` 来检查 level 是否有效。）
 ---
---- 以左括号 '(' 开头的变量名表示内部变量（循环控制变量、临时变量以及 C 函数的局部变量）。
+--- This function returns the name and the value of the local variable with
+--- index `index` of the function at level `level` of the stack. (The first
+--- parameter or local variable has index 1, and so on, until the last active
+--- local variable). The function returns **nil** if there is no local variable
+--- with the given index, and raises an error when called with a level out of
+--- range. (You can call `debug.getinfo` to check whether the level is valid.)
+---
+--- Variable names starting with `'('` (open parentheses) represent internal
+--- variables (loop control variables, temporaries, and C function locals).
 --- @overload fun(f: integer, integer): string, any
 --- @param thread thread
 --- @param lvl    integer
@@ -130,22 +155,27 @@ function debug.getlocal(thread, f, index) end
 --- @nodiscard
 function debug.getlocal(thread, lvl, index) end
 
---- 返回给定 `value` 的元表，如果它没有元表则返回 **nil**。
+---
+--- Returns the metatable of the given `value` or **nil** if it does not have
+--- a metatable.
 --- @param object any
 --- @return table?
 --- @nodiscard
 function debug.getmetatable(object) end
 
---- 返回注册表。
+---
+--- Returns the registry table.
 --- @return table
 --- @nodiscard
 function debug.getregistry() end
 
---- 此函数返回函数 `f` 的索引为 `up` 的上值的名称和值。如果给定索引没有
---- 上值，函数返回 **nil**。
 ---
---- 以 '(' （左括号）开头的变量名表示没有已知名称的变量（来自保存时没有
---- 调试信息的代码块的变量）。
+--- This function returns the name and the value of the upvalue with index
+--- `up` of the function `f`. The function returns **nil** if there is no
+--- upvalue with the given index.
+---
+--- Variable names starting with '(' (open parenthesis) represent variables with
+--- no known names (variables from chunks saved without debug information).
 --- @param f  function
 --- @param up integer
 --- @return string? name
@@ -153,25 +183,31 @@ function debug.getregistry() end
 --- @nodiscard
 function debug.getupvalue(f, up) end
 
---- 返回与 userdata `u` 关联的第 `n` 个用户值以及一个布尔值，
---- 如果 userdata 没有该值则为 **false**。
+---
+--- Returns the `n`-th user value associated to the userdata `u` plus a boolean,
+--- **false** if the userdata does not have that value.
 --- @param u userdata
 --- @param n integer
 --- @return any
 --- @return boolean
 function debug.getuservalue(u, n) end
 
---- ### **在 `Lua 5.4.2` 中已弃用**
 ---
---- 为 C 栈设置新的限制。此限制控制 Lua 中嵌套调用的深度，目的是避免栈溢出。
+--- ### **Deprecated in `Lua 5.4.2`**
 ---
---- 成功时，此函数返回旧的限制。出错时，返回 `false`。
+--- Sets a new limit for the C stack. This limit controls how deeply nested calls can go in Lua, with the intent of avoiding a stack overflow.
+---
+--- In case of success, this function returns the old limit. In case of error, it returns `false`.
+---
+---
 --- @deprecated
 --- @param limit integer
 --- @return integer|boolean
 function debug.setcstacklimit(limit) end
 
---- 将给定 `object` 的环境设置为给定的 `table`。
+---
+--- Sets the environment of the given `object` to the given `table` .
+---
 --- @version 5.1, JIT
 --- @generic T
 --- @param object T
@@ -184,32 +220,40 @@ function debug.setfenv(object, env) end
 --- |+ "r" # 当 Lua 从函数返回时调用钩子。
 --- |+ "l" # 当 Lua 进入新的代码行时调用钩子。
 
---- 将给定函数设置为钩子。字符串 `mask` 和数字 `count` 描述何时调用钩子。
---- 字符串掩码可以是以下字符的任意组合，具有以下含义：
 ---
---- * `"c"`：每次 Lua 调用函数时调用钩子；
---- * `"r"`：每次 Lua 从函数返回时调用钩子；
---- * `"l"`：每次 Lua 进入新的代码行时调用钩子。
+--- Sets the given function as a hook. The string `mask` and the number `count`
+--- describe when the hook will be called. The string mask may have any
+--- combination of the following characters, with the given meaning:
 ---
---- 此外，当 `count` 不为零时，钩子在每 `count` 条指令后被调用。
+--- * `"c"`: the hook is called every time Lua calls a function;
+--- * `"r"`: the hook is called every time Lua returns from a function;
+--- * `"l"`: the hook is called every time Lua enters a new line of code.
 ---
---- 不带参数调用时，`debug.sethook` 关闭钩子。
+--- Moreover, with a `count` different from zero, the hook is called after every
+--- `count` instructions.
 ---
---- 调用钩子时，其第一个参数是描述触发调用的事件的字符串：`"call"`
---- （或 `"tail call"`）、`"return"`、`"line"` 和 `"count"`。对于行事件，
---- 钩子还会获得新行号作为其第二个参数。在钩子内部，你可以用层级2调用
---- `getinfo` 来获取关于正在运行的函数的更多信息（层级0是 `getinfo` 函数，
---- 层级1是钩子函数）。
+--- When called without arguments, `debug.sethook` turns off the hook.
+---
+--- When the hook is called, its first parameter is a string describing
+--- the event that has triggered its call: `"call"`, (or `"tail
+--- call"`), `"return"`, `"line"`, and `"count"`. For line events, the hook also
+--- gets the new line number as its second parameter. Inside a hook, you can
+--- call `getinfo` with level 2 to get more information about the running
+--- function (level 0 is the `getinfo` function, and level 1 is the hook
+--- function)
 --- @param thread? thread
 --- @param hook?   fun(event: string): any
 --- @param mask?   debuglib.Hookmask | string
 --- @param count?  integer
 function debug.sethook(thread, hook, mask, count) end
 
---- 此函数将值 `value` 赋给栈中第 `level` 层函数的索引为 `local` 的局部变量。
---- 如果给定索引没有局部变量，函数返回 **nil**，当调用时 `level` 超出范围
---- 则引发错误。（你可以调用 `getinfo` 来检查层级是否有效。）否则，返回
---- 局部变量的名称。
+---
+--- This function assigns the value `value` to the local variable with
+--- index `local` of the function at level `level` of the stack. The function
+--- returns **nil** if there is no local variable with the given index, and
+--- raises an error when called with a `level` out of range. (You can call
+--- `getinfo` to check whether the level is valid.) Otherwise, it returns the
+--- name of the local variable.
 --- @overload fun(level: integer, index: integer, value: any): string?
 --- @param thread thread
 --- @param level  integer
@@ -218,7 +262,9 @@ function debug.sethook(thread, hook, mask, count) end
 --- @return string?
 function debug.setlocal(thread, level, index, value) end
 
---- 将给定 `object` 的元表设置为给定的 `table`（可以是 **nil**）。返回值。
+---
+--- Sets the metatable for the given `object` to the given `table` (which
+--- can be **nil**). Returns value.
 --- @generic T
 --- @param value T
 --- @param meta? table
@@ -226,18 +272,20 @@ function debug.setlocal(thread, level, index, value) end
 --- @overload fun(value: table, meta: T): T
 function debug.setmetatable(value, meta) end
 
---- 此函数将值 `value` 赋给函数 `f` 的索引为 `up` 的上值。如果给定索引
---- 没有上值，函数返回 **nil**。否则，返回上值的名称。
+---
+--- This function assigns the value `value` to the upvalue with index `up`
+--- of the function `f`. The function returns **nil** if there is no upvalue
+--- with the given index. Otherwise, it returns the name of the upvalue.
 --- @param f     fun(): any
 --- @param up    integer
 --- @param value any
 --- @return string?
 function debug.setupvalue(f, up, value) end
 
---- 将给定的 `value` 设置为与给定 `udata` 关联的第 `n` 个值。
---- `udata` 必须是完全 userdata。
+--- Sets the given `value` as the `n`-th associated to the given `udata`.
+--- `udata` must be a full userdata.
 ---
---- 返回 `udata`，如果 userdata 没有该值则返回 **nil**。
+--- Returns `udata`, or **nil** if the userdata does not have that value.
 --- @param udata userdata
 --- @param value any
 --- @param n     integer
@@ -245,12 +293,11 @@ function debug.setupvalue(f, up, value) end
 function debug.setuservalue(udata, value, n) end
 
 --- @version 5.1, JIT
---- 生成调用栈的回溯信息。
---- 不带参数调用时，返回当前线程的回溯。
---- 当第一个参数是线程时，为该线程生成回溯；可选的第二个参数（如果是字符串）
---- 会添加到回溯前面，可选的第三个参数设置回溯开始的层级（默认为1）。
---- 当第一个参数不是线程且不是 nil 时，它被视为可选消息。在这种情况下，
---- 为当前线程生成回溯，如果提供了第二个参数，则指定起始层级。
+---
+--- Returns a string with a traceback of the call stack. An optional message
+--- string is appended at the beginning of the traceback. An optional level
+--- number tells at which level to start the traceback (default is 1, the
+--- function calling traceback).
 --- @overload fun(): string
 --- @overload fun(message?: string, level?: integer): string
 --- @param thread?  thread
@@ -260,11 +307,12 @@ function debug.setuservalue(udata, value, n) end
 function debug.traceback(thread, message, level) end
 
 --- @version > 5.2
---- 如果 message 存在但既不是字符串也不是 nil，那么此函数将直接返回 message 而不做进一步处理。
---- 否则，它会返回一个包含调用栈回溯信息的字符串。
 ---
---- 可选的 message 字符串会被追加到回溯信息的开头。
---- 可选的 level 数字指示应从哪一层开始回溯（默认值为 1，即调用 traceback 的函数）。
+--- If message is present but is neither a string nor nil, this function
+--- returns message without further processing. Otherwise, it returns a string
+--- with a traceback of the call stack. The optional message string is appended
+--- at the beginning of the traceback. An optional level number tells at which
+--- level to start the traceback (default is 1, the function calling traceback).
 --- @generic T
 --- @overload fun(): string
 --- @overload fun(message?: string, level?: integer): string
@@ -278,10 +326,13 @@ function debug.traceback(thread, message, level) end
 --- @return string
 function debug.traceback(thread, message, level) end
 
---- 返回给定函数中编号为 `n` 的上值的唯一标识符（作为轻量 userdata）。
+--- Returns a unique identifier (as a light userdata) for the upvalue numbered
+--- `n` from the given function.
 ---
---- 这些唯一标识符允许程序检查不同的闭包是否共享上值。共享上值的 Lua 闭包
---- （即访问同一外部局部变量的闭包）将为那些上值索引返回相同的 id。
+--- These unique identifiers allow a program to check whether different
+--- closures share upvalues. Lua closures that share an upvalue (that is, that
+--- access a same external local variable) will return identical ids for those
+--- upvalue indices.
 --- @version >5.2, JIT
 --- @param f function
 --- @param n integer
@@ -289,7 +340,9 @@ function debug.traceback(thread, message, level) end
 --- @nodiscard
 function debug.upvalueid(f, n) end
 
---- 使 Lua 闭包 f1 的第 `n1` 个上值引用 Lua 闭包 f2 的第 `n2` 个上值。
+---
+--- Make the `n1`-th upvalue of the Lua closure f1 refer to the `n2`-th upvalue
+--- of the Lua closure f2.
 --- @version >5.2, JIT
 --- @param f1 fun(): any
 --- @param n1 integer
