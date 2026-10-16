@@ -827,10 +827,12 @@ impl<'db> SemanticModel<'db> {
         // 1. Same-file members (owner key). Members with explicit `---@type` take priority over purely inferred runtime members;
         // if only runtime members exist and the prefix type is a named type with a same-named `@field`, skip this step --
         // under `---@param data CreateData`, `data.owner = ""` should resolve to the class field rather than this assignment.
+        let use_path = self.local_chain_path(&owner, index_expr);
         {
             let facts = self.file_facts()?;
             let same_name = facts
                 .members_of_owner_named(&owner, name.as_str())
+                .filter(|member| self.declared_on_path(&member.id, use_path.as_deref()))
                 .collect::<Vec<_>>();
             let prefer_typed = same_name
                 .iter()
@@ -1113,6 +1115,11 @@ impl<'db> SemanticModel<'db> {
                 if member.name != name {
                     continue;
                 }
+                // Only the members owned by the root itself are told apart by path; another owner
+                // (a module, a type) was reached through the receiver's type.
+                if resolved == &owner && !self.declared_on_path(&member.id, use_path.as_deref()) {
+                    continue;
+                }
                 let mut visibility_rank = 1u8;
                 let mut doc_rank = 1u8;
                 if let Some(facts) = self.file_facts_of(member.file_id)
@@ -1217,6 +1224,44 @@ impl<'db> SemanticModel<'db> {
         }
 
         Some(self.resolved_member(None, None, owner, name))
+    }
+    /// Keys between a local root and the accessed key (`state.client.close` -> `[client]`).
+    ///
+    /// Members of a local root are owned by the root alone, so `state.client.close` and
+    /// `state.handle:close` share an owner; the path tells them apart. `None` when the owner is not
+    /// a local or the receiver is not a name chain.
+    fn local_chain_path(
+        &self,
+        owner: &SemanticId,
+        index_expr: &LuaIndexExpr,
+    ) -> Option<Vec<SmolStr>> {
+        if !matches!(owner, SemanticId::Decl(_)) {
+            return None;
+        }
+        index_prefix_path(index_expr)
+    }
+    /// Whether `member` is declared on `use_path` (see `local_chain_path`). A member that is not
+    /// declared through a dotted name (a table-literal field) is kept.
+    fn declared_on_path(&self, member: &SemanticId, use_path: Option<&[SmolStr]>) -> bool {
+        let Some(use_path) = use_path else {
+            return true;
+        };
+        let SemanticId::Member(key) = member else {
+            return true;
+        };
+        let model = self.model_for(key.file_id);
+        let declared = model
+            .chunk()
+            .and_then(|chunk| {
+                chunk
+                    .syntax()
+                    .token_at_offset(key.key_range.start())
+                    .right_biased()
+            })
+            .and_then(|token| token.parent())
+            .and_then(LuaIndexExpr::cast)
+            .and_then(|declared| index_prefix_path(&declared));
+        declared.is_none_or(|declared| declared == use_path)
     }
     /// Owner named by the initializer of the local that prefixes `index_expr`
     /// (`local api = vim.api` -> the owner of `vim.api` members).
@@ -1469,4 +1514,23 @@ impl<'db> SemanticModel<'db> {
             _ => None,
         }
     }
+}
+
+/// The keys of the name chain a key is accessed through, root excluded (`a.b.c` -> `[b]`).
+fn index_prefix_path(index_expr: &LuaIndexExpr) -> Option<Vec<SmolStr>> {
+    let mut path = Vec::new();
+    let mut current = index_expr.get_prefix_expr()?;
+    loop {
+        match current {
+            LuaExpr::ParenExpr(paren) => current = paren.get_expr()?,
+            LuaExpr::IndexExpr(parent) => {
+                path.push(SmolStr::new(parent.get_index_key()?.get_path_part()));
+                current = parent.get_prefix_expr()?;
+            }
+            LuaExpr::NameExpr(_) => break,
+            _ => return None,
+        }
+    }
+    path.reverse();
+    Some(path)
 }
