@@ -193,6 +193,14 @@ fn class_fields_of_receiver(model: &SemanticModel<'_>, token: &LuaSyntaxToken) -
     if key.get_range() != Some(token.text_range()) {
         return Vec::new();
     }
+    class_fields_of_index(model, &index_expr)
+}
+
+/// The class fields a `receiver.key` access names through the type of its receiver.
+fn class_fields_of_index(model: &SemanticModel<'_>, index_expr: &LuaIndexExpr) -> Vec<SemanticId> {
+    let Some(key) = index_expr.get_index_key() else {
+        return Vec::new();
+    };
     let Some(prefix) = index_expr.get_prefix_expr() else {
         return Vec::new();
     };
@@ -266,9 +274,11 @@ fn typed_receiver_uses(
             let resolved = file_model
                 .resolve_member(&index_expr)
                 .and_then(|resolved| resolved.member_id);
-            if resolved.is_some_and(|id| slot.contains(&id))
-                && let Some(range) = key.get_range()
-            {
+            let names_slot = resolved.is_some_and(|id| slot.contains(&id))
+                || class_fields_of_index(&file_model, &index_expr)
+                    .iter()
+                    .any(|id| slot.contains(id));
+            if names_slot && let Some(range) = key.get_range() {
                 push_unique(&mut out, (file_id, range));
             }
         }
