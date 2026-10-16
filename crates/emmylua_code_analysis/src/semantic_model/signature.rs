@@ -768,6 +768,11 @@ impl<'db> SemanticModel<'db> {
     /// The closure's syntax tree and scope belong to its own file, so a foreign closure is inferred
     /// with that file's model. Each foreign model starts with an empty in-progress set, so mutually
     /// recursive cross-file functions are cut off by a depth limit instead.
+    ///
+    /// The foreign model is built per call and discarded, so its caches never help the next
+    /// lookup. Outermost inferences (no foreign inference and no `__index` walk above them) are
+    /// kept here instead: they do not depend on what the caller is in the middle of, and a nested
+    /// inference can be cut by the depth limits, so it is recomputed as before.
     fn inferred_closure_return_in_file(
         &self,
         file_id: FileId,
@@ -784,10 +789,23 @@ impl<'db> SemanticModel<'db> {
         if depth >= MAX_FOREIGN_DEPTH {
             return LuaType::Unknown;
         }
+        let outermost = depth == 0 && member::index_table_depth() == 0;
+        let key = (file_id, closure_syntax);
+        if outermost && let Some(cached) = self.cache.borrow().foreign_closure_return.get(&key) {
+            return cached.clone();
+        }
         FOREIGN_DEPTH.with(|d| d.set(depth + 1));
+        #[cfg(test)]
+        FOREIGN_CLOSURE_INFERENCES.with(|count| count.set(count.get() + 1));
         let foreign = self.model_for(file_id);
         let inferred = infer::closure_return_lua(&foreign, closure_syntax);
         FOREIGN_DEPTH.with(|d| d.set(depth));
+        if outermost {
+            self.cache
+                .borrow_mut()
+                .foreign_closure_return
+                .insert(key, inferred.clone());
+        }
         inferred
     }
     /// Signature structure of a closure in any file (used for cross-file member/global function signature resolution).
@@ -903,5 +921,53 @@ impl<'db> SemanticModel<'db> {
         let facts = self.file_facts_of(file_id)?;
         let signature = facts.signature_by_position(signature_id.get_position())?;
         self.type_of_signature_in_file(file_id, signature.closure_syntax)
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static FOREIGN_CLOSURE_INFERENCES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn foreign_closure_inferences() -> u32 {
+    FOREIGN_CLOSURE_INFERENCES.with(|count| count.get())
+}
+
+#[cfg(test)]
+mod tests {
+    use emmylua_parser::{LuaAstNode, LuaClosureExpr};
+
+    use super::foreign_closure_inferences;
+    use crate::{LuaType, VirtualWorkspace};
+
+    #[test]
+    fn foreign_closure_return_is_inferred_once_per_model() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let user = ws.def_file("user.lua", "local x = 1");
+        let owner = ws.def_file(
+            "owner.lua",
+            "local M = {}\nM.__index = M\nfunction M.open(path)\n  return setmetatable({ path = path }, M)\nend\nreturn M",
+        );
+        let closure = {
+            let model = ws.analysis.semantic_model(owner);
+            let chunk = model.chunk().expect("owner chunk");
+            chunk
+                .descendants::<LuaClosureExpr>()
+                .last()
+                .expect("closure")
+                .get_syntax_id()
+        };
+        let model = ws.analysis.semantic_model(user);
+        let before = foreign_closure_inferences();
+        let first = model
+            .type_of_signature_in_file(owner, closure)
+            .expect("first signature");
+        let second = model
+            .type_of_signature_in_file(owner, closure)
+            .expect("second signature");
+        assert_eq!(first.get_ret(), second.get_ret());
+        assert!(!matches!(first.get_ret(), LuaType::Unknown));
+        assert_eq!(foreign_closure_inferences() - before, 1);
     }
 }
