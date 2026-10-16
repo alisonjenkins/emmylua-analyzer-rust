@@ -479,7 +479,13 @@ pub(crate) fn self_related_owners(db: &SemanticDatabase, owner: &SemanticId) -> 
             found.extend(resolve_owner_set(db, current.clone()));
         }
         for related in found {
-            if &related != owner && !out.contains(&related) {
+            // Two classes documented on one statement both resolve to its declaration; the fields of
+            // one are not the fields of the other.
+            let other_class = matches!(
+                (owner, &related),
+                (SemanticId::TypeDef(_), SemanticId::TypeDef(_))
+            );
+            if &related != owner && !other_class && !out.contains(&related) {
                 out.push(related.clone());
                 pending.push(related);
             }

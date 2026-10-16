@@ -1048,4 +1048,35 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 6, 7])
     }
+
+    const TWO_CLASSES_CALL_RESULTS: &str = r#"
+                ---@class P
+                ---@field x integer
+                ---@class Q
+                ---@field x string
+                ---@return P
+                local function mp() return {} end
+                ---@return Q
+                local function mq() return {} end
+                local a = mp().x
+                local b = mq().x
+            "#;
+
+    #[gtest]
+    fn test_references_of_class_field_read_off_a_call_result_stay_in_that_class() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            &TWO_CLASSES_CALL_RESULTS.replacen("---@field x integer", "---@field x<??> integer", 1)
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 9])
+    }
+
+    #[gtest]
+    fn test_references_of_class_field_of_the_second_class_stay_in_that_class() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            &TWO_CLASSES_CALL_RESULTS.replacen("mq().x", "mq().x<??>", 1)
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![4, 10])
+    }
 }
