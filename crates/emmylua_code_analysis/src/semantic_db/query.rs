@@ -2814,6 +2814,50 @@ pub(crate) fn param_type(
     lower_doc_type(db, file, *type_syntax, &docs.generic_params)
 }
 
+/// A callee that is a `require`d module exporting a function (`require("m")(...)`, or a local set
+/// to `require("m")`): the module's file and the exported function's body.
+fn required_module_closure(
+    db: &SemanticDatabase,
+    facts: &FileFacts,
+    file: FileId,
+    config: &Emmyrc,
+    callee: &LuaExpr,
+) -> Option<(FileId, LuaSyntaxId)> {
+    let call = match callee {
+        LuaExpr::CallExpr(call) => call.clone(),
+        LuaExpr::ParenExpr(paren) => {
+            return required_module_closure(db, facts, file, config, &paren.get_expr()?);
+        }
+        LuaExpr::NameExpr(name_expr) => {
+            let name = name_expr.get_name_text()?;
+            let decl = facts.find_visible_decl_before_offset(&name, name_expr.get_position())?;
+            let tree = syntax_tree(db, file);
+            match find_expr_by_syntax_id(&tree, &decl.value_expr_syntax?)? {
+                LuaExpr::CallExpr(call) => call,
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+    if !call.is_require() {
+        return None;
+    }
+    let module_name = require_module_name(&call)?;
+    let module_file = module_file_from(db, config, SmolStr::new(&module_name), file)?;
+    let module_input = db.file_data_id(module_file)?;
+    let module_facts = file_facts(db, module_input);
+    let exported = match &module_facts.module_export {
+        ModuleExport::Expr { value_syntax } => *value_syntax,
+        ModuleExport::Decl { decl, .. } => module_facts.decl_by_id(decl)?.value_expr_syntax?,
+        _ => return None,
+    };
+    let tree = syntax_tree(db, module_input);
+    match find_expr_by_syntax_id(&tree, &exported)? {
+        LuaExpr::ClosureExpr(closure) => Some((module_input, closure.get_syntax_id())),
+        _ => None,
+    }
+}
+
 /// Call target -> its function body (closure) `LuaSyntaxId`.
 fn callee_closure_syntax(facts: &FileFacts, callee: LuaExpr) -> Option<LuaSyntaxId> {
     match callee {
@@ -3267,6 +3311,11 @@ fn expr_type_call(
         if !shell.is_unknown() {
             return shell;
         }
+    }
+    if let Some((module_input, closure_syntax)) =
+        required_module_closure(db, facts, file, config, &prefix)
+    {
+        return signature_return(db, module_input, config, closure_syntax);
     }
     match callee_closure_syntax(facts, prefix) {
         Some(closure_syntax) => signature_return(db, file, config, closure_syntax),
