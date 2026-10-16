@@ -95,6 +95,50 @@ mod tests {
     }
 
     #[gtest]
+    fn test_definition_of_field_lists_every_assignment() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local fs = {}
+                fs.clone = 1
+                fs.clone = 2
+                print(fs.clo<??>ne)
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 2,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 3,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_definition_of_field_skips_assignments_through_other_variables() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local t = {}
+                local a = t
+                local b = t
+                a.x = 1
+                b.x = 2
+                print(a.<??>x)
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 4,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_basic_definition() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_definition(
@@ -677,6 +721,10 @@ mod tests {
                 },
                 Expected {
                     file: "".to_string(),
+                    line: 3,
+                },
+                Expected {
+                    file: "".to_string(),
                     line: 7,
                 },
                 Expected {
@@ -707,10 +755,16 @@ mod tests {
             local a
             a.ne<??>gate = 0
             "#,
-            vec![Expected {
-                file: "".to_string(),
-                line: 5,
-            },],
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 3,
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 5,
+                },
+            ],
         ));
         Ok(())
     }

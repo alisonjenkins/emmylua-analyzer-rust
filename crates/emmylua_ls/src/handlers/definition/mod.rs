@@ -1,9 +1,10 @@
 mod goto_def_definition;
+mod goto_field_assignment;
 mod goto_label;
 mod goto_module_file;
 mod goto_string;
 
-use emmylua_code_analysis::{EmmyLuaAnalysis, FileId};
+use emmylua_code_analysis::{EmmyLuaAnalysis, FileId, SemanticId};
 use emmylua_parser::{LuaAstNode, LuaAstToken, LuaStringToken, LuaTokenKind};
 use lsp_types::{
     ClientCapabilities, GotoDefinitionParams, GotoDefinitionResponse, OneOf, Position,
@@ -93,7 +94,13 @@ pub fn definition(
 
     // 3. Semantic declarations (decl / member / typedef).
     let decl = model.find_decl(token.clone().into())?;
-    goto_def_definition::goto_def_definition(&model, &analysis.db, &decl, &token)
+    let response = goto_def_definition::goto_def_definition(&model, &analysis.db, &decl, &token)?;
+    if matches!(decl, SemanticId::Member(_)) {
+        return Some(goto_field_assignment::with_field_assignments(
+            analysis, &model, &token, response,
+        ));
+    }
+    Some(response)
 }
 
 pub struct DefinitionCapabilities;
