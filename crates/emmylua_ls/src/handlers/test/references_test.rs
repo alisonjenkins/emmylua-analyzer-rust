@@ -1514,4 +1514,79 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![3, 4, 6])
     }
+
+    #[gtest]
+    fn test_references_of_method_through_local_declared_without_value() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Entry
+                local Entry = {}
+
+                ---@return Entry
+                function Entry.new() return setmetatable({}, Entry) end
+
+                function Entry:get_i<??>tem() return 1 end
+
+                local function run()
+                    local e
+                    e = Entry.new()
+                    print(e:get_item())
+                    e = Entry.new()
+                    print(e:get_item())
+                end
+            "#,
+        ));
+        verify_eq!(
+            reference_lines(&content, position, &mut ws),
+            vec![7, 12, 14]
+        )
+    }
+
+    #[gtest]
+    fn test_references_of_method_through_local_read_in_a_closure_of_its_assigning_function()
+    -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Entry
+                local Entry = {}
+
+                ---@return Entry
+                function Entry.new() return setmetatable({}, Entry) end
+
+                function Entry:get_i<??>tem() return 1 end
+
+                local function run(callback)
+                    local e
+                    e = Entry.new()
+                    callback(function() e:get_item() end)
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![7, 12])
+    }
+
+    #[gtest]
+    fn test_references_of_method_skip_local_assigned_only_in_a_sibling_closure() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Entry
+                local Entry = {}
+
+                ---@return Entry
+                function Entry.new() return setmetatable({}, Entry) end
+
+                function Entry:get_i<??>tem() return 1 end
+
+                local function run(callback)
+                    local e
+                    callback(function() e = Entry.new() end)
+                    callback(function() e:get_item() end)
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![7])
+    }
 }

@@ -560,8 +560,22 @@ impl<'db> SemanticModel<'db> {
                 {
                     ty = param_ty;
                 }
-                // `local x` set later (`x = made`) has no declared type; the expression's own type
-                // carries the assignments that reach this use.
+                // `local e` assigned later (`e = Entry.new()`) has no declared type; the type at
+                // the use comes from the assignments reaching it.
+                if matches!(ty, LuaType::Unknown) && self.is_uninitialized_plain_local(&decl) {
+                    let offset = name_expr.get_position();
+                    if self.is_read_in_nested_closure(&decl, offset) {
+                        // Read in a closure: the flow type has no say, only assignments in the
+                        // functions around the read count.
+                        let info = self.file_facts().and_then(|facts| facts.decl_by_id(&decl));
+                        return info
+                            .and_then(|info| self.infer_assigned_type(info, Some(offset)))
+                            .unwrap_or(LuaType::Unknown);
+                    }
+                    return self.type_of_expr(expr.get_syntax_id());
+                }
+                // `local x = nil` set later (`x = made`): the expression's own type carries the
+                // assignments that reach this use.
                 if matches!(ty, LuaType::Unknown | LuaType::Nil) {
                     let expr_ty = self.type_of_expr(expr.get_syntax_id());
                     if !matches!(expr_ty, LuaType::Unknown | LuaType::Nil) {
