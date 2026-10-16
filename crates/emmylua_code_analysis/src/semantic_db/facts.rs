@@ -1832,6 +1832,9 @@ impl FactsBuilder {
 
     fn collect_assign_stat(&mut self, stat: &LuaAssignStat) {
         let (vars, value_exprs) = stat.get_var_and_expr_list();
+        // `a` or `a, b` without `=` is a parse error recovered as an assignment: it assigns nothing,
+        // so it declares no global.
+        let assigns = stat.get_assign_op().is_some();
         for (idx, var) in vars.iter().enumerate() {
             let value_expr_syntax = value_exprs.get(idx).map(|expr| expr.get_syntax_id());
             match var {
@@ -1840,7 +1843,8 @@ impl FactsBuilder {
                         continue;
                     };
                     let name = name_token.get_name_text();
-                    if name != "_"
+                    if assigns
+                        && name != "_"
                         && self
                             .find_visible_decl_before_offset(name, name_expr.get_position())
                             .is_none()
