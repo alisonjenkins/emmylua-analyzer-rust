@@ -1,6 +1,6 @@
 use std::{collections::HashSet, sync::Mutex};
 
-use emmylua_code_analysis::{DeclKind, EmmyLuaAnalysis, FileFacts, Member, SemanticId};
+use emmylua_code_analysis::{Decl, DeclKind, EmmyLuaAnalysis, FileFacts, Member, SemanticId};
 use emmylua_parser::LuaSyntaxKind;
 use lsp_types::{SymbolKind, SymbolTag, WorkspaceSymbol, WorkspaceSymbolResponse};
 use tokio_util::sync::CancellationToken;
@@ -33,9 +33,18 @@ pub fn build_workspace_symbols(
         let mut symbols = symbols.lock().expect("workspace symbols lock");
         if let Some(decls) = model.decls() {
             for decl in decls.iter() {
-                if !matches!(decl.kind, DeclKind::Global) {
-                    continue;
+                if cancel_token.is_cancelled() {
+                    return;
                 }
+                let kind = match decl.kind {
+                    DeclKind::Global => SymbolKind::FUNCTION,
+                    DeclKind::Local { .. } | DeclKind::Param => {
+                        if decl.is_implicit_self || decl.name == "..." {
+                            continue;
+                        }
+                        local_symbol_kind(decl)
+                    }
+                };
                 if !query.is_empty() && !match_symbol(&decl.name, &query) {
                     continue;
                 }
@@ -44,7 +53,7 @@ pub fn build_workspace_symbols(
                 };
                 symbols.push(WorkspaceSymbol {
                     name: decl.name.to_string(),
-                    kind: SymbolKind::FUNCTION,
+                    kind,
                     tags: None,
                     location: lsp_types::OneOf::Left(lsp_types::Location {
                         uri: uri.clone(),
@@ -145,5 +154,18 @@ fn member_container_name(facts: &FileFacts, member: &Member) -> Option<String> {
             .and_then(|owner| owner.key.get_name())
             .map(str::to_string),
         SemanticId::Signature(_) => None,
+    }
+}
+
+// LuaLS reports every local as Variable; functions are told apart here so
+// clients can filter on them.
+fn local_symbol_kind(decl: &Decl) -> SymbolKind {
+    let is_function = decl
+        .value_expr_syntax
+        .is_some_and(|syntax| syntax.get_kind() == LuaSyntaxKind::ClosureExpr);
+    if is_function {
+        SymbolKind::FUNCTION
+    } else {
+        SymbolKind::VARIABLE
     }
 }
