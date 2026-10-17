@@ -3030,6 +3030,13 @@ thread_local! {
         const { RefCell::new(Vec::new()) };
 }
 
+/// Whether this thread is inside an expression or iterator-slot inference. A re-entrant lookup
+/// returns `Unknown` there, so a result computed meanwhile may be cut short and must not be kept.
+pub(crate) fn semantic_inference_in_progress() -> bool {
+    EXPR_TYPE_IN_PROGRESS.with(|stack| !stack.borrow().is_empty())
+        || ITER_SLOT_IN_PROGRESS.with(|stack| !stack.borrow().is_empty())
+}
+
 struct IterSlotGuard {
     key: (FileId, SemanticId),
 }

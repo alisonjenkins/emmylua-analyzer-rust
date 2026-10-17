@@ -78,4 +78,10 @@ pub(crate) struct SemanticLocalCache {
     /// `(owning file, closure)`. Only outermost inferences are stored; see
     /// `SemanticModel::inferred_closure_return_in_file`.
     pub(crate) foreign_closure_return: HashMap<(FileId, LuaSyntaxId), LuaType>,
+    /// The closure a call's plain-name callee resolves to, keyed by the call's syntax id in the
+    /// model's own file. Name resolution does not depend on what is being inferred.
+    pub(crate) call_callee_closure: HashMap<(FileId, LuaSyntaxId), Option<(FileId, LuaSyntaxId)>>,
+    /// Projected return type of a closure signature, kept only when computed outside any
+    /// in-progress inference; see `call_signature_return` in [`super::flow`].
+    pub(crate) closure_signature_return: HashMap<(FileId, LuaSyntaxId), Option<LuaType>>,
 }

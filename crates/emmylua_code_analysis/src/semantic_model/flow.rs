@@ -2727,38 +2727,86 @@ fn resolve_callable_closure(
     }
 }
 
+/// The closure a call's plain-name callee resolves to (already followed through alias chains).
+fn call_callee_closure(
+    model: &SemanticModel,
+    call: &emmylua_parser::LuaCallExpr,
+) -> Option<(FileId, emmylua_parser::LuaSyntaxId)> {
+    let key = (model.file_id(), call.get_syntax_id());
+    if let Some(cached) = model.cache.borrow().call_callee_closure.get(&key) {
+        return *cached;
+    }
+    let resolved = (|| {
+        let LuaExpr::NameExpr(callee_name) = call.get_prefix_expr()? else {
+            return None;
+        };
+        let decl = model.resolve_name(callee_name.get_position())?;
+        let (file_id, closure_syntax) = resolve_callable_closure(model, decl)?;
+        model
+            .file_facts_of(file_id)?
+            .signature_by_closure(closure_syntax)?;
+        Some((file_id, closure_syntax))
+    })();
+    model
+        .cache
+        .borrow_mut()
+        .call_callee_closure
+        .insert(key, resolved);
+    resolved
+}
+
 /// Original signature at the call site (already followed through alias chains).
 fn call_signature(
     model: &SemanticModel,
     call: &emmylua_parser::LuaCallExpr,
 ) -> Option<(FileId, emmylua_parser::LuaSyntaxId, Signature)> {
-    let LuaExpr::NameExpr(callee_name) = call.get_prefix_expr()? else {
-        return None;
-    };
-    let decl = model.resolve_name(callee_name.get_position())?;
-    let (file_id, closure_syntax) = resolve_callable_closure(model, decl)?;
-    let facts = model.file_facts_of(file_id)?;
-    let signature = facts.signature_by_closure(closure_syntax)?.clone();
+    let (file_id, closure_syntax) = call_callee_closure(model, call)?;
+    let signature = model
+        .file_facts_of(file_id)?
+        .signature_by_closure(closure_syntax)?
+        .clone();
     Some((file_id, closure_syntax, signature))
 }
 
 /// Signature return type for a conditional call guard (cross-file: the decl key carries its own file_id).
+///
+/// The projection of one closure is shared by all its call sites. It is kept only when no
+/// expression inference is in progress: inside one, a re-entrant lookup yields `Unknown`, so the
+/// answer may be cut short and a fresh outermost lookup could differ.
 fn call_signature_return(
     model: &SemanticModel,
     call: &emmylua_parser::LuaCallExpr,
 ) -> Option<LuaType> {
-    let (file_id, closure_syntax, signature) = call_signature(model, call)?;
-    let shell = model.analysis().signature_return(file_id, closure_syntax)?;
-    let generic_names: Vec<smol_str::SmolStr> = signature
-        .docs
-        .as_ref()
-        .map(|docs| docs.generic_params.iter().map(|p| p.name.clone()).collect())
-        .unwrap_or_default();
-    Some(
+    let (file_id, closure_syntax) = call_callee_closure(model, call)?;
+    let key = (file_id, closure_syntax);
+    if let Some(cached) = model.cache.borrow().closure_signature_return.get(&key) {
+        return cached.clone();
+    }
+    let outermost = !crate::semantic_db::query::semantic_inference_in_progress();
+    let projected = (|| {
+        let shell = model.analysis().signature_return(file_id, closure_syntax)?;
+        let signature = model
+            .file_facts_of(file_id)?
+            .signature_by_closure(closure_syntax)?;
+        let generic_names: Vec<smol_str::SmolStr> = signature
+            .docs
+            .as_ref()
+            .map(|docs| docs.generic_params.iter().map(|p| p.name.clone()).collect())
+            .unwrap_or_default();
+        Some(
+            model
+                .analysis()
+                .type_shell_lua_in(file_id, &shell, &generic_names),
+        )
+    })();
+    if outermost {
         model
-            .analysis()
-            .type_shell_lua_in(file_id, &shell, &generic_names),
-    )
+            .cache
+            .borrow_mut()
+            .closure_signature_return
+            .insert(key, projected.clone());
+    }
+    projected
 }
 
 /// Correlated return_overload narrowing: the condition references a discriminant variable from the same multi-return call source.
