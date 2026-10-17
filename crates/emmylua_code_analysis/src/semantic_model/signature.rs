@@ -1,5 +1,5 @@
 use crate::MemberList;
-use emmylua_parser::LuaReturnStat;
+use emmylua_parser::{LuaIndexKey, LuaReturnStat};
 use rowan::TextRange;
 
 use super::prelude::*;
@@ -679,10 +679,7 @@ impl<'db> SemanticModel<'db> {
             SemanticId::Member(table_key) => {
                 // Table-literal field (`---@type D31; local f = { func = function(...) end }`):
                 // the member owner is a synthetic table identity; go back to the declaration that initializes the table and use its declared type as the field type source.
-                match facts.decl_by_value_range(table_key.key_range) {
-                    Some(decl) => self.type_of_decl(&decl.id)?,
-                    None => self.returned_table_doc_type(member_file, table_key.key_range)?,
-                }
+                self.declared_type_of_table_literal(member_file, table_key.key_range)?
             }
             _ => return None,
         };
@@ -690,7 +687,9 @@ impl<'db> SemanticModel<'db> {
         let infos = member::member_infos_with_key_all(self, &owner_ty, &key);
         let mut out = Vec::new();
         for info in &infos {
-            let typ = match &info.typ {
+            // `---@field provider Handler?`: the nil half does not hide the alias of a function.
+            let info_ty = super::types::remove_nil_from_type(info.typ.clone());
+            let typ = match &info_ty {
                 LuaType::Ref(id) | LuaType::Def(id)
                     if self
                         .type_def_of(id)
@@ -699,9 +698,9 @@ impl<'db> SemanticModel<'db> {
                     let def = self.type_def_of(id)?;
                     self.alias_target(&def)
                         .map(|target| type_eval::expand_alias_generic(self, &target))
-                        .unwrap_or_else(|| info.typ.clone())
+                        .unwrap_or_else(|| info_ty.clone())
                 }
-                _ => type_eval::expand_alias_generic(self, &info.typ),
+                _ => type_eval::expand_alias_generic(self, &info_ty),
             };
             match &typ {
                 LuaType::DocFunction(fun) => out.push(fun.as_ref().clone()),
@@ -720,6 +719,43 @@ impl<'db> SemanticModel<'db> {
             out = vec![out.pop()?];
         }
         Some(out)
+    }
+    /// Declared type of a table literal: the `---@type` of the local it initialises, of the
+    /// `return` it sits in, or the type the enclosing literal's class gives its field.
+    fn declared_type_of_table_literal(
+        &self,
+        file_id: FileId,
+        table_range: TextRange,
+    ) -> Option<LuaType> {
+        if let Some(decl) = self
+            .file_facts_of(file_id)?
+            .decl_by_value_range(table_range)
+        {
+            return self.type_of_decl(&decl.id);
+        }
+        if let Some(ty) = self.returned_table_doc_type(file_id, table_range) {
+            return Some(ty);
+        }
+        let tree = self.syntax_tree_of(file_id)?;
+        let table = tree
+            .get_red_root()
+            .covering_element(table_range)
+            .ancestors()
+            .find_map(LuaTableExpr::cast)
+            .filter(|table| table.get_range() == table_range)?;
+        let field = table.get_parent::<LuaTableField>()?;
+        let key = field.get_field_key()?;
+        if !matches!(key, LuaIndexKey::Name(_) | LuaIndexKey::String(_)) {
+            return None;
+        }
+        let parent_range = field.get_parent::<LuaTableExpr>()?.get_range();
+        let parent_ty = self.declared_type_of_table_literal(file_id, parent_range)?;
+        let member_key = LuaMemberKey::Name(key.get_path_part().into());
+        let typ = member::member_infos_with_key_all(self, &parent_ty, &member_key)
+            .into_iter()
+            .next()?
+            .typ;
+        Some(super::types::remove_nil_from_type(typ))
     }
     /// Declared type of a table literal that is returned directly (`---@type T` above `return { ... }`).
     pub fn returned_table_doc_type(&self, file_id: FileId, table_range: TextRange) -> Option<LuaType> {
