@@ -690,6 +690,31 @@ mod tests {
         Ok(())
     }
 
+    // Every `a.b = v` / `function a.b() end` target is a field, whatever the prefix expression is.
+    #[gtest]
+    fn test_field_assignment_through_a_call_result_is_a_field_symbol() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+            local fld_state = {}
+            local function fld_mk() return {} end
+            fld_mk().fld_inner = 1
+            fld_state.fld_a:get().fld_call = 3
+            fld_state.fld_known = 2
+            "#,
+        );
+        for name in ["fld_inner", "fld_call", "fld_known"] {
+            let symbols = query(&ws, name);
+            expect_that!(count_of(&symbols, name), eq(1), "{name}");
+            expect_that!(
+                kind_of(&symbols, name),
+                some(eq(SymbolKind::FIELD)),
+                "{name}"
+            );
+        }
+        Ok(())
+    }
+
     // LuaLS lists `t.x = 1; t.x = 2` once per assignment site.
     #[gtest]
     fn test_repeated_field_assignment_is_one_symbol_per_site() -> Result<()> {

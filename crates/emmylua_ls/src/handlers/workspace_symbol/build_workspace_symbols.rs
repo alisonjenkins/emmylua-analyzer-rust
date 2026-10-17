@@ -9,7 +9,8 @@ use emmylua_code_analysis::{
     TypeDef, TypeDefKind,
 };
 use emmylua_parser::{
-    LuaAssignStat, LuaAstNode, LuaExpr, LuaFuncStat, LuaIndexExpr, LuaSyntaxKind, LuaSyntaxNode,
+    LuaAssignStat, LuaAstNode, LuaAstToken, LuaExpr, LuaFuncStat, LuaIndexExpr, LuaSyntaxKind,
+    LuaSyntaxNode, LuaVarExpr,
 };
 use lsp_types::{SymbolKind, SymbolTag, Uri, WorkspaceSymbol, WorkspaceSymbolResponse};
 use rowan::TextRange;
@@ -188,6 +189,7 @@ pub fn build_workspace_symbols(
             // `local t = { a = 1 }` is collected twice (under the local and under the
             // anonymous table) with the same id; keep the first, which names the local.
             let mut seen_members = HashSet::new();
+            let mut tracked_keys = HashSet::new();
             for member in facts.members.iter() {
                 if cancel_token.is_cancelled() {
                     return;
@@ -208,9 +210,11 @@ pub fn build_workspace_symbols(
                         member_container_name(facts, member),
                     )
                 });
+                tracked_keys.insert(key_range.start());
                 push_global_path(model, facts, member, name, key_range, &mut file);
                 push_enum_path(facts, member, name, key_range, &mut file);
             }
+            push_untracked_field_targets(model, &tracked_keys, &mut file, &cancel_token);
         }
         let mut merged = merged.lock().expect("workspace symbols lock");
         merged.extend(file.best);
@@ -270,6 +274,51 @@ fn push_reassignments(
             continue;
         }
         file.add(&name_use.name, range, || (SymbolKind::VARIABLE, None, None));
+    }
+}
+
+/// LuaLS lists every `a.b = v` / `function a.b() end` target as a field of `b`, whatever the
+/// prefix is (`f().b = v`, `a.b[1].c = v`). The analysis keeps no member for a prefix it cannot
+/// name, so those targets are read from the syntax; keys with a member are already listed.
+fn push_untracked_field_targets(
+    model: &SemanticModel<'_>,
+    tracked_keys: &HashSet<rowan::TextSize>,
+    file: &mut FileSymbols<'_>,
+    cancel_token: &CancellationToken,
+) {
+    let Some(chunk) = model.chunk() else {
+        return;
+    };
+    let mut targets: Vec<LuaIndexExpr> = Vec::new();
+    for assign in chunk.descendants::<LuaAssignStat>() {
+        let (vars, _) = assign.get_var_and_expr_list();
+        targets.extend(vars.into_iter().filter_map(|var| match var {
+            LuaVarExpr::IndexExpr(index) => Some(index),
+            LuaVarExpr::NameExpr(_) => None,
+        }));
+    }
+    for func in chunk.descendants::<LuaFuncStat>() {
+        if let Some(LuaVarExpr::IndexExpr(index)) = func.get_func_name() {
+            targets.push(index);
+        }
+    }
+    for index in targets {
+        if cancel_token.is_cancelled() {
+            return;
+        }
+        let Some(token) = index.get_name_token() else {
+            continue;
+        };
+        let range = token.syntax().text_range();
+        if tracked_keys.contains(&range.start()) {
+            continue;
+        }
+        let kind = if index.get_index_token().is_some_and(|dot| dot.is_colon()) {
+            SymbolKind::METHOD
+        } else {
+            SymbolKind::FIELD
+        };
+        file.add(token.get_name_text(), range, || (kind, None, None));
     }
 }
 
