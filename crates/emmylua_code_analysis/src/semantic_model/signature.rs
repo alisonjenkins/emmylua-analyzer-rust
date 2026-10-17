@@ -352,6 +352,7 @@ impl<'db> SemanticModel<'db> {
                 .analysis()
                 .flow_tree(file_id)
                 .is_some_and(|tree| tree.has_tag_cast())
+            && self.closure_contains_cast(file_id, closure_syntax)
         {
             let inferred = self.inferred_closure_return_in_file(file_id, closure_syntax);
             if !matches!(inferred, LuaType::Unknown | LuaType::Any) {
@@ -365,6 +366,17 @@ impl<'db> SemanticModel<'db> {
             ret = infer::vm::replace_self_type(&ret, &owner_ty);
         }
         ret
+    }
+    /// Whether the closure body holds a `---@cast`; the VM re-inference of its return is skipped otherwise.
+    fn closure_contains_cast(&self, file_id: FileId, closure_syntax: LuaSyntaxId) -> bool {
+        let Some(tree) = self.syntax_tree_of(file_id) else {
+            return true;
+        };
+        let Some(node) = closure_syntax.to_node_from_root(&tree.get_red_root()) else {
+            return true;
+        };
+        node.descendants()
+            .any(|child| child.kind() == LuaSyntaxKind::DocTagCast.into())
     }
     /// Function signature (by closure syntax location) -> structured function type (`DocFunction`).
     pub fn type_of_signature(&self, closure_syntax: LuaSyntaxId) -> Option<LuaFunctionType> {
