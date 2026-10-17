@@ -1377,7 +1377,8 @@ impl PathState {}
 /// Used for `self` return_cast: only allow it if the receiver was first narrowed by another condition/`@cast`.
 /// Uses an explicit work stack; Multiple requires all branches to satisfy the condition.
 fn antecedent_has_narrowing(tree: &FlowTree, start: Option<FlowAntecedent>) -> bool {
-    let mut stack: Vec<(Option<FlowAntecedent>, HashSet<FlowId>)> = vec![(start, HashSet::default())];
+    let mut stack: Vec<(Option<FlowAntecedent>, HashSet<FlowId>)> =
+        vec![(start, HashSet::default())];
     while let Some((antecedent, mut visited)) = stack.pop() {
         match antecedent {
             None => return false,
