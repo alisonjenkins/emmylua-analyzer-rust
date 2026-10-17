@@ -404,4 +404,55 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_classes_made_by_one_setmetatable_factory_stay_apart() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_implementation(
+            r#"
+                local mt = {}
+                local function class() return setmetatable({}, mt) end
+                local A = class()
+                local B = class()
+                function A:in<??>it() end
+                function B:init() end
+            "#,
+            vec![VirtualLocation {
+                file: "".to_string(),
+                line: 5,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_locals_built_by_one_constructor_share_member_sites() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_implementation(
+            r#"
+                local function new() return { label = "x" } end
+                local a = new()
+                local b = new()
+                a.lab<??>el = "A"
+                b.label = "B"
+                local u = {}
+                u.label = "U"
+            "#,
+            vec![
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 1,
+                },
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 4,
+                },
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 5,
+                },
+            ],
+        ));
+        Ok(())
+    }
 }

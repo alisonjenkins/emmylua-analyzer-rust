@@ -234,11 +234,16 @@ fn is_decl_implementation_position(
 /// Whether two owners are provably different tables. Only file-local `local` tables and module exports are
 /// certain: a class, global or nested table can be the same table under another identity, so those are kept.
 fn is_other_member_owner(target: &[OwnerId], candidate: &[OwnerId]) -> bool {
+    // A `local` also carries the identity of the table literal it holds; that stays file-local.
     fn is_file_local(ids: &[OwnerId]) -> bool {
-        !ids.is_empty()
-            && ids
-                .iter()
-                .all(|id| matches!(id, OwnerId::Local(..) | OwnerId::Module(_)))
+        ids.iter()
+            .any(|id| matches!(id, OwnerId::Local(..) | OwnerId::Module(_)))
+            && ids.iter().all(|id| {
+                matches!(
+                    id,
+                    OwnerId::Local(..) | OwnerId::Module(_) | OwnerId::Table(..)
+                )
+            })
     }
     // Untyped table constructors (no class, global or annotation) are distinct tables unless they are the same one.
     fn is_anonymous(ids: &[OwnerId]) -> bool {
