@@ -12,7 +12,7 @@
 //! - `---@cast x +string` adds string to x's path type;
 //! - Flow type for member assignment `t.x = v` / `self.x = v` (FlowEffect::AssignMember).
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 use std::rc::Rc;
 
 use emmylua_parser::{
@@ -109,7 +109,7 @@ pub fn type_of_decl_at(model: &SemanticModel, decl: &SemanticId, offset: TextSiz
         flow_metrics::record_fast_decl_hit();
         return fallback();
     }
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut path = PathState::default();
     let start = skip_own_decl_assign(decl, &tree, flow_id, offset);
     trace_decl(
@@ -132,7 +132,7 @@ pub fn type_of_decl_at_flow_id(model: &SemanticModel, decl: &SemanticId, start: 
     let Some(tree) = model.flow_tree() else {
         return fallback();
     };
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut path = PathState::default();
     trace_decl(
         model,
@@ -158,7 +158,7 @@ pub fn type_of_member_at_flow_id(
     let Some(tree) = model.flow_tree() else {
         return fallback();
     };
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut path = PathState::default();
     trace_member(model, member, &tree, start, &mut visited, &mut path).unwrap_or_else(fallback)
 }
@@ -185,7 +185,7 @@ pub fn type_of_decl_assign_target_at(
     let Some(flow_id) = tree.get_flow_id_at(offset) else {
         return fallback();
     };
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut path = PathState::default();
     let start = skip_own_decl_assign(decl, &tree, flow_id, offset);
     trace_decl(
@@ -310,7 +310,7 @@ pub fn type_of_member_at(model: &SemanticModel, member: &SemanticId, offset: Tex
         if let Some((assign_pos, assign_flow)) = latest
             && !tree.has_flow_event_between(assign_pos, offset, false)
         {
-            let mut visited = HashSet::new();
+            let mut visited = HashSet::default();
             let mut path = PathState::default();
             if let Some(ty) =
                 trace_member(model, member, &tree, assign_flow, &mut visited, &mut path)
@@ -323,7 +323,7 @@ pub fn type_of_member_at(model: &SemanticModel, member: &SemanticId, offset: Tex
             return fallback();
         }
     }
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut path = PathState::default();
     trace_member(model, member, &tree, start, &mut visited, &mut path).unwrap_or_else(fallback)
 }
@@ -381,7 +381,7 @@ pub fn type_of_decl_before_at(
     let Some(node) = tree.get_flow_node(flow_id) else {
         return fallback();
     };
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut path = PathState::default();
     walk_decl(
         model,
@@ -412,7 +412,7 @@ pub fn type_of_member_before_at(
     let Some(node) = tree.get_flow_node(flow_id) else {
         return fallback();
     };
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut path = PathState::default();
     walk_member(
         model,
@@ -702,7 +702,7 @@ fn guarded_index_type(
         return None;
     }
     let mut pending = vec![tree.get_flow_id_at(offset)?];
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut narrowing = Narrowing::Truthy;
     while let Some(current) = pending.pop() {
         if !visited.insert(current) {
@@ -1124,7 +1124,7 @@ fn assignment_antecedent_reachable(
     tree: &FlowTree,
     antecedent: Option<&FlowAntecedent>,
 ) -> bool {
-    let mut reach_visited = HashSet::new();
+    let mut reach_visited = HashSet::default();
     branch_path_reachable(model, tree, antecedent, &mut reach_visited)
 }
 
@@ -1377,7 +1377,7 @@ impl PathState {}
 /// Used for `self` return_cast: only allow it if the receiver was first narrowed by another condition/`@cast`.
 /// Uses an explicit work stack; Multiple requires all branches to satisfy the condition.
 fn antecedent_has_narrowing(tree: &FlowTree, start: Option<FlowAntecedent>) -> bool {
-    let mut stack: Vec<(Option<FlowAntecedent>, HashSet<FlowId>)> = vec![(start, HashSet::new())];
+    let mut stack: Vec<(Option<FlowAntecedent>, HashSet<FlowId>)> = vec![(start, HashSet::default())];
     while let Some((antecedent, mut visited)) = stack.pop() {
         match antecedent {
             None => return false,
@@ -1412,7 +1412,7 @@ fn antecedent_has_narrowing(tree: &FlowTree, start: Option<FlowAntecedent>) -> b
                     return false;
                 };
                 for branch in branches {
-                    stack.push((Some(FlowAntecedent::Single(*branch)), HashSet::new()));
+                    stack.push((Some(FlowAntecedent::Single(*branch)), HashSet::default()));
                 }
             }
         }
@@ -1597,7 +1597,7 @@ fn trace_decl_budgeted(
                 walks: 0,
                 exhausted: false,
                 cycle_cuts: 0,
-                memo: HashMap::new(),
+                memo: HashMap::default(),
             });
         });
         QueryWalksScope
@@ -2702,7 +2702,7 @@ fn resolve_callable_closure(
     model: &SemanticModel,
     mut decl: SemanticId,
 ) -> Option<(FileId, emmylua_parser::LuaSyntaxId)> {
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     loop {
         let SemanticId::Decl(decl_key) = &decl else {
             return None;
@@ -3794,7 +3794,7 @@ fn is_conditional_receiver(model: &SemanticModel, arg: &LuaExpr) -> bool {
 /// not the closure. Trace initializer expressions until we find the original closure/member.
 fn resolve_return_cast_origin(model: &SemanticModel, start: SemanticId) -> Option<SemanticId> {
     let mut current = start;
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     for _ in 0..16 {
         if !seen.insert(current.clone()) {
             return None;
@@ -5124,7 +5124,7 @@ fn condition_may_narrow_decl(
 fn local_merge_common(tree: &FlowTree, branches: &[FlowId]) -> Option<FlowId> {
     let common_for = |start: FlowId| -> Option<FlowId> {
         let mut current = start;
-        let mut visited = HashSet::new();
+        let mut visited = HashSet::default();
         loop {
             if !visited.insert(current) {
                 return None;
@@ -5155,7 +5155,7 @@ fn decl_branch_is_pure(
     stop: FlowId,
 ) -> bool {
     let mut current = start;
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     loop {
         if current == stop {
             return true;
@@ -5269,7 +5269,7 @@ fn member_branch_is_pure(
     stop: FlowId,
 ) -> bool {
     let mut current = start;
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     loop {
         if current == stop {
             return true;
