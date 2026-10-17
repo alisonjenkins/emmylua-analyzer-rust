@@ -2,7 +2,7 @@
 //! of the parameter it is passed to (`set(1, { hl_group = "A" })`), of the local it initialises or of
 //! the field of an enclosing literal. LuaLS counts the keys of such a literal as uses of that class's fields.
 
-use emmylua_code_analysis::{LuaMemberKey, LuaType, SemanticId, SemanticModel};
+use emmylua_code_analysis::{LuaMemberKey, LuaType, SemanticId, SemanticModel, TypeDefKind};
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaAstToken, LuaCallArgList, LuaCallExpr, LuaExpr, LuaIndexExpr,
     LuaIndexKey, LuaLocalStat, LuaReturnStat, LuaTableExpr, LuaTableField,
@@ -14,6 +14,30 @@ pub fn expected_classes_of_table(model: &SemanticModel<'_>, table: &LuaTableExpr
     let mut types = expected_types_of_table(model, table);
     types.retain(is_class_type);
     types
+}
+
+/// The classes the literal behind a table-literal type stands for (`M.state` typed `TableConst` whose
+/// assignment sits under `---@class State`); empty for any other type or a literal of another file.
+pub fn classes_of_table_const(model: &SemanticModel<'_>, ty: &LuaType) -> Vec<LuaType> {
+    let LuaType::TableConst(range) = ty else {
+        return Vec::new();
+    };
+    if range.file_id != model.file_id() {
+        return Vec::new();
+    }
+    let Some(tree) = model.syntax_tree_of(range.file_id) else {
+        return Vec::new();
+    };
+    let Some(table) = tree
+        .get_red_root()
+        .covering_element(range.value)
+        .ancestors()
+        .find_map(LuaTableExpr::cast)
+        .filter(|table| table.get_range() == range.value)
+    else {
+        return Vec::new();
+    };
+    expected_classes_of_table(model, &table)
 }
 
 /// Whether the literal is a field value inside another literal that is an argument of a call.
@@ -82,6 +106,14 @@ fn expected_types_of_table(model: &SemanticModel<'_>, table: &LuaTableExpr) -> V
     }
     // `self.client_state[id] = { key = v }`: the declared type of the assigned target.
     if let Some(assign) = table.syntax().parent().and_then(LuaAssignStat::cast) {
+        // `---@class Opts M.opts = { key = v }`: the class the comment above the assignment declares.
+        if let Some(facts) = model.file_facts() {
+            for def in facts.type_defs_by_owner_syntax(assign.get_syntax_id()) {
+                if matches!(def.kind, TypeDefKind::Class) {
+                    out.push(model.type_def_ref(def));
+                }
+            }
+        }
         let (vars, values) = assign.get_var_and_expr_list();
         if let Some(index) = values
             .iter()

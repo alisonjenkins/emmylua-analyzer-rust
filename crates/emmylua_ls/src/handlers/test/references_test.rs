@@ -1606,4 +1606,26 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 3, 11])
     }
+
+    #[gtest]
+    fn test_references_of_class_field_reach_keys_of_a_literal_assigned_under_the_class() -> Result<()>
+    {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                local M = {}
+
+                ---@class JumpState
+                ---@field mo<??>de string
+                M.state = {
+                    mode = nil,
+                }
+
+                function M.run()
+                    return M.state.mode
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![4, 6, 10])
+    }
 }

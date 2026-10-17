@@ -2306,4 +2306,31 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_key_in_literal_assigned_under_a_class_comment() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                local M = {}
+
+                ---@class JumpState
+                ---@field mode string
+                M.state = {
+                    mo<??>de = nil,
+                }
+            "#,
+            vec![
+                Expected {
+                    file: "".to_string(),
+                    line: 4
+                },
+                Expected {
+                    file: "".to_string(),
+                    line: 6
+                },
+            ]
+        ));
+        Ok(())
+    }
 }
