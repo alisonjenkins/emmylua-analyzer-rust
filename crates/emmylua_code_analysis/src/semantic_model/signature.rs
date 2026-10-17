@@ -143,6 +143,22 @@ impl<'db> SemanticModel<'db> {
             declared.extend(self.type_of_module_export());
         }
         for ty in declared {
+            // Owners whose inferred type is the same table literal (two locals built by one constructor
+            // function, an alias of a table) are one table, whatever they are named.
+            if let LuaType::TableConst(table) = &ty {
+                // `setmetatable({}, Class)` makes a fresh instance per call, not one shared table.
+                let is_instance = self.file_facts_of(table.file_id).is_some_and(|facts| {
+                    facts
+                        .setmetatable_calls()
+                        .iter()
+                        .any(|(range, ..)| *range == table.value)
+                });
+                let table_owner = crate::OwnerId::Table(table.file_id, table.value);
+                if !is_instance && !ids.contains(&table_owner) {
+                    ids.push(table_owner);
+                }
+                continue;
+            }
             if let LuaType::Ref(type_id) | LuaType::Def(type_id) = ty {
                 let scope = match type_id.get_id() {
                     LuaTypeIdentifier::Global(_) => TypeScope::Global,
