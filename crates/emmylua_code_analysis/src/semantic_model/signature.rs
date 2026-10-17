@@ -178,8 +178,9 @@ impl<'db> SemanticModel<'db> {
             if !ids.contains(&table_owner) {
                 ids.push(table_owner);
             }
+            // A table nested in a typed table (`meta = { ... }` under `---@field meta Meta`) is a `Meta`.
             if let Some(LuaType::Ref(type_id) | LuaType::Def(type_id)) =
-                self.returned_table_doc_type(key.file_id, key.key_range)
+                self.declared_type_of_table_literal(key.file_id, key.key_range)
             {
                 let scope = match type_id.get_id() {
                     LuaTypeIdentifier::Global(_) => TypeScope::Global,
