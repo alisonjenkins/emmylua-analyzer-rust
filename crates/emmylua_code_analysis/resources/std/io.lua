@@ -74,8 +74,10 @@ function io.lines(filename, ...) end
 --- some systems to open the file in binary mode.
 --- @param filename string
 --- @param mode?    iolib.OpenMode
+--- @return file?
+--- @return string? errmsg
 --- @return_overload file
---- @return_overload nil, string err
+--- @return_overload nil, string errmsg
 function io.open(filename, mode) end
 
 ---
