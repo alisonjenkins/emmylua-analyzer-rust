@@ -722,7 +722,7 @@ impl<'db> SemanticModel<'db> {
         Some(out)
     }
     /// Declared type of a table literal that is returned directly (`---@type T` above `return { ... }`).
-    fn returned_table_doc_type(&self, file_id: FileId, table_range: TextRange) -> Option<LuaType> {
+    pub fn returned_table_doc_type(&self, file_id: FileId, table_range: TextRange) -> Option<LuaType> {
         let tree = self.syntax_tree_of(file_id)?;
         let root = tree.get_red_root();
         let table = root
