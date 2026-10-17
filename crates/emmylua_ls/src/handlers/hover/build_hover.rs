@@ -5,8 +5,8 @@ use emmylua_code_analysis::{
     MemberInfo, SemanticDatabase, SemanticId, SemanticModel, TypeDef, TypeDefKind, VariadicType,
 };
 use emmylua_parser::{
-    LuaAssignStat, LuaAstNode, LuaCallExpr, LuaClosureExpr, LuaDocAttributeUse, LuaDocDescriptionOwner, LuaDocType,
-    LuaExpr, LuaIndexExpr, LuaLocalStat, LuaReturnStat, LuaSyntaxToken, LuaTableExpr, LuaTableField,
+    LuaAssignStat, LuaAstNode, LuaAstToken, LuaCallExpr, LuaClosureExpr, LuaDocAttributeUse, LuaDocDescriptionOwner, LuaDocType,
+    LuaExpr, LuaIndexExpr, LuaIndexKey, LuaLocalStat, LuaReturnStat, LuaSyntaxToken, LuaTableExpr, LuaTableField,
 };
 use hashbrown::HashMap;
 use lsp_types::{Hover, HoverContents, MarkupContent};
@@ -167,6 +167,8 @@ pub fn build_semantic_info_hover(
     } else {
         (humanize(model, &info.typ), None)
     };
+
+    code = qualify_field_header(model, &token, code);
 
     // `pcall(foo)` synthesizes the full display from the call-site callback signature (covering std's anonymous `...` signature).
     let is_pcall_hover = build_pcall_hover_code(model, &token).is_some();
@@ -542,6 +544,64 @@ fn table_context_type_for_expr(
 
     let ty = model.type_of_expr(syntax_id);
     (!matches!(ty, LuaType::Unknown)).then_some(ty)
+}
+
+/// LuaLS names a field reached through `recv.name` by its receiver: the class(es) of a class-typed
+/// receiver (`Config|Partial.use_file`), else the receiver's own text for a name or a chain of names
+/// (`self.options`, `M.state`). A table-literal key or a declaration has no receiver and stays bare.
+fn qualify_field_header(model: &SemanticModel<'_>, token: &LuaSyntaxToken, code: String) -> String {
+    let Some(rest) = code.strip_prefix("(field) ") else {
+        return code;
+    };
+    let Some(index_expr) = token.parent().and_then(LuaIndexExpr::cast) else {
+        return code;
+    };
+    let Some(LuaIndexKey::Name(key)) = index_expr.get_index_key() else {
+        return code;
+    };
+    if key.syntax() != token || !rest.starts_with(&format!("{}:", token.text())) {
+        return code;
+    }
+    let Some(prefix) = index_expr.get_prefix_expr() else {
+        return code;
+    };
+    let mut qualifier = class_names_of(model, &model.type_of_expr(prefix.get_syntax_id())).join("|");
+    if qualifier.is_empty() {
+        let text = prefix.syntax().text().to_string();
+        let is_name_chain = !text.is_empty()
+            && text
+                .split('.')
+                .all(|part| !part.is_empty() && part.chars().all(|c| c.is_alphanumeric() || c == '_'));
+        if !is_name_chain {
+            return code;
+        }
+        qualifier = text;
+    }
+    format!("(field) {qualifier}.{rest}")
+}
+
+fn class_names_of(model: &SemanticModel<'_>, ty: &LuaType) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut stack = vec![ty.clone()];
+    while let Some(ty) = stack.pop() {
+        match &ty {
+            LuaType::Ref(id) | LuaType::Def(id) => {
+                if model
+                    .type_def_of(id)
+                    .is_some_and(|def| def.kind == TypeDefKind::Class)
+                    && !names.contains(&id.get_name().to_string())
+                {
+                    names.push(id.get_name().to_string());
+                }
+            }
+            LuaType::Generic(generic) => {
+                stack.push(LuaType::Ref(generic.get_base_type_id()));
+            }
+            LuaType::Union(union) => stack.extend(union.into_vec().into_iter().rev()),
+            _ => {}
+        }
+    }
+    names
 }
 
 /// Whether the member access (`x.foo` / `x:foo`) containing the current token is applied to an

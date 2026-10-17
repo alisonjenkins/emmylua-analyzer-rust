@@ -65,7 +65,7 @@ mod tests {
             "#,
             VirtualHoverResult {
                 value:
-                    "```lua\n(field) __index: { __index: table, new: function }\n```".to_string(),
+                    "```lua\n(field) M.__index: { __index: table, new: function }\n```".to_string(),
             },
         ));
         Ok(())
@@ -148,7 +148,7 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) right: Node {\n    x: number,\n    right: Node?,\n}\n```"
+                value: "```lua\n(field) Node.right: Node {\n    x: number,\n    right: Node?,\n}\n```"
                     .to_string(),
             },
         ));
@@ -192,7 +192,7 @@ mod tests {
                 local d = a.<??>a
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) a: number?\n```".to_string(),
+                value: "```lua\n(field) A.a: number?\n```".to_string(),
             },
         ));
         Ok(())
@@ -300,7 +300,7 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) age: integer\n```\n\n---\n\n年龄".to_string(),
+                value: "```lua\n(field) animal.age: integer\n```\n\n---\n\n年龄".to_string(),
             },
         ));
 
@@ -505,7 +505,7 @@ mod tests {
                 data.pu<??>lse
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) pulse: number?\n```\n\n&nbsp;&nbsp;in class `Buff.AddData`\n\n---\n\n心跳周期".to_string(),
+                value: "```lua\n(field) Buff.AddData.pulse: number?\n```\n\n&nbsp;&nbsp;in class `Buff.AddData`\n\n---\n\n心跳周期".to_string(),
             },
         ));
         Ok(())
@@ -528,7 +528,7 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) _cfg: number\n```".to_string(),
+                value: "```lua\n(field) T1._cfg: number\n```".to_string(),
             },
         ));
 
@@ -549,10 +549,10 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) _cfg: number\n```".to_string(),
+                value: "```lua\n(field) T2._cfg: number\n```".to_string(),
             },
         ));
-        Ok(())
+    Ok(())
     }
 
     #[gtest]
@@ -634,7 +634,7 @@ mod tests {
                 value: dedent(
                     r#"
                     ```lua
-                    (field) SubModule: MyModule.SubModule
+                    (field) MyModule.SubModule: MyModule.SubModule
                     ```
 
                     ---
@@ -699,7 +699,7 @@ mod tests {
                 export.v<??>vv
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) vvv: number?\n```\n\n---\n\nactiveSub".to_string(),
+                value: "```lua\n(field) export.vvv: number?\n```\n\n---\n\nactiveSub".to_string(),
             },
         ));
         Ok(())
@@ -961,7 +961,7 @@ mod tests {
                 print(c.<??>aaa)
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) aaa: integer\n```".to_string(),
+                value: "```lua\n(field) MyTable.aaa: integer\n```".to_string(),
             },
         ));
         check!(ws.check_hover(
@@ -975,7 +975,7 @@ mod tests {
                 local x = c.<??>bbb
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) bbb: integer\n```".to_string(),
+                value: "```lua\n(field) MyTable.bbb: integer\n```".to_string(),
             },
         ));
         Ok(())
@@ -1032,7 +1032,7 @@ mod tests {
                 print(p.<??>second)
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) second: string\n```".to_string(),
+                value: "```lua\n(field) Pair.second: string\n```".to_string(),
             },
         ));
         Ok(())
@@ -1720,7 +1720,7 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) git_obj: GitObj {\n    file: string,\n    n: integer,\n}\n```"
+                value: "```lua\n(field) Cache.git_obj: GitObj {\n    file: string,\n    n: integer,\n}\n```"
                     .to_string(),
             },
         ));
@@ -1790,7 +1790,7 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) params: { acls: integer, group: unknown }\n```"
+                value: "```lua\n(field) self.params: { acls: integer, group: unknown }\n```"
                     .to_string(),
             },
         ));
@@ -1807,7 +1807,7 @@ mod tests {
                 end
             "#,
             VirtualHoverResult {
-                value: "```lua\n(field) dao: { page: unknown }\n```".to_string(),
+                value: "```lua\n(field) self.dao: { page: unknown }\n```".to_string(),
             },
         ));
         Ok(())
