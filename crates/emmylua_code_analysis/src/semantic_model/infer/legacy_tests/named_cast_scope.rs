@@ -354,3 +354,28 @@ fn recursive_union_member_cast_preserves_the_selected_owner() {
     assert_eq!(local_type(&ws, file, "recursive_owner"), ws.ty("WithIndex"));
     assert_eq!(local_type(&ws, file, "recursive_field"), LuaType::Integer);
 }
+
+#[gtest]
+fn cast_of_documented_param_wins_in_inferred_return() {
+    let mut ws = VirtualWorkspace::new_with_init_std_lib();
+    let file = ws.def(
+        r#"
+        ---@class Opts
+        ---@class W: Opts
+
+        ---@param o Opts
+        local function widen(o)
+            ---@cast o W
+            local inner = o
+            return o
+        end
+
+        ---@type Opts
+        local input = {}
+        local result = widen(input)
+        "#,
+    );
+    let expected = ws.ty("W");
+    expect_that!(local_type(&ws, file, "inner"), eq(&expected));
+    expect_that!(local_type(&ws, file, "result"), eq(&expected));
+}

@@ -344,6 +344,20 @@ impl<'db> SemanticModel<'db> {
                 ret = rich;
             }
         }
+        // The shell types a returned parameter by its declaration, ignoring `---@cast`; the VM
+        // reads the flow, so it wins when the file has casts and the body decides the return.
+        if !matches!(ret, LuaType::Unknown)
+            && signature.infers_return_from_body()
+            && self
+                .analysis()
+                .flow_tree(file_id)
+                .is_some_and(|tree| tree.has_tag_cast())
+        {
+            let inferred = self.inferred_closure_return_in_file(file_id, closure_syntax);
+            if !matches!(inferred, LuaType::Unknown | LuaType::Any) {
+                ret = inferred;
+            }
+        }
         // `self` in method annotations is the receiver instance; concretize the signature return type by the method owner.
         if signature.is_method
             && let Some(owner_ty) = self.method_owner_type(closure_syntax)
