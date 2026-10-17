@@ -1984,4 +1984,122 @@ mod tests {
         verify_that!(hover_text, contains_substring("errmsg: string?"))?;
         Ok(())
     }
+
+    fn header_hover_text(content: &str) -> Result<String> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = ProviderVirtualWorkspace::handle_file_content(content)?;
+        let file_id = ws.def(&content);
+        let hover = crate::handlers::hover::hover(&ws.analysis, file_id, position)
+            .ok_or("no hover")
+            .or_fail()?;
+        Ok(format!("{hover:?}"))
+    }
+
+    /// LuaLS parenthesises an optional whose only non-nil member is a class with a dotted name
+    /// (`(wk.Foo)?`) in the declaration header, and leaves plain-named classes alone.
+    #[gtest]
+    fn test_hover_header_parenthesizes_optional_dotted_class_local() -> Result<()> {
+        let text = header_hover_text(
+            r#"
+            ---@class wk.Foo
+            ---@field x number
+
+            ---@type wk.Foo?
+            local t<??>op
+            "#,
+        )?;
+        verify_that!(text, contains_substring("local top: (wk.Foo)? {"))?;
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_hover_header_parenthesizes_optional_dotted_class_param() -> Result<()> {
+        let text = header_hover_text(
+            r#"
+            ---@class wk.Foo
+            ---@field x number
+
+            ---@param p wk.Foo?
+            local function f(<??>p) end
+            "#,
+        )?;
+        verify_that!(text, contains_substring("(parameter) p: (wk.Foo)?"))?;
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_hover_header_parenthesizes_optional_dotted_class_field() -> Result<()> {
+        let text = header_hover_text(
+            r#"
+            ---@class wk.Foo
+            ---@field x number
+
+            ---@class wk.Holder
+            ---@field a? wk.Foo
+
+            ---@type wk.Holder
+            local h
+            local v = h.<??>a
+            "#,
+        )?;
+        verify_that!(text, contains_substring("a: (wk.Foo)?"))?;
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_hover_header_keeps_plain_named_optional_class_bare() -> Result<()> {
+        let text = header_hover_text(
+            r#"
+            ---@class Plain
+            ---@field x number
+
+            ---@type Plain?
+            local t<??>op
+            "#,
+        )?;
+        verify_that!(text, contains_substring("local top: Plain? {"))?;
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_hover_header_keeps_dotted_optional_array_bare() -> Result<()> {
+        let text = header_hover_text(
+            r#"
+            ---@class wk.Foo
+            ---@field x number
+
+            ---@type wk.Foo[]?
+            local t<??>op
+            "#,
+        )?;
+        verify_that!(text, contains_substring("local top: wk.Foo[]?"))?;
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_hover_header_keeps_optional_function_parenthesized() -> Result<()> {
+        let text = header_hover_text(
+            r#"
+            ---@type (fun(a: string): string)?
+            local t<??>op
+            "#,
+        )?;
+        verify_that!(text, contains_substring("local top: (fun(a: string) -> string)?"))?;
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_hover_return_row_keeps_dotted_optional_class_bare() -> Result<()> {
+        let text = header_hover_text(
+            r#"
+            ---@class wk.Foo
+            ---@field x number
+
+            ---@return wk.Foo?
+            local function g<??>et() end
+            "#,
+        )?;
+        verify_that!(text, contains_substring("-> wk.Foo?"))?;
+        Ok(())
+    }
 }
