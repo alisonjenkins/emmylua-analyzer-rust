@@ -16,7 +16,7 @@ use emmylua_parser::{
 use lsp_types::Location;
 
 use crate::handlers::common::{
-    class_fields_of_table_key, decl_reference_ranges, label_reference_ranges,
+    class_fields_named, class_fields_of_table_key, decl_reference_ranges, label_reference_ranges,
     member_reference_ranges, type_def_reference_ranges,
 };
 
@@ -219,25 +219,7 @@ fn class_fields_of_index(model: &SemanticModel<'_>, index_expr: &LuaIndexExpr) -
         let (LuaType::Ref(type_id) | LuaType::Def(type_id)) = &component else {
             continue;
         };
-        let Some(class) = model.type_def_of(type_id) else {
-            continue;
-        };
-        // Only the receiver's own `---@field`s: a parent class's field of the same name is another slot.
-        out.extend(
-            model
-                .member_infos_with_key_all(&component, &member_key)
-                .into_iter()
-                .filter_map(|info| info.id)
-                .filter(|id| {
-                    let SemanticId::Member(member_key) = id else {
-                        return false;
-                    };
-                    model
-                        .file_facts_of(member_key.file_id)
-                        .and_then(|facts| facts.member_by_id(id))
-                        .is_some_and(|fact| fact.owner == class.id)
-                }),
-        );
+        out.extend(class_fields_named(model, type_id, &component, &member_key));
     }
     out
 }
