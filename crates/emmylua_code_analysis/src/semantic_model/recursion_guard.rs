@@ -60,6 +60,13 @@ thread_local! {
     static STACK_BUDGET: Cell<usize> = const { Cell::new(DEFAULT_STACK_BUDGET) };
 }
 
+/// Stack size for the worker threads of a binary that runs the analysis (pass it to the runtime's
+/// `thread_stack_size` and to [`register_thread_stack`]). The budget is 60% of it, 2.4 MB: more
+/// than the 2 MiB a plain worker has in total, so every chain that a plain worker answers is
+/// answered here too. Much larger stacks let corpora with deep chains do many times the work
+/// (a duplicated nvim runtime took 14 s at 8 MiB and 27 s at 128 MiB, against 9 s at 4 MiB).
+pub const WORKER_STACK_BYTES: usize = 4 * 1024 * 1024;
+
 /// Tells the guard how big the calling thread's stack is, so deep queries may use that much of it
 /// instead of the default 2 MiB assumption. Call it first thing on a thread whose stack was made
 /// larger (a runtime's `on_thread_start`): the stack top is taken from here, so the frames already
