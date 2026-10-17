@@ -385,14 +385,12 @@ pub(crate) fn rebuild_all_caches(db: &mut SemanticDatabase) {
 
     rebuild_workspace_indexes(db);
 
-    for file_id in file_ids.iter().copied() {
-        if let Some(file) = db.file_data_id(file_id) {
-            let references = build_file_references(db, file);
-            db.files
-                .get_mut(&file_id)
-                .expect("file cache must exist before references build")
-                .references = Arc::new(references);
-        }
+    let built_references = par_map(&live_ids, |&file_id| build_file_references(db, file_id));
+    for (file_id, references) in live_ids.iter().copied().zip(built_references) {
+        db.files
+            .get_mut(&file_id)
+            .expect("file cache must exist before references build")
+            .references = Arc::new(references);
     }
 
     rebuild_workspace_reference_indexes(db);
