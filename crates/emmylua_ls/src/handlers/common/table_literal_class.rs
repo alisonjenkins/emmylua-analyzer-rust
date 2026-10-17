@@ -155,21 +155,28 @@ pub fn class_fields_of_table_key(
         let Some(class) = model.type_def_of(type_id) else {
             continue;
         };
-        out.extend(
+        let fields = model
+            .member_infos_with_key_all(&class_type, &member_key)
+            .into_iter()
+            .filter_map(|info| info.id)
+            .filter(|id| matches!(id, SemanticId::Member(_)))
+            .collect::<Vec<_>>();
+        let (own, inherited): (Vec<_>, Vec<_>) = fields.into_iter().partition(|id| {
+            let SemanticId::Member(member_key) = id else {
+                return false;
+            };
             model
-                .member_infos_with_key_all(&class_type, &member_key)
-                .into_iter()
-                .filter_map(|info| info.id)
-                .filter(|id| {
-                    let SemanticId::Member(member_key) = id else {
-                        return false;
-                    };
-                    model
-                        .file_facts_of(member_key.file_id)
-                        .and_then(|facts| facts.member_by_id(id))
-                        .is_some_and(|fact| fact.owner == class.id)
-                }),
-        );
+                .file_facts_of(member_key.file_id)
+                .and_then(|facts| facts.member_by_id(id))
+                .is_some_and(|fact| fact.owner == class.id)
+        });
+        // A field the class redeclares is its own slot; otherwise the key names the nearest
+        // parent's field (`---@class Rule: Icon` with `{ icon = "x" }`).
+        if own.is_empty() {
+            out.extend(inherited.into_iter().take(1));
+        } else {
+            out.extend(own);
+        }
     }
     out
 }
