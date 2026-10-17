@@ -1952,6 +1952,29 @@ mod tests {
         Ok(())
     }
 
+    /// A generic member that also carries `---@overload` keeps call-site generic substitution on
+    /// the declared-signature line, and still lists the overload.
+    #[gtest]
+    fn test_hover_overloaded_generic_member_call_keeps_substitution() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local Obj = {}
+                ---@generic T
+                ---@overload fun(x: string): string
+                ---@param x T
+                ---@return T
+                function Obj.gen(x) return x end
+
+                Obj.<??>gen(1)
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction Obj.gen(x: integer) -> integer (+1 overloads)\n```\n\n---\n\n---\n\n```lua\nfunction Obj.gen(x: string) -> string\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     #[gtest]
     fn test_hover_std_table_insert_call_lists_overloads() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();

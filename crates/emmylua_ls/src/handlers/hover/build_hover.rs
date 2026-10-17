@@ -759,6 +759,29 @@ fn decl_overload_count(
         .unwrap_or(0)
 }
 
+/// True when `typ` is one of the closure's own `---@overload` signatures, i.e. the call selected
+/// an overload rather than the (call-site substituted) declared signature.
+fn typ_is_decl_overload(
+    model: &SemanticModel<'_>,
+    closure_syntax: emmylua_parser::LuaSyntaxId,
+    typ: &LuaType,
+) -> bool {
+    let Some(docs) = model.signatures().and_then(|signatures| {
+        signatures
+            .iter()
+            .find(|signature| signature.closure_syntax == closure_syntax)
+            .and_then(|signature| signature.docs.as_ref())
+    }) else {
+        return false;
+    };
+    docs.overloads.iter().any(|overload_syntax| {
+        matches!(
+            (model.doc_type_lua_in(model.file_id(), *overload_syntax, &[]), typ),
+            (LuaType::DocFunction(a), LuaType::DocFunction(b)) if a == *b
+        )
+    })
+}
+
 /// Render `---@overload fun(...)` as separate function signature blocks (substituting call-site generic bindings when possible).
 fn render_decl_overload_blocks(
     model: &SemanticModel<'_>,
@@ -1719,7 +1742,13 @@ fn build_member_hover(
     let signature_overloads = member_info
         .value_syntax
         .map_or(0, |closure| decl_overload_count(model, closure));
-    let call_site_substituted = call_site_substituted && signature_overloads == 0;
+    // When the call selected one of those overloads, show the declared signature instead; when it
+    // selected the declared signature, keep its call-site generic substitution.
+    let call_site_substituted = call_site_substituted
+        && !(signature_overloads > 0
+            && member_info
+                .value_syntax
+                .is_some_and(|closure| typ_is_decl_overload(model, closure, typ)));
     let mut runtime_member = member_info.clone();
     // The member use site may exist as a standalone member fact (no doc/value). For hover, prefer falling back to
     // the real defining member with the same key and owner (which has `---@type` or a value expression) to get type and comments.
