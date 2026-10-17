@@ -2007,4 +2007,74 @@ mod tests {
         verify_that!(hover_text, contains_substring("errmsg: string?"))?;
         Ok(())
     }
+
+    fn hover_text_at(content: &str) -> Result<String> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = ProviderVirtualWorkspace::handle_file_content(content)?;
+        let file_id = ws.def(&content);
+        let hover = crate::handlers::hover::hover(&ws.analysis, file_id, position)
+            .ok_or("no hover")
+            .or_fail()?;
+        Ok(format!("{hover:?}"))
+    }
+
+    #[gtest]
+    fn test_hover_field_of_returned_typed_table_uses_declared_type() -> Result<()> {
+        let text = hover_text_at(
+            r#"
+            ---@class Meta
+            ---@field url string
+            ---@field deprecated? boolean
+
+            ---@class Cfg
+            ---@field meta Meta
+
+            ---@type Cfg
+            return {
+                <??>meta = { url = "x" },
+            }
+            "#,
+        )?;
+        verify_that!(text, contains_substring("(field) meta: Meta"))?;
+        verify_that!(text, contains_substring("deprecated: boolean?"))?;
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_hover_value_field_of_typed_string_map_uses_value_type() -> Result<()> {
+        let text = hover_text_at(
+            r#"
+            ---@class Meta
+            ---@field url string
+
+            ---@type table<string, Meta>
+            local fields = {
+                <??>lhs = {},
+            }
+            "#,
+        )?;
+        verify_that!(text, contains_substring("(field) lhs: Meta"))?;
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_hover_field_of_nested_typed_table_uses_declared_type() -> Result<()> {
+        let text = hover_text_at(
+            r#"
+            ---@class Meta
+            ---@field url string
+            ---@field deprecated? boolean
+
+            ---@class Cfg
+            ---@field meta Meta
+
+            ---@type Cfg
+            local c = {
+                meta = { <??>url = "x" },
+            }
+            "#,
+        )?;
+        verify_that!(text, contains_substring("(field) url: string"))?;
+        Ok(())
+    }
 }
