@@ -275,7 +275,7 @@ fn is_class_type(ty: &LuaType) -> bool {
 }
 
 /// The type of the values of `Elem[]` and `table<K, Elem>`.
-fn container_element_type(ty: &LuaType) -> Option<LuaType> {
+pub fn container_element_type(ty: &LuaType) -> Option<LuaType> {
     match ty {
         LuaType::Array(array) => Some(array.get_base().clone()),
         LuaType::TableGeneric(params) => params.get(1).cloned(),
