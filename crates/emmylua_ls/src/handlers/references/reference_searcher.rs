@@ -16,7 +16,7 @@ use emmylua_parser::{
 use lsp_types::Location;
 
 use crate::handlers::common::{
-    class_fields_of_table_key, decl_reference_ranges, label_reference_ranges,
+    class_fields_of_table_key, classes_of_table_const, decl_reference_ranges, label_reference_ranges,
     member_reference_ranges, type_def_reference_ranges,
 };
 
@@ -212,7 +212,13 @@ fn class_fields_of_index(model: &SemanticModel<'_>, index_expr: &LuaIndexExpr) -
     let components = match &receiver_type {
         LuaType::Union(union) => union.into_vec(),
         other => vec![other.clone()],
-    };
+    }
+    .into_iter()
+    .flat_map(|component| match classes_of_table_const(model, &component) {
+        classes if classes.is_empty() => vec![component],
+        classes => classes,
+    })
+    .collect::<Vec<_>>();
     let member_key = LuaMemberKey::Name(key.get_path_part().into());
     let mut out = Vec::new();
     for component in components {
