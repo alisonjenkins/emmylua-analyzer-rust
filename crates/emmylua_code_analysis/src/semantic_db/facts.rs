@@ -284,6 +284,14 @@ impl FileFacts {
         self.type_defs.get(*index)
     }
 
+    /// Every def carrying this id (a class redeclared in one file has more than one).
+    pub fn type_defs_with_id<'a>(
+        &'a self,
+        id: &'a SemanticId,
+    ) -> impl Iterator<Item = &'a TypeDef> + 'a {
+        self.type_defs.iter().filter(move |def| &def.id == id)
+    }
+
     pub fn type_def_by_name(&self, name: &str) -> Option<&TypeDef> {
         let index = self.type_def_by_name.get(&SmolStr::new(name))?;
         self.type_defs.get(*index)

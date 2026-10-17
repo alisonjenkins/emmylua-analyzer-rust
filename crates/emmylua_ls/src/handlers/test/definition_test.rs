@@ -2130,4 +2130,31 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_definition_of_method_of_class_redeclared_on_a_constructed_local() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_definition(
+            r#"
+                ---@class A.Glob
+                local M = {}
+                M.__index = M
+
+                function M:word(path)
+                    return self:wo<??>rd(path)
+                end
+
+                local function create()
+                    ---@class A.Glob
+                    local glob = setmetatable({}, M)
+                    return glob
+                end
+            "#,
+            vec![Expected {
+                file: "".to_string(),
+                line: 5
+            }],
+        ));
+        Ok(())
+    }
 }
