@@ -530,25 +530,34 @@ fn module_alias_decls_of_decl(
         }
     }
 
-    for module_file in module_files {
-        let Some(module_name) = db.module_name_of(module_file) else {
+    let module_names: Vec<String> = module_files
+        .into_iter()
+        .filter_map(|module_file| db.module_name_of(module_file))
+        .collect();
+    if module_names.is_empty() {
+        return out;
+    }
+
+    // One pass over the declarations, whatever the number of exporting files.
+    let mut requires = Vec::new();
+    for file_id in db.file_ids() {
+        let model = SemanticModel::new(db, file_id);
+        let Some(decls) = model.decls() else {
             continue;
         };
-        for file_id in db.file_ids() {
-            let model = SemanticModel::new(db, file_id);
-            let Some(decls) = model.decls() else {
+        for alias_decl in decls.iter() {
+            let Some(value_syntax) = alias_decl.value_expr_syntax else {
                 continue;
             };
-            for alias_decl in decls.iter() {
-                let Some(value_syntax) = alias_decl.value_expr_syntax else {
-                    continue;
-                };
-                let Some(require_name) = require_module_name_at(&model, value_syntax) else {
-                    continue;
-                };
-                if require_name == module_name {
-                    out.push((alias_decl.id.clone(), Vec::new()));
-                }
+            if let Some(require_name) = require_module_name_at(&model, value_syntax) {
+                requires.push((require_name, alias_decl.id.clone()));
+            }
+        }
+    }
+    for module_name in &module_names {
+        for (require_name, alias_id) in &requires {
+            if require_name == module_name {
+                out.push((alias_id.clone(), Vec::new()));
             }
         }
     }
@@ -560,9 +569,9 @@ fn require_module_name_at(
     call_syntax: emmylua_parser::LuaSyntaxId,
 ) -> Option<String> {
     let chunk = model.chunk()?;
-    let call = chunk
-        .descendants::<LuaCallExpr>()
-        .find(|call| call.get_syntax_id() == call_syntax)?;
+    let call = call_syntax
+        .to_node_from_root(chunk.syntax())
+        .and_then(LuaCallExpr::cast)?;
     if !call.is_require() {
         return None;
     }
@@ -628,18 +637,18 @@ fn decls_aliased_to_member(db: &SemanticDatabase, member: &SemanticId) -> Vec<Se
             let Some(value_syntax) = decl.value_expr_syntax else {
                 continue;
             };
-            for index_expr in chunk.descendants::<LuaIndexExpr>() {
-                if index_expr.get_syntax_id() != value_syntax {
-                    continue;
-                }
-                let resolved = model
-                    .resolve_member(&index_expr)
-                    .and_then(|resolved| resolved.member_id)
-                    .or_else(|| require_index_member(&model, &index_expr));
-                if resolved.as_ref() == Some(member) {
-                    out.push(decl.id.clone());
-                }
-                break;
+            let Some(index_expr) = value_syntax
+                .to_node_from_root(chunk.syntax())
+                .and_then(LuaIndexExpr::cast)
+            else {
+                continue;
+            };
+            let resolved = model
+                .resolve_member(&index_expr)
+                .and_then(|resolved| resolved.member_id)
+                .or_else(|| require_index_member(&model, &index_expr));
+            if resolved.as_ref() == Some(member) {
+                out.push(decl.id.clone());
             }
         }
     }
