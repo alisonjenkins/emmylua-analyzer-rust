@@ -3,6 +3,7 @@ use emmylua_parser::{LuaIndexKey, LuaReturnStat};
 use rowan::TextRange;
 
 use super::prelude::*;
+use super::recursion_guard;
 
 impl<'db> SemanticModel<'db> {
     /// Members whose owner is a `SemanticId` (cross-file).
@@ -945,46 +946,49 @@ impl<'db> SemanticModel<'db> {
     /// Return type inferred from the body of a closure that may live in another file.
     ///
     /// The closure's syntax tree and scope belong to its own file, so a foreign closure is inferred
-    /// with that file's model. Each foreign model starts with an empty in-progress set, so mutually
-    /// recursive cross-file functions are cut off by a depth limit instead.
+    /// with that file's model. The models share one stack of closures being inferred, so mutually
+    /// recursive cross-file functions are cut where they repeat; a depth limit bounds the rest.
     ///
     /// The foreign model is built per call and discarded, so its caches never help the next
-    /// lookup. Outermost inferences (no foreign inference and no `__index` walk above them) are
-    /// kept here instead: they do not depend on what the caller is in the middle of, and a nested
-    /// inference can be cut by the depth limits, so it is recomputed as before.
+    /// lookup. Finished inferences are kept in the shared state instead, unless a cycle cut or a
+    /// depth limit inside them made them depend on what the caller was in the middle of: a
+    /// function reached through many call paths is inferred once, not once per path.
     pub(crate) fn inferred_closure_return_in_file(
         &self,
         file_id: FileId,
         closure_syntax: LuaSyntaxId,
     ) -> LuaType {
-        if file_id == self.view.file_id() {
-            return infer::closure_return_lua(self, closure_syntax);
-        }
         thread_local! {
             static FOREIGN_DEPTH: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
         }
         const MAX_FOREIGN_DEPTH: u8 = 4;
+        let key = (file_id, closure_syntax);
+        if let Some(cached) = self.closure_returns().memoized(&key) {
+            return cached;
+        }
         let depth = FOREIGN_DEPTH.with(|depth| depth.get());
-        if depth >= MAX_FOREIGN_DEPTH {
+        let foreign_file = file_id != self.view.file_id();
+        if foreign_file && depth >= MAX_FOREIGN_DEPTH {
+            recursion_guard::note_depth_cut();
             return LuaType::Unknown;
         }
-        let outermost = depth == 0 && member::index_table_depth() == 0;
-        let key = (file_id, closure_syntax);
-        if outermost && let Some(cached) = self.cache.borrow().foreign_closure_return.get(&key) {
-            return cached.clone();
+        let Some(frame) = self.closure_returns().begin(key) else {
+            return LuaType::Unknown;
+        };
+        let entered_at_depth_zero = depth == 0 && member::index_table_depth() == 0;
+        if foreign_file {
+            FOREIGN_DEPTH.with(|d| d.set(depth + 1));
         }
-        FOREIGN_DEPTH.with(|d| d.set(depth + 1));
         #[cfg(test)]
         FOREIGN_CLOSURE_INFERENCES.with(|count| count.set(count.get() + 1));
-        let foreign = self.model_for(file_id);
-        let inferred = infer::closure_return_lua(&foreign, closure_syntax);
+        // A model of its own, also for this file: the caches of the caller hold answers cut short
+        // by whatever it is in the middle of, which must not leak into a result that is kept.
+        let own = self.model_for(file_id);
+        let inferred =
+            infer::vm::InferVm::new(&own, &[]).compute_closure_return_type_with_env(closure_syntax);
         FOREIGN_DEPTH.with(|d| d.set(depth));
-        if outermost {
-            self.cache
-                .borrow_mut()
-                .foreign_closure_return
-                .insert(key, inferred.clone());
-        }
+        self.closure_returns()
+            .end(frame, Some((&inferred, entered_at_depth_zero)));
         inferred
     }
     /// Signature structure of a closure in any file (used for cross-file member/global function signature resolution).
@@ -1161,5 +1165,62 @@ mod tests {
         assert_eq!(first.get_ret(), second.get_ret());
         assert!(!matches!(first.get_ret(), LuaType::Unknown));
         assert_eq!(foreign_closure_inferences() - before, 1);
+    }
+
+    /// Modules that call every function of the next module: each function is reachable through
+    /// `FANOUT.pow(level)` call paths, but must be inferred once.
+    #[test]
+    fn foreign_closure_return_is_inferred_once_per_function_not_per_call_path() {
+        const LEVELS: usize = 5;
+        const FANOUT: usize = 4;
+        let names = ["a", "b", "c", "d"];
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+        let user = ws.def_file("user.lua", "local x = 1");
+        let mut first_module = None;
+        for level in 0..LEVELS {
+            let mut source = String::from("local M = {}\n");
+            for name in &names[..FANOUT] {
+                if level + 1 == LEVELS {
+                    source.push_str(&format!("function M.{name}(x) return 1 end\n"));
+                } else {
+                    let calls: Vec<String> = names[..FANOUT]
+                        .iter()
+                        .map(|callee| format!("require('level{}').{callee}(x)", level + 1))
+                        .collect();
+                    source.push_str(&format!(
+                        "function M.{name}(x) return {} end\n",
+                        calls.join(" or ")
+                    ));
+                }
+            }
+            source.push_str("return M\n");
+            let file = ws.def_file(&format!("level{level}.lua"), &source);
+            first_module.get_or_insert(file);
+        }
+        let owner = first_module.expect("first module");
+        let closure = {
+            let model = ws.analysis.semantic_model(owner);
+            let chunk = model.chunk().expect("owner chunk");
+            chunk
+                .descendants::<LuaClosureExpr>()
+                .next()
+                .expect("closure")
+                .get_syntax_id()
+        };
+        let model = ws.analysis.semantic_model(user);
+        let before = foreign_closure_inferences();
+        let signature = model
+            .type_of_signature_in_file(owner, closure)
+            .expect("signature");
+        assert!(
+            !matches!(signature.get_ret(), LuaType::Unknown),
+            "the chain of calls bottoms out in a number"
+        );
+        let inferences = foreign_closure_inferences() - before;
+        assert!(
+            inferences as usize <= LEVELS * FANOUT,
+            "{inferences} inferences for {} functions",
+            LEVELS * FANOUT
+        );
     }
 }

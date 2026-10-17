@@ -74,8 +74,4 @@ pub(crate) struct SemanticLocalCache {
     pub(crate) type_check: HashMap<(LuaType, LuaType), bool>,
     pub(crate) callable_functions: HashMap<LuaType, Vec<LuaFunctionType>>,
     pub(crate) alias_targets: HashMap<SemanticId, Option<LuaType>>,
-    /// Return type inferred from the body of an unannotated closure in another file, keyed by
-    /// `(owning file, closure)`. Only outermost inferences are stored; see
-    /// `SemanticModel::inferred_closure_return_in_file`.
-    pub(crate) foreign_closure_return: HashMap<(FileId, LuaSyntaxId), LuaType>,
 }

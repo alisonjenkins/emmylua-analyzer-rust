@@ -43,7 +43,7 @@ impl<'db> SemanticModel<'db> {
     }
     /// A model for any file on the same analysis database.
     pub fn model_for(&self, file_id: FileId) -> Self {
-        SemanticModel::new(self.db(), file_id)
+        SemanticModel::with_closure_returns(self.db(), file_id, self.closure_returns.clone())
     }
     pub fn file_id(&self) -> FileId {
         self.view.file_id()

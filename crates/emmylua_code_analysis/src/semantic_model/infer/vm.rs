@@ -2187,16 +2187,16 @@ impl<'a> InferVm<'a> {
     /// environment. Used for higher-order generic closure-return back-inference
     /// (`fun(item: T): U` + `return item`).
     pub(crate) fn closure_return_type_with_env(&self, closure_syntax: LuaSyntaxId) -> LuaType {
-        if self.model.is_closure_return_in_progress(closure_syntax) {
+        let key = (self.model.file_id(), closure_syntax);
+        let Some(frame) = self.model.closure_returns().begin(key) else {
             return LuaType::Unknown;
-        }
-        self.model.begin_closure_return_infer(closure_syntax);
+        };
         let ty = self.compute_closure_return_type_with_env(closure_syntax);
-        self.model.end_closure_return_infer(closure_syntax);
+        self.model.closure_returns().end(frame, None);
         ty
     }
 
-    fn compute_closure_return_type_with_env(&self, closure_syntax: LuaSyntaxId) -> LuaType {
+    pub(crate) fn compute_closure_return_type_with_env(&self, closure_syntax: LuaSyntaxId) -> LuaType {
         let Some(tree) = self.model.syntax_tree() else {
             return LuaType::Unknown;
         };
@@ -4475,6 +4475,9 @@ pub fn infer_doc_func(
 
 /// Infer an expression (VM): compile -> interpret. Result = LuaType.
 pub fn infer_expr_vm(model: &SemanticModel, expr_syntax: LuaSyntaxId) -> LuaType {
+    if super::super::recursion_guard::stack_budget_exhausted() {
+        return LuaType::Unknown;
+    }
     let Some(tree) = model.syntax_tree() else {
         return LuaType::Unknown;
     };
