@@ -1909,6 +1909,30 @@ mod tests {
         Ok(())
     }
 
+    /// A local holding `require("mod")` prints the module's table shape, not `M|{...}` with the
+    /// exported local's name.
+    #[gtest]
+    fn test_hover_required_module_local_prints_shape_only() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "mod.lua",
+            r#"
+                local M = {}
+                M.n = 1
+                return M
+            "#,
+        );
+        check!(ws.check_hover(
+            r#"
+                local m<??>od = require("mod")
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal mod: { n: number }\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     #[gtest]
     fn test_hover_std_table_insert_call_lists_overloads() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
