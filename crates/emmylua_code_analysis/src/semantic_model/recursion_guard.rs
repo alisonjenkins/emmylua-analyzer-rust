@@ -45,14 +45,29 @@ pub(crate) fn note_depth_cut() {
     DEPTH_CUTS.with(|cuts| cuts.set(cuts.get().wrapping_add(1)));
 }
 
-/// Stack bytes a recursive query may use below the shallowest guarded frame seen on this thread.
-///
-/// Worker threads have 2 MiB; the rest is left to the frames between two guard checks and to
-/// whatever called into the analysis.
-const STACK_BUDGET: usize = 1_200_000;
+/// Stack bytes a recursive query may use on a thread that did not [register](register_thread_stack)
+/// its stack, which is taken to be a default 2 MiB one. The rest is left to the frames between two
+/// guard checks and to whatever called into the analysis.
+const DEFAULT_STACK_BUDGET: usize = 1_200_000;
+
+/// Share of a registered stack a recursive query may use; the same 60% as [`DEFAULT_STACK_BUDGET`]
+/// is of 2 MiB.
+const BUDGET_PERCENT: usize = 60;
 
 thread_local! {
+    /// Highest stack address of the thread seen by a check; 0 until the first one.
     static STACK_TOP: Cell<usize> = const { Cell::new(0) };
+    static STACK_BUDGET: Cell<usize> = const { Cell::new(DEFAULT_STACK_BUDGET) };
+}
+
+/// Tells the guard how big the calling thread's stack is, so deep queries may use that much of it
+/// instead of the default 2 MiB assumption. Call it first thing on a thread whose stack was made
+/// larger (a runtime's `on_thread_start`): the stack top is taken from here, so the frames already
+/// below it when the first query starts are counted against the budget.
+pub fn register_thread_stack(stack_bytes: usize) {
+    let marker = 0u8;
+    STACK_TOP.with(|top| top.set(std::ptr::addr_of!(marker) as usize));
+    STACK_BUDGET.with(|budget| budget.set(stack_bytes / 100 * BUDGET_PERCENT));
 }
 
 /// True when a recursive query is deep enough that going further risks a stack overflow. The
@@ -60,6 +75,9 @@ thread_local! {
 ///
 /// How deep a query goes depends on where the thread's stack was when it started, so a result
 /// computed across a cut like this is never kept as a closure's return type.
+///
+/// On a thread that did not register its stack, the top is the shallowest check seen so far,
+/// which is the true top only if the first check was made near it.
 pub(crate) fn stack_budget_exhausted() -> bool {
     let marker = 0u8;
     let here = std::ptr::addr_of!(marker) as usize;
@@ -68,7 +86,7 @@ pub(crate) fn stack_budget_exhausted() -> bool {
         if here > top.get() {
             top.set(here);
         }
-        top.get() - here > STACK_BUDGET
+        top.get() - here > STACK_BUDGET.with(|budget| budget.get())
     });
     if exhausted {
         note_stack_cut();

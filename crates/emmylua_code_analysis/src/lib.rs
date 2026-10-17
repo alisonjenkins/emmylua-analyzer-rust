@@ -42,6 +42,7 @@ use resources::load_resource_std;
 pub use semantic_db::*;
 /// Semantic model entry point.
 pub use semantic_model::SemanticModel;
+pub use semantic_model::recursion_guard::register_thread_stack;
 /// Semantic member lookup result (completion candidate).
 pub use semantic_model::member::MemberInfo;
 /// Semantic type rendering (unified humanize entry point).
