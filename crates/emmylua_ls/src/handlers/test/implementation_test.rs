@@ -452,6 +452,37 @@ mod tests {
     }
 
     #[gtest]
+    fn test_literals_passed_to_one_typed_parameter_share_their_keys() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_implementation(
+            r#"
+                ---@class SetOpts
+                ---@field hl_group string
+                ---@param opts SetOpts
+                local function set(opts) end
+                set({ hl_<??>group = "A" })
+                set({ hl_group = "B" })
+                local u = { hl_group = "C" }
+            "#,
+            vec![
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 2,
+                },
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 5,
+                },
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 6,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_classes_made_by_one_setmetatable_factory_stay_apart() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_implementation(
