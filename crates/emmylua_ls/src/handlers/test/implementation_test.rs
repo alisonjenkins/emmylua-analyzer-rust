@@ -467,6 +467,30 @@ mod tests {
     }
 
     #[gtest]
+    fn test_literal_assigned_to_a_declared_local_is_that_local() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_implementation(
+            r#"
+                local view
+                view = { buf = nil }
+                local function f() view.b<??>uf = 1 end
+                local other = { buf = 2 }
+            "#,
+            vec![
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 2,
+                },
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 3,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_classes_made_by_one_setmetatable_factory_stay_apart() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_implementation(

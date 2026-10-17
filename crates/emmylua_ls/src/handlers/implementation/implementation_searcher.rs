@@ -6,7 +6,7 @@ use emmylua_code_analysis::{
 };
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaDocTagField, LuaExpr, LuaFuncStat, LuaIndexExpr, LuaLiteralExpr,
-    LuaStat, LuaSyntaxToken, LuaTableExpr, LuaTableField,
+    LuaStat, LuaSyntaxToken, LuaTableExpr, LuaTableField, LuaVarExpr,
 };
 use lsp_types::Location;
 
@@ -241,6 +241,11 @@ fn is_other_member_owner(target: &OwnerSet, candidate: &OwnerSet) -> bool {
         (target.literal_class, candidate.literal_class),
         (Some(true), Some(false)) | (Some(false), Some(true))
     );
+    let shares_identity = candidate
+        .ids
+        .iter()
+        .chain(&candidate.assigned_local)
+        .any(|id| target.ids.contains(id) || target.assigned_local.contains(id));
     let (target, candidate) = (target.ids.as_slice(), candidate.ids.as_slice());
     // A `local` also carries the identity of the table literal it holds; that stays file-local.
     fn is_file_local(ids: &[OwnerId]) -> bool {
@@ -262,7 +267,7 @@ fn is_other_member_owner(target: &OwnerSet, candidate: &OwnerSet) -> bool {
             )
         })
     }
-    !candidate.iter().any(|id| target.contains(id))
+    !shares_identity
         && (literal_class_mismatch
             || is_file_local(target)
             || is_file_local(candidate)
@@ -271,6 +276,9 @@ fn is_other_member_owner(target: &OwnerSet, candidate: &OwnerSet) -> bool {
 
 struct OwnerSet {
     ids: Vec<OwnerId>,
+    /// Identities of the local a literal is assigned to after its declaration. They make the literal
+    /// that local's table, but say nothing about its type, so they do not make it file-local.
+    assigned_local: Vec<OwnerId>,
     /// For an owner that is a table literal: whether a class is expected of it.
     literal_class: Option<bool>,
 }
@@ -281,6 +289,7 @@ fn member_owner_ids(model: &SemanticModel<'_>, owner: &SemanticId) -> OwnerSet {
     let mut ids = model.owner_ids_with_declared_type(owner);
     let mut set = OwnerSet {
         ids: Vec::new(),
+        assigned_local: Vec::new(),
         literal_class: None,
     };
     let SemanticId::Member(key) = owner else {
@@ -319,8 +328,26 @@ fn member_owner_ids(model: &SemanticModel<'_>, owner: &SemanticId) -> OwnerSet {
             }
         }
     }
+    // `local view; view = { ... }`: the literal is the table of `view`.
+    if let Some(local) = local_assigned_table(model, &table) {
+        set.assigned_local = model.owner_ids_with_declared_type(&local);
+    }
     set.ids = ids;
     set
+}
+
+/// The local a table literal is assigned to after its declaration (`view = { ... }`).
+fn local_assigned_table(model: &SemanticModel<'_>, table: &LuaTableExpr) -> Option<SemanticId> {
+    let assign = table.get_parent::<LuaAssignStat>()?;
+    let (vars, values) = assign.get_var_and_expr_list();
+    let index = values
+        .iter()
+        .position(|value| value.get_syntax_id() == table.get_syntax_id())?;
+    let LuaVarExpr::NameExpr(name) = vars.get(index)? else {
+        return None;
+    };
+    let decl = model.resolve_name(name.get_position())?;
+    matches!(decl, SemanticId::Decl(_)).then_some(decl)
 }
 
 fn member_key_and_owner_ids(
