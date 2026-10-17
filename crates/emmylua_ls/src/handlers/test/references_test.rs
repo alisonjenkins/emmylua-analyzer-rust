@@ -1838,4 +1838,26 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 20])
     }
+
+    #[gtest]
+    fn test_references_are_ordered_by_uri_not_file_id() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        // Allocated in reverse uri order: file ids must not leak into the answer order.
+        ws.def_file("zz_user.lua", "Shared()\n");
+        ws.def_file("mm_user.lua", "Shared()\n");
+        ws.def_file("aa_user.lua", "Shared()\n");
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            "function Sh<??>ared() end\n"
+        ));
+        let file_id = ws.def_file("kk_decl.lua", &content);
+        let result = references(&ws.analysis, file_id, position, true).unwrap_or_default();
+        let uris = result
+            .iter()
+            .map(|location| location.uri.to_string())
+            .collect::<Vec<_>>();
+        let mut sorted = uris.clone();
+        sorted.sort();
+        verify_that!(uris.len(), eq(4))?;
+        verify_eq!(uris, sorted)
+    }
 }

@@ -367,8 +367,17 @@ impl ProviderVirtualWorkspace {
             })
             .collect::<Vec<_>>();
 
-        items.sort_by_key(|item| item.line);
-        expected.sort_by_key(|item| item.line);
+        // The answer order across files is not part of the contract: tie-break lines by file, with
+        // every `virtual_N.lua` file counting as the unnamed main file.
+        let file_key = |file: &String| {
+            if file.starts_with("virtual_") {
+                String::new()
+            } else {
+                file.clone()
+            }
+        };
+        items.sort_by_key(|item| (item.line, file_key(&item.file)));
+        expected.sort_by_key(|item| (item.line, file_key(&item.file)));
 
         verify_that!(
             &items,

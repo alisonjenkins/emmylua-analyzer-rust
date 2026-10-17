@@ -18,7 +18,7 @@ use lsp_types::Location;
 
 use crate::handlers::common::{
     class_fields_named, class_fields_of_table_key, classes_of_table_const, decl_reference_ranges,
-    label_reference_ranges, member_reference_ranges, type_def_reference_ranges,
+    label_reference_ranges, member_reference_ranges, type_def_reference_ranges, uri_order_key,
 };
 
 /// Entry point: token position → list of reference positions.
@@ -552,8 +552,12 @@ fn decl_reference_ranges_with_aliases(
         }
     }
 
-    out.sort_by_key(|(file_id, range)| {
-        (file_id.id, u32::from(range.start()), u32::from(range.end()))
+    out.sort_by_cached_key(|(file_id, range)| {
+        (
+            uri_order_key(db, *file_id),
+            u32::from(range.start()),
+            u32::from(range.end()),
+        )
     });
     out.dedup();
     out

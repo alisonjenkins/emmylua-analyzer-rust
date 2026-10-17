@@ -11,7 +11,7 @@ use emmylua_parser::{
 use lsp_types::Location;
 
 use crate::handlers::common::{
-    decl_reference_ranges, expected_classes_of_table, member_reference_ranges,
+    decl_reference_ranges, expected_classes_of_table, member_reference_ranges, uri_order_key,
 };
 
 pub fn search_implementations(
@@ -71,7 +71,7 @@ fn search_member_implementations(
         let mut discovered = discovered
             .into_inner()
             .expect("implementation locations lock");
-        discovered.sort_by_key(|(file_id, _)| file_id.id);
+        discovered.sort_by_cached_key(|(file_id, _)| uri_order_key(db, *file_id));
         ranges.extend(discovered);
     }
     let mut signatures = Vec::new();
@@ -189,7 +189,7 @@ fn search_decl_implementations(
                 }
             });
             let mut matched = matched.into_inner().expect("implementation locations lock");
-            matched.sort_by_key(|(file_id, _)| file_id.id);
+            matched.sort_by_cached_key(|(file_id, _)| uri_order_key(db, *file_id));
             for (file_id, range) in matched {
                 if let Some(location) = make_location(db, file_id, range)
                     && !result.contains(&location)
