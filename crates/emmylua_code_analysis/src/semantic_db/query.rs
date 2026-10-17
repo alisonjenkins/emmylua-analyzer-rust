@@ -2682,12 +2682,19 @@ pub(crate) fn signature_returns(
     let multi_path_returns = returns.len() > 1;
     let mut slots: Vec<TypeShell> = Vec::new();
     let mut has_unknown_return = false;
+    let mut flow_sensitive_return = false;
     for ret in returns {
         let exprs: Vec<_> = ret.get_expr_list().collect();
         for (index, expr) in exprs.iter().enumerate() {
             let shell = match &expr {
                 LuaExpr::NameExpr(name) if name.get_name_text().as_deref() == Some("self") => {
                     method_self_return_shell(&facts, closure_syntax)
+                }
+                // The shell types a parameter by its declaration; a narrowing or reassignment
+                // before the return is only visible to the body inference.
+                LuaExpr::NameExpr(name) if returns_flow_sensitive_param(db, file, &facts, name) => {
+                    flow_sensitive_return = true;
+                    Some(TypeShell::unknown())
                 }
                 // Preserve integer literal precision when merging multi-path returns (a `return 1` branch should not be widened to number).
                 LuaExpr::LiteralExpr(literal)
@@ -2726,10 +2733,32 @@ pub(crate) fn signature_returns(
     }
     // Merging drops a return whose shell is unknown, which would pass `nil | Reader` off as `nil`.
     // An empty result sends the caller to the body inference, which does see the whole expression.
-    if has_unknown_return && multi_path_returns {
+    if (has_unknown_return && multi_path_returns) || flow_sensitive_return {
         return Vec::new();
     }
     slots
+}
+
+/// Whether `name` is a parameter whose flow type at the return can differ from its declared type
+/// (an assignment, a condition or a `---@cast` in the file).
+fn returns_flow_sensitive_param(
+    db: &SemanticDatabase,
+    file: FileId,
+    facts: &FileFacts,
+    name: &emmylua_parser::LuaNameExpr,
+) -> bool {
+    let offset = name.get_range().start();
+    let Some(name_use) = facts.name_use_at_offset(offset) else {
+        return false;
+    };
+    let Some(decl) = facts.find_visible_decl_before_offset(&name_use.name, offset) else {
+        return false;
+    };
+    if !matches!(decl.kind, DeclKind::Param) {
+        return false;
+    }
+    let tree = super::flow::flow_tree_of(db, file);
+    tree.has_decl_assignment(&decl.id) || tree.has_condition() || tree.has_tag_cast()
 }
 
 /// When a member implementation function (`function Test.e()`) has no `---@return`, use the return type
