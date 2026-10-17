@@ -1345,4 +1345,24 @@ mod tests {
         ));
         Ok(())
     }
+
+    #[gtest]
+    fn test_hover_param_documented_as_inline_object_keeps_its_fields() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@param opts? { append?: boolean }
+                local function f(opts)
+                    return <??>opts
+                end
+            "#,
+        )?;
+        let file_id = ws.def(&content);
+        let hover = crate::handlers::hover::hover(&ws.analysis, file_id, position)
+            .ok_or("no hover")
+            .or_fail()?;
+        let text = format!("{hover:?}");
+        verify_that!(text, contains_substring("append"))?;
+        Ok(())
+    }
 }

@@ -341,7 +341,66 @@ impl<'db> SemanticModel<'db> {
         {
             return Some(foreign_ty);
         }
-        self.analysis().decl_type_lua(decl_file, decl.clone())
+        let ty = self.analysis().decl_type_lua(decl_file, decl.clone());
+        match ty {
+            Some(ty) if decl_file == self.view.file_id() => {
+                Some(self.restore_inline_object_param_type(decl, ty))
+            }
+            ty => ty,
+        }
+    }
+    /// The shell types a parameter documented as `{ a: T }` (or `{ a: T }?`) as bare `table`; the
+    /// rich projection of the `---@param` keeps the fields.
+    fn restore_inline_object_param_type(&self, decl: &SemanticId, ty: LuaType) -> LuaType {
+        let is_table_shell = match &ty {
+            LuaType::Table => true,
+            LuaType::Union(union) => {
+                let members = union.into_vec();
+                members.contains(&LuaType::Table)
+                    && members
+                        .iter()
+                        .all(|member| matches!(member, LuaType::Table | LuaType::Nil))
+            }
+            _ => false,
+        };
+        if !is_table_shell {
+            return ty;
+        }
+        let Some(facts) = self.file_facts() else {
+            return ty;
+        };
+        let Some(decl_info) = facts.decl_by_id(decl) else {
+            return ty;
+        };
+        if !matches!(decl_info.kind, DeclKind::Param) {
+            return ty;
+        }
+        let Some((signature, _)) = facts.signature_and_param_index_of_decl(decl_info) else {
+            return ty;
+        };
+        let Some(docs) = signature.docs.as_ref() else {
+            return ty;
+        };
+        let Some((_, syntax)) = docs
+            .param_types
+            .iter()
+            .find(|(name, _)| name.as_str() == decl_info.name.as_str())
+        else {
+            return ty;
+        };
+        let rich = self.doc_type_lua_rich(*syntax);
+        if !matches!(rich, LuaType::Object(_)) {
+            return ty;
+        }
+        if docs
+            .nullable_params
+            .iter()
+            .any(|name| name.as_str() == decl_info.name.as_str())
+            && !rich.is_nullable()
+        {
+            return LuaType::from_vec(vec![rich, LuaType::Nil]);
+        }
+        rich
     }
     /// Parameter declarations may lose generic constraints in `type_of_decl`'s fallback path; re-attach them here.
     pub(crate) fn attach_param_decl_constraint(&self, decl: &SemanticId, ty: LuaType) -> LuaType {
