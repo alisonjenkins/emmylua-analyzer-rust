@@ -1,4 +1,4 @@
-use crate::MemberList;
+use crate::{LuaTypeIdentifier, MemberList};
 use emmylua_parser::{LuaIndexKey, LuaReturnStat};
 use rowan::TextRange;
 
@@ -123,6 +123,51 @@ impl<'db> SemanticModel<'db> {
     }
     pub fn resolve_owner(&self, owner: &SemanticId) -> Option<SemanticId> {
         self.analysis().resolve_owner(owner.clone())
+    }
+    /// Canonical owner identities of an owner, plus the named types the owner is annotated with
+    /// (`---@type T` on a declaration or on a module's returned table): its fields are members of `T`.
+    /// The implicit `self` of a method stands for the table the method is defined on.
+    pub fn owner_ids_with_declared_type(&self, owner: &SemanticId) -> Vec<crate::OwnerId> {
+        let owner = &self
+            .method_self_owner(owner)
+            .unwrap_or_else(|| owner.clone());
+        let mut ids = self.analysis().resolve_owner_ids(owner);
+        let mut declared = Vec::new();
+        if matches!(owner, SemanticId::Decl(_)) {
+            declared.extend(self.type_of_decl(owner));
+        }
+        if ids
+            .iter()
+            .any(|id| matches!(id, crate::OwnerId::Module(file) if *file == self.view.file_id()))
+        {
+            declared.extend(self.type_of_module_export());
+        }
+        for ty in declared {
+            if let LuaType::Ref(type_id) | LuaType::Def(type_id) = ty {
+                let scope = match type_id.get_id() {
+                    LuaTypeIdentifier::Global(_) => TypeScope::Global,
+                    LuaTypeIdentifier::Internal(ws, _) => TypeScope::Internal(*ws),
+                    LuaTypeIdentifier::File(file, _) => TypeScope::File(*file),
+                };
+                let type_owner = crate::OwnerId::Type(scope, SmolStr::new(type_id.get_name()));
+                if !ids.contains(&type_owner) {
+                    ids.push(type_owner);
+                }
+            }
+        }
+        // A table constructor may carry a `---@type` the module-level identity cannot express; keep it distinguishable
+        // from a plain `local` table so callers do not treat it as a closed identity.
+        if let SemanticId::Member(key) = owner {
+            let table_owner = crate::OwnerId::Table(key.file_id, key.key_range);
+            if !ids.contains(&table_owner) {
+                ids.push(table_owner);
+            }
+        }
+        ids
+    }
+    fn method_self_owner(&self, owner: &SemanticId) -> Option<SemanticId> {
+        let facts = self.file_facts()?;
+        facts.decl_by_id(owner)?.self_owner.clone()
     }
     pub(crate) fn resolve_owner_set(&self, owner: SemanticId) -> Vec<SemanticId> {
         if let Some(cached) = self.cache.borrow().resolve_owner_set.get(&owner) {
