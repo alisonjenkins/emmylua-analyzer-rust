@@ -76,6 +76,12 @@ pub(crate) fn stack_budget_exhausted() -> bool {
     exhausted
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Expression queries run on this thread, for tests that bound the work a query does.
+    pub(crate) static EXPR_QUERIES: Cell<usize> = const { Cell::new(0) };
+}
+
 fn depth_cuts() -> u32 {
     DEPTH_CUTS.with(|cuts| cuts.get())
 }

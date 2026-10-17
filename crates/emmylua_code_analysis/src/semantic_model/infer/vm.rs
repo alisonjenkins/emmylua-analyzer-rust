@@ -437,6 +437,9 @@ impl<'a> InferVm<'a> {
     /// This prevents `InferVm -> SemanticModel::type_of_expr -> new InferVm` from
     /// losing the in-progress member/decl guards and restarting unbounded recursion.
     fn type_of_expr_inherit(&self, expr_syntax: LuaSyntaxId) -> LuaType {
+        if super::super::recursion_guard::stack_budget_exhausted() {
+            return LuaType::Unknown;
+        }
         let Some(tree) = self.model.syntax_tree() else {
             return LuaType::Unknown;
         };

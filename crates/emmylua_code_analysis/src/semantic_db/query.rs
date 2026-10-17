@@ -3078,6 +3078,9 @@ pub(crate) fn expr_type_of(
     if EXPR_TYPE_IN_PROGRESS.with(|stack| stack.borrow().contains(&key)) {
         return TypeShell::unknown();
     }
+    #[cfg(test)]
+    crate::semantic_model::recursion_guard::EXPR_QUERIES
+        .with(|count| count.set(count.get() + 1));
     if crate::semantic_model::recursion_guard::stack_budget_exhausted() {
         return TypeShell::unknown();
     }
