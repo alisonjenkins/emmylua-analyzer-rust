@@ -1448,6 +1448,19 @@ fn member_class_key_display(model: &SemanticModel<'_>, info: &MemberInfo) -> Opt
     ))
 }
 
+/// `table?` / `table|nil`: a bare `table` that may be nil.
+fn is_optional_bare_table(ty: &LuaType) -> bool {
+    let LuaType::Union(union) = ty else {
+        return false;
+    };
+    let types = union.into_vec();
+    types.iter().any(|t| matches!(t, LuaType::Nil))
+        && types
+            .iter()
+            .filter(|t| !matches!(t, LuaType::Nil))
+            .eq([&LuaType::Table])
+}
+
 fn member_is_nullable(model: &SemanticModel<'_>, id: &SemanticId) -> bool {
     let SemanticId::Member(key) = id else {
         return false;
@@ -2172,7 +2185,13 @@ fn build_member_hover(
         let code = format!("{}function {}({}){}", async_prefix, member_name, params, ret);
         return (code, Some(description));
     }
-    let mut rendered_typ = if matches!(
+    let optional_table_shape = is_optional_bare_table(&effective_typ)
+        .then(|| render_member_usage_shape(model, member_info))
+        .flatten()
+        .map(|shape| format!("table? {shape}"));
+    let mut rendered_typ = if optional_table_shape.is_some() {
+        optional_table_shape.clone()
+    } else if matches!(
         effective_typ,
         LuaType::Unknown | LuaType::Nil | LuaType::Table
     ) || matches!(&effective_typ, LuaType::TableConst(table)
@@ -2186,6 +2205,7 @@ fn build_member_hover(
     }
     .unwrap_or_else(|| render_member_typ_with_default(model, &effective_typ));
     if runtime_literal_ty.is_none()
+        && optional_table_shape.is_none()
         && member_is_nullable(model, &display_member_id)
         && !rendered_typ.ends_with('?')
     {
