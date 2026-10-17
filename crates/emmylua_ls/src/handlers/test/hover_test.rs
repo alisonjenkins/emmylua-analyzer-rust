@@ -2204,4 +2204,54 @@ mod tests {
         verify_that!(text, contains_substring("-> wk.Foo?"))?;
         Ok(())
     }
+
+    /// A class field declared `table?` lists the fields its uses read, like a plain `table` field.
+    #[gtest]
+    fn test_hover_optional_table_class_field_lists_usage_shape() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = ProviderVirtualWorkspace::handle_file_content(
+            r#"
+            ---@class Cfg
+            ---@field options? table
+
+            ---@type Cfg
+            local c = {}
+            local a = c.<??>options.nightly
+            local b = c.options.edition
+            "#,
+        )?;
+        let file_id = ws.def(&content);
+        let hover = crate::handlers::hover::hover(&ws.analysis, file_id, position)
+            .ok_or("no hover")
+            .or_fail()?;
+        let hover_text = format!("{hover:?}");
+        verify_that!(
+            hover_text,
+            contains_substring("options: table? { edition: unknown, nightly: unknown }")
+        )?;
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_hover_optional_table_class_field_without_uses_stays_bare() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = ProviderVirtualWorkspace::handle_file_content(
+            r#"
+            ---@class Cfg
+            ---@field options? table
+
+            ---@type Cfg
+            local c = {}
+            local a = c.<??>options
+            "#,
+        )?;
+        let file_id = ws.def(&content);
+        let hover = crate::handlers::hover::hover(&ws.analysis, file_id, position)
+            .ok_or("no hover")
+            .or_fail()?;
+        let hover_text = format!("{hover:?}");
+        verify_that!(hover_text, contains_substring("options: table?"))?;
+        verify_that!(hover_text, not(contains_substring("unknown")))?;
+        Ok(())
+    }
 }
