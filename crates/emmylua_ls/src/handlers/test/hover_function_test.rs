@@ -1291,6 +1291,21 @@ mod tests {
         Ok(())
     }
 
+    /// The std file functions name their failure returns as the Lua manual does.
+    #[gtest]
+    fn test_std_os_remove_return_names() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+        check!(ws.check_hover(
+            r#"
+                local ok, msg, code = os.<??>remove("x")
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction os.remove(filename: string)\n  -> suc: true?\n  -> errmsg: string?\n  -> errcode: integer?\n (+1 overloads)\n```\n\n---\n\nDeletes the file (or empty directory, on POSIX systems) with the given name.\nIf this function fails, it returns **nil**, plus a string describing the\nerror and the error code. Otherwise, it returns true.".to_string(),
+            },
+        ));
+        Ok(())
+    }
+
     /// Named returns print at a call site too, and for a function declared in another file.
     #[gtest]
     fn test_named_returns_print_at_call_site() -> Result<()> {
