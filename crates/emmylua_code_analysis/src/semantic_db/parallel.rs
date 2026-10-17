@@ -93,7 +93,7 @@ where
                 std::thread::Builder::new()
                     .name(format!("emmylua-index-{worker}"))
                     .stack_size(WORKER_STACK_BYTES)
-                    .spawn_scoped(scope, &work)
+                    .spawn_scoped(scope, work)
                     .inspect_err(|err| log::warn!("cannot start index worker {worker}: {err}"))
                     .ok()
             })
