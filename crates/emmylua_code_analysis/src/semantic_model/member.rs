@@ -396,6 +396,7 @@ fn metatable_index_table_member(
 ) -> Option<MemberInfo> {
     let depth = index_table_depth();
     if depth >= MAX_INDEX_TABLE_DEPTH {
+        super::recursion_guard::note_depth_cut();
         return None;
     }
     let index_info = table_metatable_index_info(model, table)?;

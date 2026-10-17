@@ -9,14 +9,15 @@ pub mod type_eval;
 mod access;
 mod doc_types;
 mod prelude;
+pub(crate) mod recursion_guard;
 mod signature;
 mod types;
 
 #[cfg(test)]
 mod legacy_visibility_tests;
 
-use hashbrown::HashSet;
 use std::cell::{Ref, RefCell, RefMut};
+use std::rc::Rc;
 
 use emmylua_parser::{LuaSyntaxId, VisibilityKind};
 use smol_str::SmolStr;
@@ -57,41 +58,6 @@ impl LazyCache {
     }
 }
 
-/// Lazily allocated in-progress set (same motivation as [`LazyCache`]).
-struct LazySet<T> {
-    inner: RefCell<Option<Box<HashSet<T>>>>,
-}
-
-impl<T> Default for LazySet<T> {
-    fn default() -> Self {
-        Self {
-            inner: RefCell::new(None),
-        }
-    }
-}
-
-impl<T> LazySet<T> {
-    fn ensure(&self) {
-        if self.inner.borrow().is_none() {
-            *self.inner.borrow_mut() = Some(Box::new(HashSet::new()));
-        }
-    }
-
-    fn borrow(&self) -> Ref<'_, HashSet<T>> {
-        self.ensure();
-        Ref::map(self.inner.borrow(), |inner| {
-            inner.as_deref().expect("lazy set initialized")
-        })
-    }
-
-    fn borrow_mut(&self) -> RefMut<'_, HashSet<T>> {
-        self.ensure();
-        RefMut::map(self.inner.borrow_mut(), |inner| {
-            inner.as_deref_mut().expect("lazy set initialized")
-        })
-    }
-}
-
 /// Semantic model: a per-file access handle, only through the semantic analysis layer.
 pub struct SemanticModel<'db> {
     view: FileView<'db>,
@@ -99,9 +65,9 @@ pub struct SemanticModel<'db> {
     /// Per-model local query cache. Recursion-in-progress state is stored in
     /// cache entries, so no separate O(n) guard stacks are needed.
     cache: LazyCache,
-    /// Closure-return inference depends on the VM closure environment, so its
-    /// result cannot be globally memoized; only O(1) in-progress tracking is kept.
-    closure_return_in_progress: LazySet<LuaSyntaxId>,
+    /// Closures being inferred and finished foreign-file results; shared with the models
+    /// `model_for` creates, so a cycle through another file is cut where it repeats.
+    closure_returns: Rc<recursion_guard::ClosureReturnShared>,
 }
 
 /// Member-reference resolution result: index expression -> actual member declaration.
@@ -157,10 +123,18 @@ pub(crate) struct CallSiteAnalysis {
 
 impl<'db> SemanticModel<'db> {
     pub fn new(db: &'db SemanticDatabase, file_id: FileId) -> Self {
+        Self::with_closure_returns(db, file_id, Rc::default())
+    }
+
+    fn with_closure_returns(
+        db: &'db SemanticDatabase,
+        file_id: FileId,
+        closure_returns: Rc<recursion_guard::ClosureReturnShared>,
+    ) -> Self {
         Self {
             view: AnalysisView::new(db).file(file_id),
             cache: LazyCache::default(),
-            closure_return_in_progress: LazySet::default(),
+            closure_returns,
         }
     }
 
@@ -198,22 +172,15 @@ impl<'db> SemanticModel<'db> {
             .trace_state
             .insert(key, cache::CacheEntry::Ready(result));
     }
+    /// Whether this closure's return type is being inferred further up, in this or another
+    /// file's model.
     pub(crate) fn is_closure_return_in_progress(&self, closure_syntax: LuaSyntaxId) -> bool {
-        self.closure_return_in_progress
-            .borrow()
-            .contains(&closure_syntax)
+        self.closure_returns
+            .is_open(&(self.view.file_id(), closure_syntax))
     }
 
-    pub(crate) fn begin_closure_return_infer(&self, closure_syntax: LuaSyntaxId) {
-        self.closure_return_in_progress
-            .borrow_mut()
-            .insert(closure_syntax);
-    }
-
-    pub(crate) fn end_closure_return_infer(&self, closure_syntax: LuaSyntaxId) {
-        self.closure_return_in_progress
-            .borrow_mut()
-            .remove(&closure_syntax);
+    pub(crate) fn closure_returns(&self) -> &recursion_guard::ClosureReturnShared {
+        &self.closure_returns
     }
 }
 
