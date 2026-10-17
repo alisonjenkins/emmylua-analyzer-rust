@@ -1652,6 +1652,54 @@ mod tests {
     }
 
     #[gtest]
+    fn test_references_from_assignment_of_field_inherited_by_the_instance_class() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Opts
+                ---@field cols string[]
+
+                ---@class Table: Opts
+                local Table = {}
+                Table.__index = Table
+
+                ---@param opts Opts
+                function Table.new(opts)
+                    local self = setmetatable({}, Table)
+                    self.co<??>ls = opts.cols
+                    return self
+                end
+
+                function Table:count()
+                    return #self.cols
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 11, 16])
+    }
+
+    #[gtest]
+    fn test_references_of_self_field_in_a_method_stay_apart_from_the_parent_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Opts
+                ---@field active boolean
+
+                ---@class Watcher: Opts
+                local Watcher = {}
+
+                function Watcher:start()
+                    if not self.act<??>ive then
+                        self.active = true
+                    end
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![8, 9])
+    }
+
+    #[gtest]
     fn test_references_of_parent_field_skip_keys_of_class_that_redeclares_it() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(

@@ -2,7 +2,9 @@
 //! of the parameter it is passed to (`set(1, { hl_group = "A" })`), of the local it initialises or of
 //! the field of an enclosing literal. LuaLS counts the keys of such a literal as uses of that class's fields.
 
-use emmylua_code_analysis::{LuaMemberKey, LuaType, SemanticId, SemanticModel, TypeDefKind};
+use emmylua_code_analysis::{
+    LuaMemberKey, LuaType, LuaTypeDeclId, SemanticId, SemanticModel, TypeDefKind,
+};
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaAstToken, LuaCallArgList, LuaCallExpr, LuaExpr, LuaIndexExpr,
     LuaIndexKey, LuaLocalStat, LuaReturnStat, LuaTableExpr, LuaTableField,
@@ -184,33 +186,58 @@ pub fn class_fields_of_table_key(
         let (LuaType::Ref(type_id) | LuaType::Def(type_id)) = &class_type else {
             continue;
         };
-        let Some(class) = model.type_def_of(type_id) else {
-            continue;
-        };
-        let fields = model
-            .member_infos_with_key_all(&class_type, &member_key)
-            .into_iter()
-            .filter_map(|info| info.id)
-            .filter(|id| matches!(id, SemanticId::Member(_)))
-            .collect::<Vec<_>>();
-        let (own, inherited): (Vec<_>, Vec<_>) = fields.into_iter().partition(|id| {
-            let SemanticId::Member(member_key) = id else {
-                return false;
-            };
-            model
-                .file_facts_of(member_key.file_id)
-                .and_then(|facts| facts.member_by_id(id))
-                .is_some_and(|fact| fact.owner == class.id)
-        });
-        // A field the class redeclares is its own slot; otherwise the key names the nearest
-        // parent's field (`---@class Rule: Icon` with `{ icon = "x" }`).
-        if own.is_empty() {
-            out.extend(inherited.into_iter().take(1));
-        } else {
-            out.extend(own);
-        }
+        out.extend(class_fields_named(
+            model,
+            type_id,
+            &class_type,
+            &member_key,
+            true,
+        ));
     }
     out
+}
+
+/// The `---@field`s a class gives `member_key`: its own when it declares the name, else the
+/// nearest parent's (`---@class Rule: Icon` and `{ icon = "x" }` name Icon's field). A field the
+/// class redeclares is a slot of its own, apart from the parent's.
+pub fn class_fields_named(
+    model: &SemanticModel<'_>,
+    type_id: &LuaTypeDeclId,
+    class_type: &LuaType,
+    member_key: &LuaMemberKey,
+    inherit: bool,
+) -> Vec<SemanticId> {
+    let Some(class) = model.type_def_of(type_id) else {
+        return Vec::new();
+    };
+    let owner_of = |id: &SemanticId| {
+        let SemanticId::Member(key) = id else {
+            return None;
+        };
+        model
+            .file_facts_of(key.file_id)
+            .and_then(|facts| facts.member_by_id(id))
+            .map(|fact| fact.owner.clone())
+    };
+    let fields = model
+        .member_infos_with_key_all(class_type, member_key)
+        .into_iter()
+        .filter_map(|info| info.id)
+        .collect::<Vec<_>>();
+    let own = fields
+        .iter()
+        .filter(|id| owner_of(id).is_some_and(|owner| owner == class.id))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !own.is_empty() || !inherit {
+        return own;
+    }
+    // Only a `---@field` of a parent class: a method of the runtime table is no such slot.
+    fields
+        .into_iter()
+        .find(|id| owner_of(id).is_some_and(|owner| matches!(owner, SemanticId::TypeDef(_))))
+        .into_iter()
+        .collect()
 }
 
 /// The types the receiver's class declares for `receiver.key`, whatever the assignment gives it.

@@ -10,14 +10,14 @@ use emmylua_code_analysis::{
     DeclKind, FileId, LuaMemberKey, LuaType, SemanticDatabase, SemanticId, SemanticModel, TypeDef,
 };
 use emmylua_parser::{
-    LuaAstNode, LuaAstToken, LuaCallExpr, LuaIndexExpr, LuaLiteralToken, LuaNameExpr,
+    LuaAstNode, LuaAstToken, LuaCallExpr, LuaExpr, LuaIndexExpr, LuaLiteralToken, LuaNameExpr,
     LuaSyntaxKind, LuaSyntaxToken, LuaTableField,
 };
 use lsp_types::Location;
 
 use crate::handlers::common::{
-    class_fields_of_table_key, classes_of_table_const, decl_reference_ranges, label_reference_ranges,
-    member_reference_ranges, type_def_reference_ranges,
+    class_fields_named, class_fields_of_table_key, classes_of_table_const, decl_reference_ranges,
+    label_reference_ranges, member_reference_ranges, type_def_reference_ranges,
 };
 
 /// Entry point: token position → list of reference positions.
@@ -220,32 +220,30 @@ fn class_fields_of_index(model: &SemanticModel<'_>, index_expr: &LuaIndexExpr) -
     })
     .collect::<Vec<_>>();
     let member_key = LuaMemberKey::Name(key.get_path_part().into());
+    // LuaLS reads `self.k = v` in a method as the class's own field, apart from a parent's `k`.
+    let is_method_self = matches!(&prefix, LuaExpr::NameExpr(name) if name.get_name_text().as_deref() == Some("self"))
+        && prefix_is_implicit_self(model, &prefix);
     let mut out = Vec::new();
     for component in components {
         let (LuaType::Ref(type_id) | LuaType::Def(type_id)) = &component else {
             continue;
         };
-        let Some(class) = model.type_def_of(type_id) else {
-            continue;
-        };
-        // Only the receiver's own `---@field`s: a parent class's field of the same name is another slot.
-        out.extend(
-            model
-                .member_infos_with_key_all(&component, &member_key)
-                .into_iter()
-                .filter_map(|info| info.id)
-                .filter(|id| {
-                    let SemanticId::Member(member_key) = id else {
-                        return false;
-                    };
-                    model
-                        .file_facts_of(member_key.file_id)
-                        .and_then(|facts| facts.member_by_id(id))
-                        .is_some_and(|fact| fact.owner == class.id)
-                }),
-        );
+        out.extend(class_fields_named(
+            model,
+            type_id,
+            &component,
+            &member_key,
+            !is_method_self,
+        ));
     }
     out
+}
+
+fn prefix_is_implicit_self(model: &SemanticModel<'_>, prefix: &LuaExpr) -> bool {
+    model
+        .resolve_name(prefix.get_position())
+        .and_then(|decl| model.file_facts()?.decl_by_id(&decl))
+        .is_some_and(|info| info.is_implicit_self)
 }
 
 /// The class fields a `["key"] = v` of a typed literal names: the string sits in a literal
@@ -421,7 +419,7 @@ fn require_module_literal_ranges(
             let Some(prefix) = index_expr.get_prefix_expr() else {
                 continue;
             };
-            let emmylua_parser::LuaExpr::CallExpr(call) = prefix else {
+            let LuaExpr::CallExpr(call) = prefix else {
                 continue;
             };
             let Some(arg) = call.get_args_list().and_then(|list| list.get_args().next()) else {
