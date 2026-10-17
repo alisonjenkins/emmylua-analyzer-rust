@@ -20,7 +20,7 @@ use super::desc::{
     decl_description, decl_signature_tags, member_description, member_signature_tags,
     type_def_description,
 };
-use super::render::humanize;
+use super::render::{humanize, humanize_header, parenthesize_optional_dotted_class};
 use super::usage_shape::{render_member_usage_shape, render_usage_shape};
 
 /// Context projection result for table fields / value aliases: `show_unknown` marks
@@ -1297,11 +1297,11 @@ fn build_decl_hover(
         let param_info = param_decl_type(model, &decl_info);
         if let Some((param_ty, closure_syntax)) = param_info {
             let type_text = if !matches!(typ, LuaType::Unknown) {
-                humanize(model, typ)
+                humanize_header(model, typ)
             } else if matches!(param_ty, LuaType::Unknown) {
                 render_usage_shape(model, decl).unwrap_or_else(|| humanize(model, &param_ty))
             } else {
-                humanize(model, &param_ty)
+                humanize_header(model, &param_ty)
             };
             let constraint = param_generic_constraint(model, closure_syntax, &param_ty);
             let shown_ty = if matches!(typ, LuaType::Unknown) {
@@ -1392,7 +1392,7 @@ fn build_decl_hover(
             "{}{}: {} {{\n{}\n}}",
             prefix,
             name,
-            humanize(model, typ),
+            humanize_header(model, typ),
             class_lines.join("\n")
         );
         return (code, Some(description));
@@ -1403,7 +1403,7 @@ fn build_decl_hover(
     } else {
         None
     }
-    .unwrap_or_else(|| humanize(model, &widen_decl_const(&display_typ)));
+    .unwrap_or_else(|| humanize_header(model, &widen_decl_const(&display_typ)));
     let code = format!("{}{}: {}", prefix, name, type_text);
     (code, Some(description))
 }
@@ -2330,12 +2330,16 @@ fn build_member_hover(
     } else {
         None
     }
-    .unwrap_or_else(|| render_member_typ_with_default(model, &effective_typ));
+    .unwrap_or_else(|| match &effective_typ {
+        LuaType::Union(_) => humanize_header(model, &effective_typ),
+        _ => render_member_typ_with_default(model, &effective_typ),
+    });
     if runtime_literal_ty.is_none()
         && member_is_nullable(model, &display_member_id)
         && !rendered_typ.ends_with('?')
     {
-        rendered_typ.push('?');
+        rendered_typ =
+            parenthesize_optional_dotted_class(model, &effective_typ, rendered_typ);
     }
     if let Some(literal_ty) = runtime_literal_ty
         && !matches!(
