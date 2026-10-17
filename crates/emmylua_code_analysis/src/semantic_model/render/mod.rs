@@ -446,7 +446,7 @@ impl<'a> TypeHumanizer<'a> {
             }
             Ok(())
         } else {
-            w.write_str(id.get_simple_name())
+            w.write_str(id.get_name())
         }
     }
 

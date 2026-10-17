@@ -1270,4 +1270,24 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// A type name no annotation defines prints as written, namespace included.
+    #[gtest]
+    fn test_unresolved_dotted_type_name_keeps_namespace() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local M = {}
+
+                ---@param opts foo.bar|foo.baz
+                ---@param ext vim.api.keyset.set_extmark
+                function M.<??>a(opts, ext) end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction M.a(opts: (foo.bar|foo.baz), ext: vim.api.keyset.set_extmark)\n```"
+                    .to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
