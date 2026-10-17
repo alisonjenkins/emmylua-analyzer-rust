@@ -683,6 +683,69 @@ mod tests {
         Ok(())
     }
 
+    // LuaLS lists each `---@enum` member under its whole path, matched against the whole path.
+    #[gtest]
+    fn test_enum_members_are_listed_under_their_enum_path() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+            ---@enum en.Shade
+            local Shade = {
+                RED_ONE = 1,
+                BLUE_ONE = 2,
+            }
+            return Shade
+            "#,
+        );
+        // the member's own name still finds it, next to the path symbol
+        let by_name = query(&ws, "RED_ONE");
+        expect_that!(count_of(&by_name, "RED_ONE"), eq(1));
+        expect_that!(count_of(&by_name, "en.Shade.RED_ONE"), eq(1));
+        expect_that!(
+            kind_of(&by_name, "en.Shade.RED_ONE"),
+            some(eq(SymbolKind::VARIABLE))
+        );
+        // a query that only the path satisfies
+        let by_path = query(&ws, "en.Shade.");
+        expect_that!(count_of(&by_path, "en.Shade.RED_ONE"), eq(1));
+        expect_that!(count_of(&by_path, "en.Shade.BLUE_ONE"), eq(1));
+        // members of a class are not enum members
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def("---@class en.Plain\nlocal Plain = { plain_one = 1 }\nreturn Plain\n");
+        expect_that!(
+            count_of(&query(&ws, "plain_one"), "en.Plain.plain_one"),
+            eq(0)
+        );
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_enum_stored_in_a_module_field_lists_its_members_by_path() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def(
+            r#"
+            local M = {}
+
+            ---@enum en.CODE
+            M.CODE = {
+                FIRST_ONE = 3,
+                SECOND_ONE = 4,
+            }
+
+            return M
+            "#,
+        );
+        expect_that!(
+            count_of(&query(&ws, "en.CODE."), "en.CODE.FIRST_ONE"),
+            eq(1)
+        );
+        expect_that!(
+            count_of(&query(&ws, "SECOND_ONE"), "en.CODE.SECOND_ONE"),
+            eq(1)
+        );
+        Ok(())
+    }
+
     // A lowercase query ignores case, a query with an uppercase letter does not.
     #[gtest]
     fn test_query_case_sensitivity() -> Result<()> {
