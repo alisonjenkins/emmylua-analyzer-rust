@@ -94,7 +94,8 @@ function io.output(file) end
 --- or to write data to this program (if `mode` is "`w`").
 --- @param prog  string
 --- @param mode? string | 'r' | 'w'
---- @return file
+--- @return file?
+--- @return string? errmsg
 function io.popen(prog, mode) end
 
 --- @alias std.readmode
@@ -134,8 +135,10 @@ function io.type(obj) end
 ---
 --- Equivalent to `io.output():write(···)`.
 --- @param ... string | number
+--- @return file?
+--- @return string? errmsg
 --- @return_overload file
---- @return_overload nil, string err
+--- @return_overload nil, string errmsg
 function io.write(...) end
 
 --- File object
@@ -150,6 +153,9 @@ local file = {}
 ---
 --- When closing a file handle created with `io.popen`, `file:close` returns the
 --- same values returned by `os.execute`.
+--- @return true? suc
+--- @return ('exit' | 'signal')? exitcode
+--- @return integer? code
 --- @return_overload true, 'exit' | 'signal', integer
 --- @return_overload nil, 'exit' | 'signal', integer
 function file:close() end
@@ -159,8 +165,10 @@ function file:close() end
 --- Closes `file`. Note that files are automatically closed when their
 --- handles are garbage collected, but that takes an unpredictable amount of
 --- time to happen.
+--- @return true? suc
+--- @return string? errmsg
 --- @return_overload true
---- @return_overload nil, string err
+--- @return_overload nil, string errmsg
 function file:close() end
 
 ---
@@ -235,8 +243,10 @@ function file:read(...) end
 --- @overload fun()
 --- @param whence string | 'set' | 'cur' | 'end'
 --- @param offset integer
+--- @return integer? offset
+--- @return string? errmsg
 --- @return_overload integer pos
---- @return_overload nil, string err
+--- @return_overload nil, string errmsg
 function file:seek(whence, offset) end
 
 ---
@@ -262,8 +272,10 @@ function file:setvbuf(mode, size) end
 --- In case of success, this function returns `file`. Otherwise it returns
 --- **nil** plus a string describing the error.
 --- @param ... string | number
+--- @return file?
+--- @return string? errmsg
 --- @return_overload file
---- @return_overload nil, string err
+--- @return_overload nil, string errmsg
 function file:write(...) end
 
 --- `io.stderr`: Standard error.

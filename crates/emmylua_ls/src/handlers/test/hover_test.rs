@@ -1993,6 +1993,25 @@ mod tests {
         Ok(())
     }
 
+    /// file methods and io.popen hover with LuaLS's names for their returns.
+    #[gtest]
+    fn test_hover_file_methods_name_their_returns() -> Result<()> {
+        for (code, expected) in [
+            ("local f = io.open('x')\nf:<??>close()", "suc: true?"),
+            ("local f = io.open('x')\nf:<??>write('a')", "errmsg: string?"),
+            ("local f = io.<??>popen('x')", "errmsg: string?"),
+        ] {
+            let mut ws = ProviderVirtualWorkspace::new_with_init_std_lib();
+            let (content, position) = ProviderVirtualWorkspace::handle_file_content(code)?;
+            let file_id = ws.def(&content);
+            let hover = crate::handlers::hover::hover(&ws.analysis, file_id, position)
+                .ok_or("no hover")
+                .or_fail()?;
+            verify_that!(format!("{hover:?}"), contains_substring(expected))?;
+        }
+        Ok(())
+    }
+
     /// io.open hovers with LuaLS's name for the failure message return.
     #[gtest]
     fn test_hover_io_open_names_errmsg() -> Result<()> {
