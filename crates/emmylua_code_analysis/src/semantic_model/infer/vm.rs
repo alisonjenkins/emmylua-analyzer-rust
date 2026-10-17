@@ -2805,10 +2805,9 @@ impl<'a> InferVm<'a> {
                 &generic_names,
             );
             if matches!(ret, LuaType::Unknown)
-                && file_id == self.model.file_id()
-                && let Some(inferred) = self
-                    .model
-                    .body_return_type(signature.closure_syntax, signature)
+                && let Some(inferred) =
+                    self.model
+                        .body_return_type(file_id, signature.closure_syntax, signature)
             {
                 ret = inferred;
             }

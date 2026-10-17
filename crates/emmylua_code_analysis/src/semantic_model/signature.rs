@@ -223,6 +223,7 @@ impl<'db> SemanticModel<'db> {
     /// (`---@param` alone must not hide what `return` statements give).
     pub(crate) fn body_return_type(
         &self,
+        file_id: FileId,
         closure_syntax: LuaSyntaxId,
         signature: &Signature,
     ) -> Option<LuaType> {
@@ -231,7 +232,7 @@ impl<'db> SemanticModel<'db> {
         {
             return None;
         }
-        let inferred = infer::closure_return_lua(self, closure_syntax);
+        let inferred = self.inferred_closure_return_in_file(file_id, closure_syntax);
         (!matches!(inferred, LuaType::Unknown | LuaType::Any)).then_some(inferred)
     }
 
@@ -418,7 +419,8 @@ impl<'db> SemanticModel<'db> {
             ret = expected_fun.get_ret().clone();
         }
         if matches!(ret, LuaType::Unknown)
-            && let Some(inferred) = self.body_return_type(closure_syntax, signature)
+            && let Some(inferred) =
+                self.body_return_type(self.view.file_id(), closure_syntax, signature)
         {
             ret = inferred;
         }
@@ -916,11 +918,10 @@ impl<'db> SemanticModel<'db> {
         let mut ret =
             self.signature_return_type(file_id, closure_syntax, signature, &generic_names);
         ret = type_eval::expand_alias_generic(self, &ret);
-        if matches!(ret, LuaType::Unknown) && signature.docs.is_none() {
-            let inferred = self.inferred_closure_return_in_file(file_id, closure_syntax);
-            if !matches!(inferred, LuaType::Unknown | LuaType::Any) {
-                ret = inferred;
-            }
+        if matches!(ret, LuaType::Unknown)
+            && let Some(inferred) = self.body_return_type(file_id, closure_syntax, signature)
+        {
+            ret = inferred;
         }
         if signature.docs.is_none()
             && let Some((new_params, new_ret)) = self.table_field_signature_override(
