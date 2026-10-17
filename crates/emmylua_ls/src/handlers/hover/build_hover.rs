@@ -6,13 +6,13 @@ use emmylua_code_analysis::{
 };
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaCallExpr, LuaClosureExpr, LuaDocAttributeUse, LuaDocDescriptionOwner, LuaDocType,
-    LuaExpr, LuaIndexExpr, LuaLocalStat, LuaReturnStat, LuaSyntaxToken, LuaTableExpr, LuaTableField,
+    LuaExpr, LuaIndexExpr, LuaIndexKey, LuaLocalStat, LuaReturnStat, LuaSyntaxToken, LuaTableExpr, LuaTableField,
 };
 use hashbrown::HashMap;
 use lsp_types::{Hover, HoverContents, MarkupContent};
 use rowan::TextRange;
 
-use crate::handlers::common::{resolve_alias_origin, semantic_id_file};
+use crate::handlers::common::{container_element_type, resolve_alias_origin, semantic_id_file};
 use crate::handlers::completion::providers::callable_candidates;
 use crate::handlers::hover::desc::HoverDescription;
 
@@ -324,14 +324,27 @@ fn member_context_infos(
             return Vec::new();
         };
         if let Some(context_ty) = table_context_type_for_token(model, token) {
-            let mut infos = model
-                .member_infos_with_key_all(&context_ty, &member.key)
-                .into_iter()
-                .map(|info| MemberContextInfo {
-                    info,
+            let mut infos = if let Some(element) = container_element_type(&context_ty) {
+                vec![MemberContextInfo {
+                    info: MemberInfo {
+                        key: member.key.clone(),
+                        typ: element,
+                        id: Some(decl.clone()),
+                        file_id: Some(member_key.file_id),
+                        is_method: false,
+                    },
                     show_unknown: false,
-                })
-                .collect::<Vec<_>>();
+                }]
+            } else {
+                model
+                    .member_infos_with_key_all(&context_ty, &member.key)
+                    .into_iter()
+                    .map(|info| MemberContextInfo {
+                        info,
+                        show_unknown: false,
+                    })
+                    .collect::<Vec<_>>()
+            };
             if context_ty.contain_tpl() {
                 // When the generic context cannot be inferred from the call site, bind generics in the
                 // type-surface member using the field value's own `---@param` signatures
@@ -460,11 +473,55 @@ fn table_context_type_for_token(
     table_context_type_for_expr(model, &table_expr)
 }
 
+/// The declared type of a table literal that is the value of `field` in an enclosing literal: the
+/// element type of a `table<K, V>` / `V[]` context, else the type the context class gives the key.
+fn nested_table_context_type(model: &SemanticModel<'_>, field: &LuaTableField) -> Option<LuaType> {
+    let parent_table = field.get_parent::<LuaTableExpr>()?;
+    let parent_ty = table_context_type_for_expr(model, &parent_table)?;
+    let ty = if let Some(element) = container_element_type(&parent_ty) {
+        element
+    } else {
+        let key = field.get_field_key()?;
+        if !matches!(key, LuaIndexKey::Name(_) | LuaIndexKey::String(_)) {
+            return None;
+        }
+        let member_key = LuaMemberKey::Name(key.get_path_part().into());
+        model
+            .member_infos_with_key_all(&parent_ty, &member_key)
+            .into_iter()
+            .next()?
+            .typ
+    };
+    let ty = match &ty {
+        LuaType::Union(union) => LuaType::from_vec(
+            union
+                .into_vec()
+                .into_iter()
+                .filter(|member| !matches!(member, LuaType::Nil))
+                .collect(),
+        ),
+        _ => ty,
+    };
+    (!matches!(ty, LuaType::Unknown)).then_some(ty)
+}
+
 fn table_context_type_for_expr(
     model: &SemanticModel<'_>,
     table_expr: &LuaTableExpr,
 ) -> Option<LuaType> {
     let syntax_id = table_expr.get_syntax_id();
+
+    // `{ outer = { ... } }`: the type the enclosing literal's context gives `outer`.
+    if let Some(field) = table_expr.get_parent::<LuaTableField>() {
+        return nested_table_context_type(model, &field);
+    }
+
+    // `---@type T return { ... }`: the declared type of the returned literal.
+    if table_expr.get_parent::<LuaReturnStat>().is_some()
+        && let Some(ty) = model.returned_table_doc_type(model.file_id(), table_expr.get_range())
+    {
+        return Some(ty);
+    }
 
     // `---@type T local t = { ... }`: type from the local declaration.
     if let Some(local) = table_expr.ancestors::<LuaLocalStat>().next() {
