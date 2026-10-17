@@ -238,6 +238,92 @@ mod tests {
     }
 
     #[gtest]
+    fn test_module_return_aliases_across_files_ignore_other_initialisers() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file("other.lua", "return {}");
+        let at = |file: &str, line: u32| VirtualLocation {
+            file: file.to_string(),
+            line,
+        };
+
+        check!(ws.check_references(
+            r#"
+                local function init()
+                end
+                return in<??>it
+            "#,
+            vec![
+                (
+                    "a.lua",
+                    r#"
+                local init = require("virtual_0")
+                init()
+            "#,
+                ),
+                (
+                    "b.lua",
+                    r#"
+                local unrelated = require("other")
+                local not_a_require = tostring("virtual_0")
+                local again = require("virtual_0")
+                again()
+            "#,
+                ),
+            ],
+            vec![
+                at("virtual_0.lua", 1),
+                at("a.lua", 1),
+                at("a.lua", 2),
+                at("virtual_0.lua", 3),
+                at("b.lua", 3),
+                at("b.lua", 4),
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_member_alias_local_ignores_other_members_of_the_module() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let at = |file: &str, line: u32| VirtualLocation {
+            file: file.to_string(),
+            line,
+        };
+
+        check!(ws.check_references(
+            r#"
+                local function fl<??>ush()
+                end
+                local function other()
+                end
+                return {
+                    flush = flush,
+                    other = other,
+                }
+            "#,
+            vec![(
+                "c.lua",
+                r#"
+                local f = require("virtual_0").flush
+                local o = require("virtual_0").other
+                f()
+                o()
+            "#,
+            )],
+            vec![
+                at("virtual_0.lua", 1),
+                at("c.lua", 1),
+                at("c.lua", 1),
+                at("c.lua", 1),
+                at("c.lua", 3),
+                at("virtual_0.lua", 6),
+                at("virtual_0.lua", 6),
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_module_return_2() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         ws.def_file(

@@ -4,6 +4,7 @@
 //! was moved to `handlers/common/legacy_references.rs` for not-yet-migrated handlers (M3 batch 3+),
 //! and will be deleted after the compilation layer is retired.
 
+use std::cell::OnceCell;
 use std::collections::HashSet;
 
 use emmylua_code_analysis::{
@@ -39,12 +40,17 @@ pub fn search_references(
 
     // 2. Semantic declaration references (decl / member / typedef).
     if let Some(decl) = model.find_decl(token.clone().into()) {
+        let require_uses = RequireFieldUses::new(db);
         let ranges = match &decl {
             SemanticId::Decl(_) => {
                 let mut ranges = Vec::new();
                 for same in same_name_global_decls(model, &decl) {
-                    for range in decl_reference_ranges_with_aliases(db, &same, include_declaration)
-                    {
+                    for range in decl_reference_ranges_with_aliases(
+                        db,
+                        &require_uses,
+                        &same,
+                        include_declaration,
+                    ) {
                         push_unique(&mut ranges, range);
                     }
                 }
@@ -64,9 +70,12 @@ pub fn search_references(
                     }
                 }
                 for member in &members {
-                    for range in
-                        member_reference_ranges_with_require(db, member, include_declaration)
-                    {
+                    for range in member_reference_ranges_with_require(
+                        db,
+                        &require_uses,
+                        member,
+                        include_declaration,
+                    ) {
                         push_unique(&mut ranges, range);
                     }
                 }
@@ -400,12 +409,43 @@ fn require_index_member(
     model.require_field_member(index_expr)
 }
 
-/// Reference ranges for require module path strings (the legacy reference index also counted the
-/// `"mod"` in `require("mod").field` as a member alias reference).
-fn require_module_literal_ranges(
-    db: &SemanticDatabase,
-    member: &SemanticId,
-) -> Vec<(FileId, rowan::TextRange)> {
+/// One `require("mod").field` access.
+struct RequireFieldUse {
+    file_id: FileId,
+    member: SemanticId,
+    key_range: Option<rowan::TextRange>,
+    module_literal_range: Option<rowan::TextRange>,
+}
+
+/// Every `require("mod").field` access in the workspace, in file then source order.
+///
+/// Finding them takes a walk over every file's syntax tree, so it runs once per request, on first
+/// use, instead of once per member of the alias chain.
+struct RequireFieldUses<'db> {
+    db: &'db SemanticDatabase,
+    uses: OnceCell<Vec<RequireFieldUse>>,
+}
+
+impl<'db> RequireFieldUses<'db> {
+    fn new(db: &'db SemanticDatabase) -> Self {
+        Self {
+            db,
+            uses: OnceCell::new(),
+        }
+    }
+
+    fn of_member<'a>(
+        &'a self,
+        member: &'a SemanticId,
+    ) -> impl Iterator<Item = &'a RequireFieldUse> + 'a {
+        self.uses
+            .get_or_init(|| collect_require_field_uses(self.db))
+            .iter()
+            .filter(move |item| &item.member == member)
+    }
+}
+
+fn collect_require_field_uses(db: &SemanticDatabase) -> Vec<RequireFieldUse> {
     let mut out = Vec::new();
     for file_id in db.file_ids() {
         let model = SemanticModel::new(db, file_id);
@@ -413,19 +453,37 @@ fn require_module_literal_ranges(
             continue;
         };
         for index_expr in chunk.descendants::<LuaIndexExpr>() {
-            if require_index_member(&model, &index_expr).as_ref() != Some(member) {
-                continue;
-            }
-            let Some(prefix) = index_expr.get_prefix_expr() else {
+            let Some(member) = require_index_member(&model, &index_expr) else {
                 continue;
             };
-            let LuaExpr::CallExpr(call) = prefix else {
-                continue;
+            let module_literal_range = match index_expr.get_prefix_expr() {
+                Some(LuaExpr::CallExpr(call)) => call
+                    .get_args_list()
+                    .and_then(|list| list.get_args().next())
+                    .map(|arg| arg.get_range()),
+                _ => None,
             };
-            let Some(arg) = call.get_args_list().and_then(|list| list.get_args().next()) else {
-                continue;
-            };
-            push_unique(&mut out, (file_id, arg.get_range()));
+            out.push(RequireFieldUse {
+                file_id,
+                member,
+                key_range: index_expr.get_index_key().and_then(|key| key.get_range()),
+                module_literal_range,
+            });
+        }
+    }
+    out
+}
+
+/// Reference ranges for require module path strings (the legacy reference index also counted the
+/// `"mod"` in `require("mod").field` as a member alias reference).
+fn require_module_literal_ranges(
+    require_uses: &RequireFieldUses<'_>,
+    member: &SemanticId,
+) -> Vec<(FileId, rowan::TextRange)> {
+    let mut out = Vec::new();
+    for item in require_uses.of_member(member) {
+        if let Some(range) = item.module_literal_range {
+            push_unique(&mut out, (item.file_id, range));
         }
     }
     out
@@ -435,22 +493,14 @@ fn require_module_literal_ranges(
 /// alias identities for require-module exported members; here they are filled in by module file + member key).
 fn member_reference_ranges_with_require(
     db: &SemanticDatabase,
+    require_uses: &RequireFieldUses<'_>,
     member: &SemanticId,
     include_declaration: bool,
 ) -> Vec<(FileId, rowan::TextRange)> {
     let mut out = member_reference_ranges(db, member, include_declaration);
-    for file_id in db.file_ids() {
-        let model = SemanticModel::new(db, file_id);
-        let Some(chunk) = model.chunk() else {
-            continue;
-        };
-        for index_expr in chunk.descendants::<LuaIndexExpr>() {
-            if require_index_member(&model, &index_expr).as_ref() == Some(member)
-                && let Some(key) = index_expr.get_index_key()
-                && let Some(range) = key.get_range()
-            {
-                push_unique(&mut out, (file_id, range));
-            }
+    for item in require_uses.of_member(member) {
+        if let Some(range) = item.key_range {
+            push_unique(&mut out, (item.file_id, range));
         }
     }
     out
@@ -461,6 +511,7 @@ fn member_reference_ranges_with_require(
 /// usage sites like `local f = require("mod").flush; f()` must also be counted.
 fn decl_reference_ranges_with_aliases(
     db: &SemanticDatabase,
+    require_uses: &RequireFieldUses<'_>,
     decl: &SemanticId,
     include_declaration: bool,
 ) -> Vec<(FileId, rowan::TextRange)> {
@@ -485,10 +536,11 @@ fn decl_reference_ranges_with_aliases(
             }
             out.extend(member_reference_ranges_with_require(
                 db,
+                require_uses,
                 &member,
                 include_declaration,
             ));
-            out.extend(require_module_literal_ranges(db, &member));
+            out.extend(require_module_literal_ranges(require_uses, &member));
             decl_work.extend(decls_aliased_to_member(db, &member));
         }
         for alias_decl in decl_work.drain(..) {
@@ -530,25 +582,34 @@ fn module_alias_decls_of_decl(
         }
     }
 
-    for module_file in module_files {
-        let Some(module_name) = db.module_name_of(module_file) else {
+    let module_names: Vec<String> = module_files
+        .into_iter()
+        .filter_map(|module_file| db.module_name_of(module_file))
+        .collect();
+    if module_names.is_empty() {
+        return out;
+    }
+
+    // One pass over the declarations, whatever the number of exporting files.
+    let mut requires = Vec::new();
+    for file_id in db.file_ids() {
+        let model = SemanticModel::new(db, file_id);
+        let Some(decls) = model.decls() else {
             continue;
         };
-        for file_id in db.file_ids() {
-            let model = SemanticModel::new(db, file_id);
-            let Some(decls) = model.decls() else {
+        for alias_decl in decls.iter() {
+            let Some(value_syntax) = alias_decl.value_expr_syntax else {
                 continue;
             };
-            for alias_decl in decls.iter() {
-                let Some(value_syntax) = alias_decl.value_expr_syntax else {
-                    continue;
-                };
-                let Some(require_name) = require_module_name_at(&model, value_syntax) else {
-                    continue;
-                };
-                if require_name == module_name {
-                    out.push((alias_decl.id.clone(), Vec::new()));
-                }
+            if let Some(require_name) = require_module_name_at(&model, value_syntax) {
+                requires.push((require_name, alias_decl.id.clone()));
+            }
+        }
+    }
+    for module_name in &module_names {
+        for (require_name, alias_id) in &requires {
+            if require_name == module_name {
+                out.push((alias_id.clone(), Vec::new()));
             }
         }
     }
@@ -560,9 +621,9 @@ fn require_module_name_at(
     call_syntax: emmylua_parser::LuaSyntaxId,
 ) -> Option<String> {
     let chunk = model.chunk()?;
-    let call = chunk
-        .descendants::<LuaCallExpr>()
-        .find(|call| call.get_syntax_id() == call_syntax)?;
+    let call = call_syntax
+        .to_node_from_root(chunk.syntax())
+        .and_then(LuaCallExpr::cast)?;
     if !call.is_require() {
         return None;
     }
@@ -616,6 +677,18 @@ fn alias_members_of_decl(db: &SemanticDatabase, decl: &SemanticId) -> Vec<Semant
 /// Which declarations are initialized from a member alias (the `f` in `local f = require("mod").flush`).
 fn decls_aliased_to_member(db: &SemanticDatabase, member: &SemanticId) -> Vec<SemanticId> {
     let mut out = Vec::new();
+    // Resolving an access to a member looks the member up by the accessed key, so only accesses
+    // of the member's own name can name it; skipping the rest avoids inferring thousands of receivers.
+    let member_name = match member {
+        SemanticId::Member(key) => SemanticModel::new(db, key.file_id)
+            .file_facts_of(key.file_id)
+            .and_then(|facts| facts.member_by_id(member))
+            .and_then(|fact| match &fact.key {
+                LuaMemberKey::Name(name) => Some(name.clone()),
+                _ => None,
+            }),
+        _ => None,
+    };
     for file_id in db.file_ids() {
         let model = SemanticModel::new(db, file_id);
         let Some(decls) = model.decls() else {
@@ -628,18 +701,25 @@ fn decls_aliased_to_member(db: &SemanticDatabase, member: &SemanticId) -> Vec<Se
             let Some(value_syntax) = decl.value_expr_syntax else {
                 continue;
             };
-            for index_expr in chunk.descendants::<LuaIndexExpr>() {
-                if index_expr.get_syntax_id() != value_syntax {
-                    continue;
-                }
-                let resolved = model
-                    .resolve_member(&index_expr)
-                    .and_then(|resolved| resolved.member_id)
-                    .or_else(|| require_index_member(&model, &index_expr));
-                if resolved.as_ref() == Some(member) {
-                    out.push(decl.id.clone());
-                }
-                break;
+            let Some(index_expr) = value_syntax
+                .to_node_from_root(chunk.syntax())
+                .and_then(LuaIndexExpr::cast)
+            else {
+                continue;
+            };
+            if let Some(name) = &member_name
+                && index_expr
+                    .get_index_key()
+                    .is_some_and(|key| key.get_path_part() != name.as_str())
+            {
+                continue;
+            }
+            let resolved = model
+                .resolve_member(&index_expr)
+                .and_then(|resolved| resolved.member_id)
+                .or_else(|| require_index_member(&model, &index_expr));
+            if resolved.as_ref() == Some(member) {
+                out.push(decl.id.clone());
             }
         }
     }
