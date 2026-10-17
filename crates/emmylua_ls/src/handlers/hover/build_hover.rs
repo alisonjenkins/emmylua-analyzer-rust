@@ -838,6 +838,57 @@ fn signature_has_named_returns(
         .is_some_and(|docs| !docs.named_returns.is_empty())
 }
 
+/// Named-return block for a signature that may live in another file or have been specialised
+/// at a call site. Declared types are only read from the current file; elsewhere the slots of
+/// `func` supply them, so a substituted generic keeps its substitution.
+fn named_return_block(
+    model: &SemanticModel<'_>,
+    file_id: Option<emmylua_code_analysis::FileId>,
+    closure_syntax: Option<emmylua_parser::LuaSyntaxId>,
+    func: &LuaFunctionType,
+    substituted: bool,
+) -> Option<String> {
+    let closure = closure_syntax?;
+    let foreign = file_id.filter(|file| *file != model.file_id());
+    let signature = match foreign {
+        Some(file) => model.file_facts_of(file)?.signature_by_closure(closure)?,
+        None => model
+            .signatures()?
+            .iter()
+            .find(|signature| signature.closure_syntax == closure)?,
+    };
+    let docs = signature.docs.as_ref()?;
+    if docs.named_returns.is_empty() {
+        return None;
+    }
+    if foreign.is_none() && !substituted {
+        return Some(render_named_returns(model, closure_syntax));
+    }
+    let slots = match func.get_ret() {
+        LuaType::Variadic(variadic) => match variadic.as_ref() {
+            VariadicType::Multi(types) => types.clone(),
+            _ => return None,
+        },
+        ty => vec![ty.clone()],
+    };
+    if slots.len() != docs.returns.len() {
+        return None;
+    }
+    let lines: Vec<String> = docs
+        .returns
+        .iter()
+        .zip(&slots)
+        .map(|(syntax, ty)| {
+            let text = humanize_return(model, ty);
+            match docs.named_returns.iter().find(|(_, named)| named == syntax) {
+                Some((name, _)) => format!("  -> {}: {}", name, text),
+                None => format!("  -> {}", text),
+            }
+        })
+        .collect();
+    Some(format!("\n{}\n", lines.join("\n")))
+}
+
 /// Render named `---@return name type` as a multiline return block.
 fn render_named_returns(
     model: &SemanticModel<'_>,
@@ -1108,12 +1159,17 @@ fn build_decl_hover(
         } else {
             signature
         };
-        let has_named_returns =
-            !call_fun.is_some() && signature_has_named_returns(model, Some(closure));
+        let named_block = named_return_block(
+            model,
+            None,
+            Some(closure),
+            &signature,
+            call_fun.is_some(),
+        );
         let (params, _) =
             render_function_params_and_ret_mode(model, &signature, false, false, false);
-        let ret = if has_named_returns {
-            render_named_returns(model, Some(closure))
+        let ret = if let Some(block) = named_block {
+            block
         } else {
             with_unknown_return(
                 model,
@@ -1856,12 +1912,17 @@ fn build_member_hover(
             let async_prefix = async_prefix(fun);
             let typed_fun = with_self_param_owner(fun, Some(&owner_ty));
             let fun = &typed_fun;
-            let has_named_returns = !call_site_substituted
-                && signature_has_named_returns(model, member_info.value_syntax);
+            let named_block = named_return_block(
+                model,
+                semantic_id_file(&member_info.id),
+                member_info.value_syntax,
+                fun,
+                call_site_substituted,
+            );
             let (params, _) =
                 render_function_params_and_ret_mode(model, fun, is_method, false, show_unknown);
-            let ret = if has_named_returns {
-                render_named_returns(model, member_info.value_syntax)
+            let ret = if let Some(block) = named_block {
+                block
             } else {
                 with_unknown_return(
                     model,
@@ -1913,12 +1974,17 @@ fn build_member_hover(
         } else if let Some(owner_name) = member_owner_display_name(model, &member_info.owner) {
             let async_prefix = async_prefix(fun);
             let is_method = fun.is_colon_define() || member_info.is_method;
-            let has_named_returns = !call_site_substituted
-                && signature_has_named_returns(model, member_info.value_syntax);
+            let named_block = named_return_block(
+                model,
+                semantic_id_file(&member_info.id),
+                member_info.value_syntax,
+                fun,
+                call_site_substituted,
+            );
             let (params, _) =
                 render_function_params_and_ret_mode(model, fun, is_method, false, show_unknown);
-            let ret = if has_named_returns {
-                render_named_returns(model, member_info.value_syntax)
+            let ret = if let Some(block) = named_block {
+                block
             } else {
                 with_unknown_return(
                     model,

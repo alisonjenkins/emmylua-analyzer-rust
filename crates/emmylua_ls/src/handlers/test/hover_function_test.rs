@@ -721,7 +721,7 @@ mod tests {
                 RingBuffer:<??>get(1)
             "#,
             VirtualHoverResult {
-                value: "```lua\n(method) RingBuffer:get(index: integer) -> string?\n```\n\n---\n\n@*param* `index` — 索引".to_string(),
+                value: "```lua\n(method) RingBuffer:get(index: integer)\n  -> item: string?\n\n```\n\n---\n\n@*param* `index` — 索引".to_string(),
             },
         ));
         Ok(())
@@ -1285,6 +1285,46 @@ mod tests {
             "#,
             VirtualHoverResult {
                 value: "```lua\nfunction M.a(opts: (foo.bar|foo.baz), ext: vim.api.keyset.set_extmark)\n```"
+                    .to_string(),
+            },
+        ));
+        Ok(())
+    }
+
+    /// Named returns print at a call site too, and for a function declared in another file.
+    #[gtest]
+    fn test_named_returns_print_at_call_site() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                ---@return true? result
+                ---@return string err
+                local function mine(x) end
+
+                local a, b = <??>mine(1)
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nlocal function mine(x)\n  -> result: true?\n  -> err: string\n\n```"
+                    .to_string(),
+            },
+        ));
+        ws.def_file(
+            "lib.lua",
+            r#"
+                local M = {}
+                ---@return integer? start
+                ---@return string? err
+                function M.find(s) end
+                return M
+            "#,
+        );
+        check!(ws.check_hover(
+            r#"
+                local lib = require("lib")
+                local a, b = lib.<??>find("x")
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction M.find(s: any)\n  -> start: integer?\n  -> err: string?\n\n```"
                     .to_string(),
             },
         ));
