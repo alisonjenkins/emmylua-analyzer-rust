@@ -2235,8 +2235,7 @@ impl<'a> InferVm<'a> {
             let mut ty = vm.run();
             // `---@as` / flow casts are attached to return expression nodes; flow queries can
             // give a more precise return type than bare VM (e.g. `{} --[[@as Promise<integer>]]`).
-            let flow_ty = type_of_expr_with_cast(self.model, expr_syntax, ExprCastMode::All);
-            if !matches!(flow_ty, LuaType::Unknown | LuaType::Any) && flow_ty != ty {
+            let flow_ty = type_of_expr_with_cast(self.model, expr_syntax, ExprCastMode::All);            if !matches!(flow_ty, LuaType::Unknown | LuaType::Any) && flow_ty != ty {
                 ty = flow_ty;
             }
             while slots.len() <= slot {
