@@ -240,8 +240,19 @@ fn is_other_member_owner(target: &[OwnerId], candidate: &[OwnerId]) -> bool {
                 .iter()
                 .all(|id| matches!(id, OwnerId::Local(..) | OwnerId::Module(_)))
     }
+    // Untyped table constructors (no class, global or annotation) are distinct tables unless they are the same one.
+    fn is_anonymous(ids: &[OwnerId]) -> bool {
+        ids.iter().all(|id| {
+            matches!(
+                id,
+                OwnerId::Local(..) | OwnerId::Module(_) | OwnerId::Table(..)
+            )
+        })
+    }
     !candidate.iter().any(|id| target.contains(id))
-        && (is_file_local(target) || is_file_local(candidate))
+        && (is_file_local(target)
+            || is_file_local(candidate)
+            || (is_anonymous(target) && is_anonymous(candidate)))
 }
 
 fn member_key_and_owner_ids(

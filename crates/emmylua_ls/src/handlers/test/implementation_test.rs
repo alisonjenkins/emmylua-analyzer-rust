@@ -285,6 +285,24 @@ mod tests {
     }
 
     #[gtest]
+    fn test_same_key_in_sibling_nested_table_is_not_an_implementation() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_implementation(
+            r#"
+                local cfg = {
+                    a = { x<??> = 1 },
+                    b = { x = 2 },
+                }
+            "#,
+            vec![VirtualLocation {
+                file: "".to_string(),
+                line: 2,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_same_method_name_on_other_class_is_not_an_implementation() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         ws.def_file(

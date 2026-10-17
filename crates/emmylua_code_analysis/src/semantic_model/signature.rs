@@ -162,6 +162,19 @@ impl<'db> SemanticModel<'db> {
             if !ids.contains(&table_owner) {
                 ids.push(table_owner);
             }
+            if let Some(LuaType::Ref(type_id) | LuaType::Def(type_id)) =
+                self.returned_table_doc_type(key.file_id, key.key_range)
+            {
+                let scope = match type_id.get_id() {
+                    LuaTypeIdentifier::Global(_) => TypeScope::Global,
+                    LuaTypeIdentifier::Internal(ws, _) => TypeScope::Internal(*ws),
+                    LuaTypeIdentifier::File(file, _) => TypeScope::File(*file),
+                };
+                let type_owner = crate::OwnerId::Type(scope, SmolStr::new(type_id.get_name()));
+                if !ids.contains(&type_owner) {
+                    ids.push(type_owner);
+                }
+            }
         }
         ids
     }
