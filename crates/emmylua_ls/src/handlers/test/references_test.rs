@@ -1628,4 +1628,46 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![4, 6, 10])
     }
+
+    #[gtest]
+    fn test_references_of_parent_field_reach_keys_of_child_class_literals() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Icon
+                ---@field ic<??>on? string
+                ---@field hl? string
+
+                ---@class IconRule: Icon
+                ---@field plugin string
+
+                ---@type IconRule[]
+                local rules = {
+                    { plugin = "a", icon = "x" },
+                    { plugin = "b", hl = "y" },
+                }
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 10])
+    }
+
+    #[gtest]
+    fn test_references_of_parent_field_skip_keys_of_class_that_redeclares_it() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Icon
+                ---@field ic<??>on? string
+
+                ---@class IconRule: Icon
+                ---@field icon string
+
+                ---@type IconRule[]
+                local rules = {
+                    { icon = "x" },
+                }
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2])
+    }
 }
