@@ -15,6 +15,51 @@ mod test {
     }
 
     #[test]
+    fn returned_param_reassigned_with_default_is_not_nullable() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+
+        ws.def(
+            r#"
+        ---@class Item
+        ---@field x integer
+
+        ---@param items? Item[]
+        local function collect(items)
+            items = items or {}
+            return items
+        end
+
+        result = collect()
+        "#,
+        );
+        let ty = ws.expr_ty("result");
+        let expected = ws.ty("Item[]");
+        assert_eq!(ty, expected);
+    }
+
+    #[test]
+    fn returned_param_narrowed_by_guard_is_not_nullable() {
+        let mut ws = VirtualWorkspace::new_with_init_std_lib();
+
+        ws.def(
+            r#"
+        ---@param name? string
+        local function need(name)
+            if not name then
+                error("no name")
+            end
+            return name
+        end
+
+        result = need()
+        "#,
+        );
+        let ty = ws.expr_ty("result");
+        let expected = ws.ty("string");
+        assert_eq!(ty, expected);
+    }
+
+    #[test]
     fn test_flow() {
         let mut ws = VirtualWorkspace::new_with_init_std_lib();
 
