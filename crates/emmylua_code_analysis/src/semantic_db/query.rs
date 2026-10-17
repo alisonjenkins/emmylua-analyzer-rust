@@ -224,6 +224,7 @@ pub(crate) use super::index::types::{
 use crate::WorkspaceId;
 use smol_str::SmolStr;
 
+#[cfg(test)]
 pub(crate) fn workspace_type_index_for(
     db: &SemanticDatabase,
     ws_id: WorkspaceId,
@@ -283,13 +284,23 @@ fn find_global_types(db: &SemanticDatabase, full_name: &str) -> Arc<[TypeDef]> {
         .unwrap_or_default()
 }
 
+/// A reload clears the workspace roots before it re-adds them. Files whose workspace has no index
+/// in that window see no types instead of aborting the index build.
 fn find_internal_types(db: &SemanticDatabase, ws: WorkspaceId, full_name: &str) -> Arc<[TypeDef]> {
-    workspace_type_index_for(db, ws).find_all(TypeScope::Internal(ws), full_name)
+    db.workspace_index_cache()
+        .types
+        .get(&ws)
+        .map(|index| index.find_all(TypeScope::Internal(ws), full_name))
+        .unwrap_or_default()
 }
 
 fn find_file_types(db: &SemanticDatabase, file_id: FileId, full_name: &str) -> Arc<[TypeDef]> {
     let ws = file_workspace_id(db, file_id).unwrap_or(WorkspaceId::MAIN);
-    workspace_type_index_for(db, ws).find_all(TypeScope::File(file_id), full_name)
+    db.workspace_index_cache()
+        .types
+        .get(&ws)
+        .map(|index| index.find_all(TypeScope::File(file_id), full_name))
+        .unwrap_or_default()
 }
 
 /// Resolve **all definition locations** of a named type in the current file scope
