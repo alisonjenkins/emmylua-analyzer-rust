@@ -1,4 +1,6 @@
 use crate::MemberList;
+use emmylua_parser::LuaReturnStat;
+use rowan::TextRange;
 
 use super::prelude::*;
 
@@ -214,7 +216,7 @@ impl<'db> SemanticModel<'db> {
         &self,
         exprs: &[LuaExpr],
         var_count: Option<usize>,
-    ) -> Vec<(LuaType, rowan::TextRange)> {
+    ) -> Vec<(LuaType, TextRange)> {
         infer::infer_expr_list_types(self, exprs, var_count)
     }
     /// Unified signature return type projection: TypeShell takes priority, with rich projection as fallback for Unknown.
@@ -677,8 +679,10 @@ impl<'db> SemanticModel<'db> {
             SemanticId::Member(table_key) => {
                 // Table-literal field (`---@type D31; local f = { func = function(...) end }`):
                 // the member owner is a synthetic table identity; go back to the declaration that initializes the table and use its declared type as the field type source.
-                let decl = facts.decl_by_value_range(table_key.key_range)?;
-                self.type_of_decl(&decl.id)?
+                match facts.decl_by_value_range(table_key.key_range) {
+                    Some(decl) => self.type_of_decl(&decl.id)?,
+                    None => self.returned_table_doc_type(member_file, table_key.key_range)?,
+                }
             }
             _ => return None,
         };
@@ -716,6 +720,25 @@ impl<'db> SemanticModel<'db> {
             out = vec![out.pop()?];
         }
         Some(out)
+    }
+    /// Declared type of a table literal that is returned directly (`---@type T` above `return { ... }`).
+    fn returned_table_doc_type(&self, file_id: FileId, table_range: TextRange) -> Option<LuaType> {
+        let tree = self.syntax_tree_of(file_id)?;
+        let root = tree.get_red_root();
+        let table = root
+            .covering_element(table_range)
+            .ancestors()
+            .find_map(LuaTableExpr::cast)
+            .filter(|table| table.get_range() == table_range)?;
+        let ret = table.get_parent::<LuaReturnStat>()?;
+        ret.get_comments()
+            .into_iter()
+            .flat_map(|comment| comment.get_doc_tags())
+            .find_map(|tag| match tag {
+                LuaDocTag::Type(type_tag) => type_tag.get_type_list().next(),
+                _ => None,
+            })
+            .map(|doc_ty| self.doc_type_lua_rich_in(file_id, doc_ty.get_syntax_id()))
     }
     /// `---@param` / `---@return` annotations on table-literal fields override the closure's bare signature.
     /// semantic currently does not merge these field-level docs into `Signature.docs`, but `setmetatable`'s
