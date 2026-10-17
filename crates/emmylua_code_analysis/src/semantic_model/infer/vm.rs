@@ -4475,6 +4475,9 @@ pub fn infer_doc_func(
 
 /// Infer an expression (VM): compile -> interpret. Result = LuaType.
 pub fn infer_expr_vm(model: &SemanticModel, expr_syntax: LuaSyntaxId) -> LuaType {
+    if super::super::recursion_guard::stack_budget_exhausted() {
+        return LuaType::Unknown;
+    }
     let Some(tree) = model.syntax_tree() else {
         return LuaType::Unknown;
     };

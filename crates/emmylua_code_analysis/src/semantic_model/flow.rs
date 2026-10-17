@@ -1498,6 +1498,9 @@ fn trace_decl(
     visited: &mut HashSet<FlowId>,
     path: &mut PathState,
 ) -> Option<LuaType> {
+    if super::recursion_guard::stack_budget_exhausted() {
+        return None;
+    }
     // On a loop-free graph every route to a flow node crosses the same guards, so
     // a state's value depends on the node and the options alone — never on the
     // route. That makes the state cacheable, which matters because a nested
@@ -1973,6 +1976,9 @@ fn trace_member(
     visited: &mut HashSet<FlowId>,
     path: &mut PathState,
 ) -> Option<LuaType> {
+    if super::recursion_guard::stack_budget_exhausted() {
+        return None;
+    }
     let mut current = flow_id;
     loop {
         #[cfg(test)]

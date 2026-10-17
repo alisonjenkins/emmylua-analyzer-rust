@@ -14,6 +14,8 @@ mod signature;
 mod types;
 
 #[cfg(test)]
+mod deep_recursion_tests;
+#[cfg(test)]
 mod legacy_visibility_tests;
 
 use std::cell::{Ref, RefCell, RefMut};

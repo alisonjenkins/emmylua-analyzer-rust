@@ -3078,6 +3078,9 @@ pub(crate) fn expr_type_of(
     if EXPR_TYPE_IN_PROGRESS.with(|stack| stack.borrow().contains(&key)) {
         return TypeShell::unknown();
     }
+    if crate::semantic_model::recursion_guard::stack_budget_exhausted() {
+        return TypeShell::unknown();
+    }
     let _guard = ExprTypeGuard::enter(key);
     let facts = file_facts(db, file);
     let tree = syntax_tree(db, file);

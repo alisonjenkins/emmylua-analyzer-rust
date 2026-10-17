@@ -45,8 +45,52 @@ pub(crate) fn note_depth_cut() {
     DEPTH_CUTS.with(|cuts| cuts.set(cuts.get().wrapping_add(1)));
 }
 
+/// Stack bytes a recursive query may use below the shallowest guarded frame seen on this thread.
+///
+/// Worker threads have 2 MiB; the rest is left to the frames between two guard checks and to
+/// whatever called into the analysis.
+const STACK_BUDGET: usize = 1_200_000;
+
+thread_local! {
+    static STACK_TOP: Cell<usize> = const { Cell::new(0) };
+}
+
+/// True when a recursive query is deep enough that going further risks a stack overflow. The
+/// caller answers unknown instead of recursing, which turns a crash into a missing type.
+///
+/// How deep a query goes depends on where the thread's stack was when it started, so a result
+/// computed across a cut like this is never kept as a closure's return type.
+pub(crate) fn stack_budget_exhausted() -> bool {
+    let marker = 0u8;
+    let here = std::ptr::addr_of!(marker) as usize;
+    let exhausted = STACK_TOP.with(|top| {
+        // The stack grows down: the highest address seen is the shallowest frame.
+        if here > top.get() {
+            top.set(here);
+        }
+        top.get() - here > STACK_BUDGET
+    });
+    if exhausted {
+        note_stack_cut();
+    }
+    exhausted
+}
+
 fn depth_cuts() -> u32 {
     DEPTH_CUTS.with(|cuts| cuts.get())
+}
+
+thread_local! {
+    /// Stack-budget cuts so far on this thread; see [`stack_budget_exhausted`].
+    static STACK_CUTS: Cell<u32> = const { Cell::new(0) };
+}
+
+fn note_stack_cut() {
+    STACK_CUTS.with(|cuts| cuts.set(cuts.get().wrapping_add(1)));
+}
+
+fn stack_cuts() -> u32 {
+    STACK_CUTS.with(|cuts| cuts.get())
 }
 
 impl Default for ClosureReturnShared {
@@ -65,6 +109,7 @@ pub(crate) struct ClosureFrame {
     index: usize,
     saved_cut: usize,
     depth_cuts_at_start: u32,
+    stack_cuts_at_start: u32,
 }
 
 impl ClosureReturnShared {
@@ -94,6 +139,7 @@ impl ClosureReturnShared {
             index: stack.len(),
             saved_cut: self.lowest_cut.get(),
             depth_cuts_at_start: depth_cuts(),
+            stack_cuts_at_start: stack_cuts(),
         };
         stack.push(key);
         Some(frame)
@@ -112,7 +158,8 @@ impl ClosureReturnShared {
         if let (Some((result, entered_at_depth_zero)), Some(key)) = (keep, key) {
             let depth_dependent =
                 depth_cuts() != frame.depth_cuts_at_start && !entered_at_depth_zero;
-            if !cut_above && !depth_dependent {
+            let stack_dependent = stack_cuts() != frame.stack_cuts_at_start;
+            if !cut_above && !depth_dependent && !stack_dependent {
                 self.memo.borrow_mut().insert(key, result.clone());
             } else {
                 self.within_root.borrow_mut().insert(key, result.clone());
