@@ -340,6 +340,29 @@ foo({})
     }
 
     #[test]
+    fn test_object_call_argument_missing_fields_are_sorted() {
+        let diagnostics = check_source(
+            r#"
+            ---@param opts { zulu: number, yankee: number, xray: number, whiskey: number, victor: number, uniform: number, tango: number, sierra: number }
+            local function configure(opts) end
+
+            configure({})
+        "#,
+        );
+        let messages: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.code == DiagnosticCode::MissingFields)
+            .map(|d| d.message.as_str())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                "Missing required fields: `sierra`, `tango`, `uniform`, `victor`, `whiskey`, `xray`, `yankee`, `zulu`"
+            ]
+        );
+    }
+
+    #[test]
     fn test_multiline_union_nil_field_is_optional() {
         let mut ws = VirtualWorkspace::new();
         assert!(ws.has_no_diagnostic(

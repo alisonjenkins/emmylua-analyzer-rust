@@ -422,6 +422,8 @@ fn check_against_type(
                     missing.push(name);
                 }
             }
+            // `get_fields` iterates a HashMap, so sort for a stable message.
+            missing.sort_unstable();
             if !missing.is_empty() {
                 context.add_diagnostic(
                     DiagnosticCode::MissingFields,
