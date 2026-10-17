@@ -9,7 +9,7 @@ use emmylua_code_analysis::{
     TypeDef, TypeDefKind,
 };
 use emmylua_parser::{
-    LuaAssignStat, LuaAstNode, LuaExpr, LuaIndexExpr, LuaSyntaxKind, LuaSyntaxNode,
+    LuaAssignStat, LuaAstNode, LuaExpr, LuaFuncStat, LuaIndexExpr, LuaSyntaxKind, LuaSyntaxNode,
 };
 use lsp_types::{SymbolKind, SymbolTag, Uri, WorkspaceSymbol, WorkspaceSymbolResponse};
 use rowan::TextRange;
@@ -274,12 +274,18 @@ fn push_reassignments(
 }
 
 fn is_assignment_target(node: &LuaSyntaxNode) -> bool {
-    node.parent()
-        .and_then(LuaAssignStat::cast)
-        .is_some_and(|assign| {
-            let (vars, _) = assign.get_var_and_expr_list();
-            vars.iter().any(|var| var.syntax() == node)
-        })
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    if let Some(func) = LuaFuncStat::cast(parent.clone()) {
+        return func
+            .get_func_name()
+            .is_some_and(|name| name.syntax() == node);
+    }
+    LuaAssignStat::cast(parent).is_some_and(|assign| {
+        let (vars, _) = assign.get_var_and_expr_list();
+        vars.iter().any(|var| var.syntax() == node)
+    })
 }
 
 /// A path longer than this is not a real `a.b.c = v` chain; it also bounds a cyclic owner chain.
