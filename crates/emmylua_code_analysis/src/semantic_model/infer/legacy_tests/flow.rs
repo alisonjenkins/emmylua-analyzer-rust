@@ -2210,6 +2210,69 @@ n = n + 1
     }
 
     #[test]
+    fn test_never_return_wrappers_narrow_at_every_call_site() {
+        let mut ws = VirtualWorkspace::new();
+
+        ws.def(
+            r#"
+        ---@return never
+        local function panic()
+            error("panic!")
+        end
+
+        ---@param cond any
+        ---@return never
+        local function fail_unless(cond)
+            error("failed")
+        end
+
+        local function plain() end
+
+        ---@type integer?
+        local first
+        if first == nil then
+            plain()
+            panic()
+        end
+        after_first = first
+
+        ---@type integer?
+        local second
+        if second == nil then
+            panic()
+        end
+        after_second = second
+
+        ---@type integer?
+        local third
+        if not third then
+            fail_unless(false)
+        end
+        after_third = third
+
+        ---@type integer?
+        local fourth
+        if fourth == nil then
+            plain()
+        end
+        after_fourth = fourth
+
+        ---@type integer?
+        local fifth
+        assert(fifth)
+        after_fifth = fifth
+        "#,
+        );
+
+        assert_eq!(ws.expr_ty("after_first"), LuaType::Integer);
+        assert_eq!(ws.expr_ty("after_second"), LuaType::Integer);
+        assert_eq!(ws.expr_ty("after_third"), LuaType::Integer);
+        assert_eq!(ws.expr_ty("after_fifth"), LuaType::Integer);
+        let fourth = ws.expr_ty("after_fourth");
+        assert_ne!(fourth, LuaType::Integer);
+    }
+
+    #[test]
     fn test_unknown_type() {
         let mut ws = VirtualWorkspace::new();
 
