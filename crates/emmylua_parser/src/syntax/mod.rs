@@ -123,10 +123,20 @@ impl LuaSyntaxId {
     }
 
     pub fn to_node_from_root(&self, root: &LuaSyntaxNode) -> Option<LuaSyntaxNode> {
+        Self::find_node_at_range(root, self.range, |kind| kind == self.kind)
+    }
+
+    /// First node on the descent path to `range` whose range is exactly `range` and whose kind
+    /// satisfies `accept`. Several nodes can share a range (`{}` and its field value wrapper).
+    pub fn find_node_at_range(
+        root: &LuaSyntaxNode,
+        range: TextRange,
+        accept: impl Fn(LuaKind) -> bool,
+    ) -> Option<LuaSyntaxNode> {
         successors(Some(root.clone()), |node| {
-            node.child_or_token_at_range(self.range)?.into_node()
+            node.child_or_token_at_range(range)?.into_node()
         })
-        .find(|it| it.text_range() == self.range && it.kind() == self.kind)
+        .find(|it| it.text_range() == range && accept(it.kind()))
     }
 
     pub fn to_token(&self, tree: &LuaSyntaxTree) -> Option<LuaSyntaxToken> {
@@ -250,3 +260,101 @@ impl<T: LuaAstNode> LuaAstPtr<T> {
 
 unsafe impl<T: LuaAstNode> Send for LuaAstPtr<T> {}
 unsafe impl<T: LuaAstNode> Sync for LuaAstPtr<T> {}
+
+#[cfg(test)]
+mod syntax_id_lookup_tests {
+    use super::*;
+    use crate::{LuaParser, ParserConfig};
+
+    const FIXTURE: &str = r#"
+---@class Point
+---@field x number
+local M = {}
+
+local defaults = { a = { b = { c = {} } }, list = { 1, 2, { 3 } }, [1] = {}, f = function() return {} end }
+
+function M.new(x, y)
+    local t = { x = x, y = y, nested = { inner = { x, y } } }
+    return setmetatable(t, { __index = M })
+end
+
+function M:method(...)
+    for i, v in ipairs({ ... }) do
+        if v then
+            print(("%d"):format(i), M.new(v, v).x, defaults.a.b.c)
+        end
+    end
+    return (function() return { self } end)()
+end
+
+return M
+"#;
+
+    // The implementation this module replaced, kept as the oracle.
+    fn legacy_to_node_from_root(id: LuaSyntaxId, root: &LuaSyntaxNode) -> Option<LuaSyntaxNode> {
+        successors(Some(root.clone()), |node| {
+            node.child_or_token_at_range(id.range)?.into_node()
+        })
+        .find(|it| it.text_range() == id.range && it.kind() == id.kind)
+    }
+
+    fn ids_to_probe(root: &LuaSyntaxNode) -> Vec<LuaSyntaxId> {
+        let mut ids = Vec::new();
+        for node in root.descendants() {
+            let id = LuaSyntaxId::from_node(&node);
+            ids.push(id);
+            // Same range, other kind: must not resolve to a node of the wrong kind.
+            ids.push(LuaSyntaxId::new(
+                LuaKind::from(LuaSyntaxKind::Chunk),
+                id.range,
+            ));
+            ids.push(LuaSyntaxId::new(
+                LuaKind::from(LuaSyntaxKind::TableEmptyExpr),
+                id.range,
+            ));
+            // Same kind, longer range: no node has it.
+            let longer = TextRange::new(id.range.start(), id.range.end() + TextSize::new(1));
+            ids.push(LuaSyntaxId::new(id.kind, longer));
+        }
+        for token in root.descendants_with_tokens().filter_map(|e| e.into_token()) {
+            ids.push(LuaSyntaxId::from_token(&token));
+        }
+        ids
+    }
+
+    #[test]
+    fn to_node_from_root_matches_legacy_for_every_id() {
+        let tree = LuaParser::parse(FIXTURE, ParserConfig::default());
+        let root = tree.get_red_root();
+        let ids = ids_to_probe(&root);
+        assert!(ids.len() > 400, "fixture too small: {}", ids.len());
+        let mut resolved = 0;
+        for id in ids {
+            let new = id.to_node_from_root(&root);
+            assert_eq!(new, legacy_to_node_from_root(id, &root), "{id:?}");
+            if let Some(node) = new {
+                assert_eq!(LuaSyntaxId::from_node(&node), id);
+                resolved += 1;
+            }
+        }
+        assert!(resolved > 100, "too few ids resolved: {resolved}");
+    }
+
+    #[test]
+    fn find_node_at_range_selects_by_kind_among_same_range_nodes() {
+        let tree = LuaParser::parse("local t = { { } }", ParserConfig::default());
+        let root = tree.get_red_root();
+        let inner = root
+            .descendants()
+            .find(|n| n.kind() == LuaKind::from(LuaSyntaxKind::TableEmptyExpr))
+            .unwrap();
+        // The table field value wraps the empty table with an identical range.
+        let wrapper =
+            LuaSyntaxId::find_node_at_range(&root, inner.text_range(), |_| true).unwrap();
+        assert_ne!(wrapper.kind(), inner.kind());
+        let found = LuaSyntaxId::find_node_at_range(&root, inner.text_range(), |k| {
+            k == LuaKind::from(LuaSyntaxKind::TableEmptyExpr)
+        });
+        assert_eq!(found, Some(inner));
+    }
+}
