@@ -74,4 +74,10 @@ pub(crate) struct SemanticLocalCache {
     pub(crate) type_check: HashMap<(LuaType, LuaType), bool>,
     pub(crate) callable_functions: HashMap<LuaType, Vec<LuaFunctionType>>,
     pub(crate) alias_targets: HashMap<SemanticId, Option<LuaType>>,
+    /// The closure a call's plain-name callee resolves to, keyed by the call's syntax id in the
+    /// model's own file. Name resolution does not depend on what is being inferred.
+    pub(crate) call_callee_closure: HashMap<(FileId, LuaSyntaxId), Option<(FileId, LuaSyntaxId)>>,
+    /// Projected return type of a closure signature, kept only when computed outside any
+    /// in-progress inference; see `call_signature_return` in [`super::flow`].
+    pub(crate) closure_signature_return: HashMap<(FileId, LuaSyntaxId), Option<LuaType>>,
 }
