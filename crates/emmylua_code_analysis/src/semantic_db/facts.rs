@@ -132,7 +132,6 @@ pub struct FileFacts {
     /// `(first-arg range, first-arg syntax, metatable-value syntax)`.
     setmetatable_calls: Vec<(TextRange, LuaSyntaxId, LuaSyntaxId)>,
     operator_by_owner_name: HashMap<(SemanticId, SmolStr), usize>,
-    field_member_by_type_name: HashMap<(SemanticId, SmolStr), usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -269,8 +268,9 @@ impl FileFacts {
     /// `@field` members of the named type (`TypeDef` id).
     pub fn field_members_of_type(&self, type_def_id: &SemanticId, name: &str) -> Option<&Member> {
         let index = self
-            .field_member_by_type_name
-            .get(&(type_def_id.clone(), SmolStr::new(name)))?;
+            .members_by_owner_name
+            .get(&(type_def_id.clone(), SmolStr::new(name)))?
+            .first()?;
         self.members.get(*index)
     }
 
@@ -980,7 +980,6 @@ impl FactsBuilder {
         }
         let mut members_by_owner: HashMap<SemanticId, Vec<usize>> = HashMap::new();
         let mut members_by_name: HashMap<SmolStr, Vec<usize>> = HashMap::new();
-        let mut field_member_by_type_name: HashMap<(SemanticId, SmolStr), usize> = HashMap::new();
         let mut members_by_owner_name: HashMap<(SemanticId, SmolStr), Vec<usize>> = HashMap::new();
         for (index, member) in self.members.iter().enumerate() {
             members_by_owner
@@ -994,12 +993,9 @@ impl FactsBuilder {
                     .or_default()
                     .push(index);
                 members_by_owner_name
-                    .entry((member.owner.clone(), name_smol.clone()))
+                    .entry((member.owner.clone(), name_smol))
                     .or_default()
                     .push(index);
-                field_member_by_type_name
-                    .entry((member.owner.clone(), name_smol))
-                    .or_insert(index);
             }
         }
 
@@ -1152,7 +1148,6 @@ impl FactsBuilder {
             signature_by_closure,
             signature_by_position,
             operator_by_owner_name,
-            field_member_by_type_name,
         }
     }
 

@@ -6,6 +6,7 @@ use super::def::{
 };
 use super::exports::{FileExports, build_file_exports};
 use super::flow::build_flow_tree;
+use super::parallel::par_map;
 use super::query::aggregate_member_bucket;
 use super::query::file_workspace_id_for_path;
 use super::query::{
@@ -313,12 +314,23 @@ pub(crate) fn rebuild_all_caches(db: &mut SemanticDatabase) {
     db.files.clear();
     let file_ids = db.vfs.file_ids();
 
-    let mut files = HashMap::with_capacity(file_ids.len());
-    for file_id in file_ids.iter().copied() {
-        let Some(data) = db.file_data(file_id) else {
+    // Each phase below reads only the database state left by the previous one, so
+    // its files are built in parallel and installed in file order.
+    let live_ids: Vec<FileId> = file_ids
+        .iter()
+        .copied()
+        .filter(|&file_id| db.file_data(file_id).is_some())
+        .collect();
+
+    let built_facts = par_map(&live_ids, |&file_id| {
+        db.file_data(file_id)
+            .map(|data| build_file_facts(db, file_id, file_id, &data.text))
+    });
+    let mut files = HashMap::with_capacity(live_ids.len());
+    for (file_id, facts) in live_ids.iter().copied().zip(built_facts) {
+        let (Some(facts), Some(data)) = (facts, db.file_data(file_id)) else {
             continue;
         };
-        let facts = build_file_facts(db, file_id, file_id, &data.text);
         let workspace_id =
             file_workspace_id_for_path(db.workspace_roots().as_ref(), data.path.as_deref());
         files.insert(
@@ -335,11 +347,9 @@ pub(crate) fn rebuild_all_caches(db: &mut SemanticDatabase) {
         );
     }
     db.files = files;
-    for file_id in file_ids.iter().copied() {
-        if db.file_data(file_id).is_none() {
-            continue;
-        }
-        let flow = build_flow_tree(db, file_id);
+
+    let flows = par_map(&live_ids, |&file_id| build_flow_tree(db, file_id));
+    for (file_id, flow) in live_ids.iter().copied().zip(flows) {
         let cache = db
             .files
             .get_mut(&file_id)
@@ -364,11 +374,8 @@ pub(crate) fn rebuild_all_caches(db: &mut SemanticDatabase) {
     // index only depends on facts + workspace roots.
     rebuild_module_indexes(db);
 
-    for file_id in file_ids.iter().copied() {
-        if db.file_data(file_id).is_none() {
-            continue;
-        }
-        let exports = build_file_exports(db, file_id, file_id);
+    let built_exports = par_map(&live_ids, |&file_id| build_file_exports(db, file_id, file_id));
+    for (file_id, exports) in live_ids.iter().copied().zip(built_exports) {
         let cache = db
             .files
             .get_mut(&file_id)
@@ -378,14 +385,12 @@ pub(crate) fn rebuild_all_caches(db: &mut SemanticDatabase) {
 
     rebuild_workspace_indexes(db);
 
-    for file_id in file_ids.iter().copied() {
-        if let Some(file) = db.file_data_id(file_id) {
-            let references = build_file_references(db, file);
-            db.files
-                .get_mut(&file_id)
-                .expect("file cache must exist before references build")
-                .references = Arc::new(references);
-        }
+    let built_references = par_map(&live_ids, |&file_id| build_file_references(db, file_id));
+    for (file_id, references) in live_ids.iter().copied().zip(built_references) {
+        db.files
+            .get_mut(&file_id)
+            .expect("file cache must exist before references build")
+            .references = Arc::new(references);
     }
 
     rebuild_workspace_reference_indexes(db);

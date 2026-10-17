@@ -24,55 +24,117 @@ use crate::{FileId, WorkspaceId};
 /// `Arc` instead of re-collecting the bucket on every call.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct OwnerMembers {
-    by_id: HashMap<SemanticId, MemberRef>,
-    by_name_ids: HashMap<SmolStr, Vec<SemanticId>>,
-    order: Vec<SemanticId>,
+    /// The bucket in declaration order; the only persistent copy of the members.
     all: Arc<[MemberRef]>,
+    /// Per-name lists, only when the bucket holds more than one name. A
+    /// single-name bucket (the common case) answers `named` from `all`.
     by_name: HashMap<SmolStr, Arc<[MemberRef]>>,
+    /// Working copy between the first `insert`/`remove` and the next
+    /// `rebuild_caches`; `None` while the bucket is frozen.
+    open: Option<OpenBucket>,
+}
+
+/// Mutable form of a bucket while a file add/remove batch is applied.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct OpenBucket {
+    members: Vec<MemberRef>,
+    /// Ids of `members`, kept only once the bucket outgrows a linear scan.
+    ids: Option<HashSet<SemanticId>>,
+}
+
+/// Bucket size from which `OpenBucket` tracks member ids in a set instead of scanning.
+const LINEAR_SCAN_LIMIT: usize = 16;
+
+impl OpenBucket {
+    fn contains(&self, member_id: &SemanticId) -> bool {
+        match &self.ids {
+            Some(ids) => ids.contains(member_id),
+            None => self.members.iter().any(|member| &member.id == member_id),
+        }
+    }
 }
 
 impl OwnerMembers {
-    fn insert(&mut self, member_id: SemanticId, member: MemberRef, name: SmolStr) -> bool {
-        if self.by_id.contains_key(&member_id) {
+    fn open(&mut self) -> &mut OpenBucket {
+        self.open.get_or_insert_with(|| OpenBucket {
+            members: self.all.to_vec(),
+            ids: None,
+        })
+    }
+
+    fn insert(&mut self, member: MemberRef) -> bool {
+        let known = match &self.open {
+            Some(open) => open.contains(&member.id),
+            None => self.all.iter().any(|existing| existing.id == member.id),
+        };
+        if known {
             return false;
         }
-        self.by_id.insert(member_id.clone(), member);
-        self.order.push(member_id.clone());
-        self.by_name_ids.entry(name).or_default().push(member_id);
+        let open = self.open();
+        if let Some(ids) = &mut open.ids {
+            ids.insert(member.id.clone());
+        }
+        open.members.push(member);
+        if open.ids.is_none() && open.members.len() > LINEAR_SCAN_LIMIT {
+            open.ids = Some(open.members.iter().map(|m| m.id.clone()).collect());
+        }
         true
     }
 
     fn remove(&mut self, member_id: &SemanticId) -> bool {
-        if self.by_id.remove(member_id).is_none() {
+        if self.open.is_none() && !self.all.iter().any(|member| &member.id == member_id) {
             return false;
         }
-        self.order.retain(|id| id != member_id);
-        for member_ids in self.by_name_ids.values_mut() {
-            member_ids.retain(|id| id != member_id);
+        let open = self.open();
+        if !open.contains(member_id) {
+            return false;
         }
-        self.by_name_ids
-            .retain(|_, member_ids| !member_ids.is_empty());
+        open.members.retain(|member| &member.id != member_id);
+        if let Some(ids) = &mut open.ids {
+            ids.remove(member_id);
+        }
         true
     }
 
-    /// Rebuild the shared aggregate lists after this bucket changed.
-    fn rebuild_caches(&mut self) {
-        let all: Vec<MemberRef> = self
-            .order
-            .iter()
-            .filter_map(|member_id| self.by_id.get(member_id).cloned())
-            .collect();
-        self.all = Arc::from(all);
-
-        let mut by_name = HashMap::with_capacity(self.by_name_ids.len());
-        for (name, member_ids) in &self.by_name_ids {
-            let members: Vec<MemberRef> = member_ids
-                .iter()
-                .filter_map(|member_id| self.by_id.get(member_id).cloned())
-                .collect();
-            by_name.insert(name.clone(), Arc::from(members));
+    fn is_empty(&self) -> bool {
+        match &self.open {
+            Some(open) => open.members.is_empty(),
+            None => self.all.is_empty(),
         }
-        self.by_name = by_name;
+    }
+
+    /// Freeze the bucket and rebuild the shared aggregate lists after it changed.
+    fn rebuild_caches(&mut self) {
+        if let Some(open) = self.open.take() {
+            self.all = Arc::from(open.members);
+        }
+
+        let single_name = self
+            .all
+            .first()
+            .is_none_or(|first| self.all.iter().all(|member| member.name == first.name));
+        self.by_name = HashMap::new();
+        if single_name {
+            return;
+        }
+        let mut names: HashMap<&SmolStr, Vec<MemberRef>> = HashMap::new();
+        for member in self.all.iter() {
+            names.entry(&member.name).or_default().push(member.clone());
+        }
+        self.by_name = names
+            .into_iter()
+            .map(|(name, members)| (name.clone(), Arc::from(members)))
+            .collect();
+    }
+
+    /// Distinct member names of the bucket.
+    fn names(&self) -> impl Iterator<Item = &SmolStr> {
+        let single = self
+            .by_name
+            .is_empty()
+            .then(|| self.all.first().map(|member| &member.name))
+            .flatten();
+        single.into_iter().chain(self.by_name.keys())
     }
 
     fn all(&self) -> Arc<[MemberRef]> {
@@ -80,6 +142,13 @@ impl OwnerMembers {
     }
 
     fn named(&self, name: &str) -> Option<Arc<[MemberRef]>> {
+        if self.by_name.is_empty() {
+            return self
+                .all
+                .first()
+                .is_some_and(|member| member.name == name)
+                .then(|| Arc::clone(&self.all));
+        }
         self.by_name.get(name).cloned()
     }
 }
@@ -100,9 +169,7 @@ impl WorkspaceMemberIndex {
         touched: HashSet<T>,
     ) {
         for owner in touched {
-            let is_empty = owners
-                .get(&owner)
-                .is_none_or(|bucket| bucket.by_id.is_empty());
+            let is_empty = owners.get(&owner).is_none_or(OwnerMembers::is_empty);
             if is_empty {
                 owners.remove(&owner);
             } else if let Some(bucket) = owners.get_mut(&owner) {
@@ -186,7 +253,7 @@ impl WorkspaceMemberIndex {
             };
 
             let bucket = self.owners.entry(owner.clone()).or_default();
-            if bucket.insert(member_id.clone(), member_ref.clone(), name.clone()) {
+            if bucket.insert(member_ref.clone()) {
                 keys.push((owner.clone(), member_id.clone()));
                 touched_raw.insert(owner);
             }
@@ -196,7 +263,7 @@ impl WorkspaceMemberIndex {
                 .owners_by_id
                 .entry(canonical_owner.clone())
                 .or_default();
-            if canonical_bucket.insert(member_id.clone(), member_ref, name) {
+            if canonical_bucket.insert(member_ref) {
                 canonical_keys.push((canonical_owner.clone(), member_id));
                 touched_canonical.insert(canonical_owner);
             }
@@ -222,8 +289,7 @@ impl WorkspaceMemberIndex {
     fn owner_name_keys(&self) -> impl Iterator<Item = (SemanticId, SmolStr)> + '_ {
         self.owners.iter().flat_map(|(owner, bucket)| {
             bucket
-                .by_name_ids
-                .keys()
+                .names()
                 .map(move |name| (owner.clone(), name.clone()))
         })
     }
@@ -342,4 +408,97 @@ pub(crate) fn build_member_aggregates(
         .collect();
 
     (owner_members, owner_members_named)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rowan::{TextRange, TextSize};
+
+    fn member(file: u32, at: u32, name: &str) -> MemberRef {
+        let file_id = FileId { id: file };
+        let range = TextRange::at(TextSize::from(at), TextSize::from(1));
+        MemberRef {
+            file_id,
+            id: SemanticId::member(file_id, range),
+            name: SmolStr::new(name),
+        }
+    }
+
+    fn offsets(members: &[MemberRef]) -> Vec<u32> {
+        members
+            .iter()
+            .map(|member| match &member.id {
+                SemanticId::Member(key) => u32::from(key.key_range.start()),
+                _ => u32::MAX,
+            })
+            .collect()
+    }
+
+    fn frozen(members: impl IntoIterator<Item = MemberRef>) -> OwnerMembers {
+        let mut bucket = OwnerMembers::default();
+        for member in members {
+            bucket.insert(member);
+        }
+        bucket.rebuild_caches();
+        bucket
+    }
+
+    #[test]
+    fn single_name_bucket_answers_named_from_all() {
+        let bucket = frozen([member(1, 0, "x"), member(2, 1, "x")]);
+        assert_eq!(bucket.names().count(), 1);
+        assert_eq!(offsets(&bucket.named("x").expect("x")), vec![0, 1]);
+        assert!(bucket.named("y").is_none());
+    }
+
+    #[test]
+    fn multi_name_bucket_keeps_declaration_order_per_name() {
+        let bucket = frozen([member(1, 0, "x"), member(1, 1, "y"), member(2, 2, "x")]);
+        let mut names: Vec<_> = bucket.names().map(|name| name.to_string()).collect();
+        names.sort();
+        assert_eq!(names, vec!["x", "y"]);
+        assert_eq!(offsets(&bucket.named("x").expect("x")), vec![0, 2]);
+        assert_eq!(offsets(&bucket.named("y").expect("y")), vec![1]);
+        assert_eq!(offsets(&bucket.all()), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn duplicate_insert_is_rejected_and_leaves_bucket_frozen() {
+        let mut bucket = frozen([member(1, 0, "x")]);
+        assert!(!bucket.insert(member(1, 0, "x")));
+        assert!(bucket.open.is_none());
+        assert!(bucket.insert(member(1, 5, "z")));
+        bucket.rebuild_caches();
+        assert_eq!(offsets(&bucket.all()), vec![0, 5]);
+    }
+
+    #[test]
+    fn remove_updates_all_and_names_after_rebuild() {
+        let mut bucket = frozen([member(1, 0, "x"), member(1, 1, "y")]);
+        assert!(bucket.remove(&member(1, 0, "x").id));
+        assert!(!bucket.remove(&member(1, 0, "x").id));
+        bucket.rebuild_caches();
+        assert_eq!(offsets(&bucket.all()), vec![1]);
+        assert!(bucket.named("x").is_none());
+        assert_eq!(offsets(&bucket.named("y").expect("y")), vec![1]);
+        assert!(bucket.remove(&member(1, 1, "y").id));
+        assert!(bucket.is_empty());
+    }
+
+    #[test]
+    fn large_bucket_dedups_through_the_id_set() {
+        let mut bucket = OwnerMembers::default();
+        for at in 0..100 {
+            assert!(bucket.insert(member(1, at, "x")));
+        }
+        for at in 0..100 {
+            assert!(!bucket.insert(member(1, at, "x")));
+        }
+        bucket.rebuild_caches();
+        assert_eq!(bucket.all().len(), 100);
+        assert!(bucket.remove(&member(1, 50, "x").id));
+        bucket.rebuild_caches();
+        assert_eq!(bucket.all().len(), 99);
+    }
 }
