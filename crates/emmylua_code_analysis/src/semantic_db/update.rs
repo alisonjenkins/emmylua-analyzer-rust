@@ -374,11 +374,8 @@ pub(crate) fn rebuild_all_caches(db: &mut SemanticDatabase) {
     // index only depends on facts + workspace roots.
     rebuild_module_indexes(db);
 
-    for file_id in file_ids.iter().copied() {
-        if db.file_data(file_id).is_none() {
-            continue;
-        }
-        let exports = build_file_exports(db, file_id, file_id);
+    let built_exports = par_map(&live_ids, |&file_id| build_file_exports(db, file_id, file_id));
+    for (file_id, exports) in live_ids.iter().copied().zip(built_exports) {
         let cache = db
             .files
             .get_mut(&file_id)
