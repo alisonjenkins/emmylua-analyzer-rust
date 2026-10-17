@@ -1854,4 +1854,34 @@ mod tests {
         }
         Ok(())
     }
+
+    /// `self:m()` inside a method of a class built by a factory function hovers the method.
+    #[gtest]
+    fn test_hover_self_method_on_factory_class() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local mt = {}
+                local function class()
+                  local c = setmetatable({}, mt)
+                  c.__index = c
+                  return c
+                end
+
+                local Lin = class()
+
+                function Lin:a(node, x)
+                  return 1
+                end
+
+                function Lin:b(node)
+                  self:<??>a(node)
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(method) Lin:a(node: any, x: any) -> number\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
