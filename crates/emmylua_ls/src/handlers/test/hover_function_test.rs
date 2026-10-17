@@ -5,6 +5,30 @@ mod tests {
 
     // M3 batch 2 retirement: function signature rendering stack (old HoverBuilder/overload matching/generic substitution); see migration notes §M3.
     #[gtest]
+    fn test_hover_field_through_receiver_is_qualified_like_luals() -> Result<()> {
+        for (code, expected) in [
+            (
+                "---@class Box\n---@field n number\n---@type Box\nlocal b\nlocal v = b.<??>n",
+                "(field) Box.n: number",
+            ),
+            (
+                "local M = {}\nM.count = 1\nlocal v = M.<??>count",
+                "(field) M.count",
+            ),
+            ("local t = { <??>k = 1 }", "(field) k"),
+        ] {
+            let mut ws = ProviderVirtualWorkspace::new();
+            let (content, position) = ProviderVirtualWorkspace::handle_file_content(code)?;
+            let file_id = ws.def(&content);
+            let hover = crate::handlers::hover::hover(&ws.analysis, file_id, position)
+                .ok_or("no hover")
+                .or_fail()?;
+            verify_that!(format!("{hover:?}"), contains_substring(expected))?;
+        }
+        Ok(())
+    }
+
+    #[gtest]
     fn test_1() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_hover(
