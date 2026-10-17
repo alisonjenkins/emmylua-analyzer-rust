@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use emmylua_code_analysis::{DeclKind, SemanticDatabase, SemanticId, SemanticModel};
+use emmylua_code_analysis::{DeclKind, OwnerId, SemanticDatabase, SemanticId, SemanticModel};
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaDocTagField, LuaExpr, LuaFuncStat, LuaIndexExpr, LuaLiteralExpr,
     LuaStat, LuaSyntaxToken, LuaTableField,
@@ -40,19 +40,29 @@ fn search_member_implementations(
 ) -> Option<()> {
     let mut ranges = member_reference_ranges(db, member, true);
     // Other definition sites of the same member key (`@field` / table field / runtime assignment / method implementation) are also implementation positions.
-    if let Some(key_text) = member_key_text(db, member) {
+    // Only members of the same owner count: a same-named key on an unrelated table or class is a different member.
+    if let Some((key_text, owner_ids)) = member_key_and_owner_ids(db, member) {
         let discovered = Mutex::new(Vec::new());
         db.parallel_for_each_file(|file_id, model| {
             let Some(members) = model.members() else {
                 return;
             };
-            let mut discovered = discovered.lock().expect("implementation locations lock");
+            let mut found = Vec::new();
             for m in members.iter() {
                 if m.key.to_path() == key_text
                     && let Some(key_range) = m.id.member_key_range()
-                    && !discovered.contains(&(file_id, key_range))
+                    && !is_other_member_owner(
+                        &owner_ids,
+                        &model.owner_ids_with_declared_type(&m.owner),
+                    )
                 {
-                    discovered.push((file_id, key_range));
+                    found.push((file_id, key_range));
+                }
+            }
+            let mut discovered = discovered.lock().expect("implementation locations lock");
+            for entry in found {
+                if !discovered.contains(&entry) {
+                    discovered.push(entry);
                 }
             }
         });
@@ -221,16 +231,44 @@ fn is_decl_implementation_position(
         .any(|var| var.to_expr().get_syntax_id() == name_expr.get_syntax_id())
 }
 
-fn member_key_text(db: &SemanticDatabase, member: &SemanticId) -> Option<String> {
+/// Whether two owners are provably different tables. Only file-local `local` tables and module exports are
+/// certain: a class, global or nested table can be the same table under another identity, so those are kept.
+fn is_other_member_owner(target: &[OwnerId], candidate: &[OwnerId]) -> bool {
+    fn is_file_local(ids: &[OwnerId]) -> bool {
+        !ids.is_empty()
+            && ids
+                .iter()
+                .all(|id| matches!(id, OwnerId::Local(..) | OwnerId::Module(_)))
+    }
+    // Untyped table constructors (no class, global or annotation) are distinct tables unless they are the same one.
+    fn is_anonymous(ids: &[OwnerId]) -> bool {
+        ids.iter().all(|id| {
+            matches!(
+                id,
+                OwnerId::Local(..) | OwnerId::Module(_) | OwnerId::Table(..)
+            )
+        })
+    }
+    !candidate.iter().any(|id| target.contains(id))
+        && (is_file_local(target)
+            || is_file_local(candidate)
+            || (is_anonymous(target) && is_anonymous(candidate)))
+}
+
+fn member_key_and_owner_ids(
+    db: &SemanticDatabase,
+    member: &SemanticId,
+) -> Option<(String, Vec<OwnerId>)> {
     let SemanticId::Member(key) = member else {
         return None;
     };
     let model = SemanticModel::new(db, key.file_id);
     let members = model.members()?;
-    members
-        .iter()
-        .find(|m| &m.id == member)
-        .map(|m| m.key.to_path())
+    let target = members.iter().find(|m| &m.id == member)?;
+    Some((
+        target.key.to_path(),
+        model.owner_ids_with_declared_type(&target.owner),
+    ))
 }
 
 fn make_location(

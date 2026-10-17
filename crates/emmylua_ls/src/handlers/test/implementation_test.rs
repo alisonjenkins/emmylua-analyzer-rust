@@ -237,6 +237,142 @@ mod tests {
     }
 
     #[gtest]
+    fn test_same_key_on_other_local_module_is_not_an_implementation() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "other.lua",
+            r#"
+                local M = {}
+                function M.setup(c) end
+                return M
+            "#,
+        );
+        check!(ws.check_implementation(
+            r#"
+                local M = {}
+                function M.se<??>tup(c) end
+                return M
+            "#,
+            vec![VirtualLocation {
+                file: "".to_string(),
+                line: 2,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_same_key_in_other_table_constructor_is_not_an_implementation() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_implementation(
+            r#"
+                local t = { lab<??>el = 'x', other = 1 }
+                local u = { label = 'y' }
+                t.label = 'z'
+            "#,
+            vec![
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 1,
+                },
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 3,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_same_key_in_sibling_nested_table_is_not_an_implementation() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_implementation(
+            r#"
+                local cfg = {
+                    a = { x<??> = 1 },
+                    b = { x = 2 },
+                }
+            "#,
+            vec![VirtualLocation {
+                file: "".to_string(),
+                line: 2,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_same_method_name_on_other_class_is_not_an_implementation() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "other.lua",
+            r#"
+                local Cls2 = {}
+                function Cls2:new() end
+            "#,
+        );
+        check!(ws.check_implementation(
+            r#"
+                local Cls = {}
+                Cls.__index = Cls
+                function Cls:n<??>ew() end
+                local o = setmetatable({}, Cls)
+                o:new()
+            "#,
+            vec![VirtualLocation {
+                file: "".to_string(),
+                line: 3,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
+    fn test_typed_returned_tables_share_their_class_fields() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "a.lua",
+            r#"
+                ---@class FC
+                ---@field meta table
+            "#,
+        );
+        ws.def_file(
+            "b.lua",
+            r#"
+                ---@type FC
+                return {
+                  meta = {},
+                }
+            "#,
+        );
+        check!(ws.check_implementation(
+            r#"
+                ---@type FC
+                return {
+                  me<??>ta = {},
+                }
+            "#,
+            vec![
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 3,
+                },
+                VirtualLocation {
+                    file: "b.lua".to_string(),
+                    line: 3,
+                },
+                VirtualLocation {
+                    file: "a.lua".to_string(),
+                    line: 2,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_string_literal_table_key() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_implementation(
