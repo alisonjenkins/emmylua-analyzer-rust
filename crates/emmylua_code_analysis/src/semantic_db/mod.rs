@@ -9,6 +9,7 @@ mod phase_tests;
 pub(crate) mod flow;
 pub(crate) mod index;
 pub(crate) mod inputs;
+mod parallel;
 
 pub(crate) mod query;
 #[cfg(test)]

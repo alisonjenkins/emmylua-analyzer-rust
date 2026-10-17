@@ -6,6 +6,7 @@ use super::def::{
 };
 use super::exports::{FileExports, build_file_exports};
 use super::flow::build_flow_tree;
+use super::parallel::par_map;
 use super::query::aggregate_member_bucket;
 use super::query::file_workspace_id_for_path;
 use super::query::{
@@ -313,12 +314,23 @@ pub(crate) fn rebuild_all_caches(db: &mut SemanticDatabase) {
     db.files.clear();
     let file_ids = db.vfs.file_ids();
 
-    let mut files = HashMap::with_capacity(file_ids.len());
-    for file_id in file_ids.iter().copied() {
-        let Some(data) = db.file_data(file_id) else {
+    // Each phase below reads only the database state left by the previous one, so
+    // its files are built in parallel and installed in file order.
+    let live_ids: Vec<FileId> = file_ids
+        .iter()
+        .copied()
+        .filter(|&file_id| db.file_data(file_id).is_some())
+        .collect();
+
+    let built_facts = par_map(&live_ids, |&file_id| {
+        db.file_data(file_id)
+            .map(|data| build_file_facts(db, file_id, file_id, &data.text))
+    });
+    let mut files = HashMap::with_capacity(live_ids.len());
+    for (file_id, facts) in live_ids.iter().copied().zip(built_facts) {
+        let (Some(facts), Some(data)) = (facts, db.file_data(file_id)) else {
             continue;
         };
-        let facts = build_file_facts(db, file_id, file_id, &data.text);
         let workspace_id =
             file_workspace_id_for_path(db.workspace_roots().as_ref(), data.path.as_deref());
         files.insert(
@@ -335,11 +347,9 @@ pub(crate) fn rebuild_all_caches(db: &mut SemanticDatabase) {
         );
     }
     db.files = files;
-    for file_id in file_ids.iter().copied() {
-        if db.file_data(file_id).is_none() {
-            continue;
-        }
-        let flow = build_flow_tree(db, file_id);
+
+    let flows = par_map(&live_ids, |&file_id| build_flow_tree(db, file_id));
+    for (file_id, flow) in live_ids.iter().copied().zip(flows) {
         let cache = db
             .files
             .get_mut(&file_id)
