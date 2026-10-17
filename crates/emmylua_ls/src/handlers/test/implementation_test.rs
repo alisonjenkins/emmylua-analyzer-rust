@@ -390,6 +390,52 @@ mod tests {
     }
 
     #[gtest]
+    fn test_nested_tables_in_typed_returned_tables_share_the_field_class() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        ws.def_file(
+            "a.lua",
+            r#"
+                ---@class NC
+                ---@field meta NCMeta
+                ---@class NCMeta
+                ---@field url string
+            "#,
+        );
+        ws.def_file(
+            "b.lua",
+            r#"
+                ---@type NC
+                return {
+                  meta = { url = "b" },
+                }
+            "#,
+        );
+        check!(ws.check_implementation(
+            r#"
+                ---@type NC
+                return {
+                  meta = { ur<??>l = "m" },
+                }
+            "#,
+            vec![
+                VirtualLocation {
+                    file: "".to_string(),
+                    line: 3,
+                },
+                VirtualLocation {
+                    file: "b.lua".to_string(),
+                    line: 3,
+                },
+                VirtualLocation {
+                    file: "a.lua".to_string(),
+                    line: 4,
+                },
+            ],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_classes_made_by_one_setmetatable_factory_stay_apart() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_implementation(
