@@ -891,6 +891,19 @@ impl<'db> SemanticModel<'db> {
                     })
                 })
                 .unwrap_or(LuaType::Any);
+            // The shell flattens an inline `{ a: T }` to `table`; the rich projection keeps its fields.
+            if matches!(ty, LuaType::Table)
+                && let Some(docs) = signature.docs.as_ref()
+                && let Some((_, syntax)) = docs
+                    .param_types
+                    .iter()
+                    .find(|(param_name, _)| param_name == name)
+            {
+                let rich = self.doc_type_lua_rich_in(file_id, *syntax);
+                if !matches!(rich, LuaType::Unknown) {
+                    ty = rich;
+                }
+            }
             ty = type_eval::expand_alias_generic(self, &ty);
             // See `type_of_signature`: do not evaluate conditional types before function generics are substituted.
             if nullable_params.iter().any(|n| n == name) && !ty.is_nullable() {

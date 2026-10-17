@@ -1237,4 +1237,37 @@ mod tests {
         ));
         Ok(())
     }
+
+    /// An inline table type on a module function's parameter keeps its fields, as it does on a local function.
+    #[gtest]
+    fn test_member_function_inline_table_param() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_hover(
+            r#"
+                local M = {}
+
+                ---@param opts? {delay?: number, schedule?: boolean}
+                function M.<??>update(opts)
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\nfunction M.update(opts: { delay: number, schedule: boolean }?)\n```"
+                    .to_string(),
+            },
+        ));
+        check!(ws.check_hover(
+            r#"
+                local M = {}
+
+                ---@param opts {delay?: number}
+                ---@param n integer
+                function M:<??>run(opts, n)
+                end
+            "#,
+            VirtualHoverResult {
+                value: "```lua\n(method) M:run(opts: { delay: number }, n: integer)\n```".to_string(),
+            },
+        ));
+        Ok(())
+    }
 }
