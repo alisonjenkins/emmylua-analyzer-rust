@@ -1,13 +1,18 @@
 use std::sync::Mutex;
 
-use emmylua_code_analysis::{DeclKind, OwnerId, SemanticDatabase, SemanticId, SemanticModel};
+use emmylua_code_analysis::{
+    DeclKind, LuaType, LuaTypeIdentifier, OwnerId, SemanticDatabase, SemanticId, SemanticModel,
+    TypeScope,
+};
 use emmylua_parser::{
     LuaAssignStat, LuaAstNode, LuaDocTagField, LuaExpr, LuaFuncStat, LuaIndexExpr, LuaLiteralExpr,
-    LuaStat, LuaSyntaxToken, LuaTableField,
+    LuaStat, LuaSyntaxToken, LuaTableExpr, LuaTableField,
 };
 use lsp_types::Location;
 
-use crate::handlers::common::{decl_reference_ranges, member_reference_ranges};
+use crate::handlers::common::{
+    decl_reference_ranges, expected_classes_of_table, member_reference_ranges,
+};
 
 pub fn search_implementations(
     model: &SemanticModel<'_>,
@@ -51,10 +56,7 @@ fn search_member_implementations(
             for m in members.iter() {
                 if m.key.to_path() == key_text
                     && let Some(key_range) = m.id.member_key_range()
-                    && !is_other_member_owner(
-                        &owner_ids,
-                        &model.owner_ids_with_declared_type(&m.owner),
-                    )
+                    && !is_other_member_owner(&owner_ids, &member_owner_ids(model, &m.owner))
                 {
                     found.push((file_id, key_range));
                 }
@@ -233,7 +235,13 @@ fn is_decl_implementation_position(
 
 /// Whether two owners are provably different tables. Only file-local `local` tables and module exports are
 /// certain: a class, global or nested table can be the same table under another identity, so those are kept.
-fn is_other_member_owner(target: &[OwnerId], candidate: &[OwnerId]) -> bool {
+fn is_other_member_owner(target: &OwnerSet, candidate: &OwnerSet) -> bool {
+    // A literal written where a class is expected is not the same table as a literal written where none is.
+    let literal_class_mismatch = matches!(
+        (target.literal_class, candidate.literal_class),
+        (Some(true), Some(false)) | (Some(false), Some(true))
+    );
+    let (target, candidate) = (target.ids.as_slice(), candidate.ids.as_slice());
     // A `local` also carries the identity of the table literal it holds; that stays file-local.
     fn is_file_local(ids: &[OwnerId]) -> bool {
         ids.iter()
@@ -255,15 +263,70 @@ fn is_other_member_owner(target: &[OwnerId], candidate: &[OwnerId]) -> bool {
         })
     }
     !candidate.iter().any(|id| target.contains(id))
-        && (is_file_local(target)
+        && (literal_class_mismatch
+            || is_file_local(target)
             || is_file_local(candidate)
             || (is_anonymous(target) && is_anonymous(candidate)))
+}
+
+struct OwnerSet {
+    ids: Vec<OwnerId>,
+    /// For an owner that is a table literal: whether a class is expected of it.
+    literal_class: Option<bool>,
+}
+
+/// Owner identities of a member's owner, plus the classes its table literal is expected to be (the
+/// parameter it is passed to, the field of a typed literal): LuaLS unifies those literals by class.
+fn member_owner_ids(model: &SemanticModel<'_>, owner: &SemanticId) -> OwnerSet {
+    let mut ids = model.owner_ids_with_declared_type(owner);
+    let mut set = OwnerSet {
+        ids: Vec::new(),
+        literal_class: None,
+    };
+    let SemanticId::Member(key) = owner else {
+        set.ids = ids;
+        return set;
+    };
+    let tree = (key.file_id == model.file_id())
+        .then(|| model.syntax_tree_of(key.file_id))
+        .flatten();
+    let Some(tree) = tree else {
+        set.ids = ids;
+        return set;
+    };
+    let Some(table) = tree
+        .get_red_root()
+        .covering_element(key.key_range)
+        .ancestors()
+        .find_map(LuaTableExpr::cast)
+        .filter(|table| table.get_range() == key.key_range)
+    else {
+        set.ids = ids;
+        return set;
+    };
+    let classes = expected_classes_of_table(model, &table);
+    set.literal_class = Some(!classes.is_empty());
+    for ty in classes {
+        if let LuaType::Ref(type_id) | LuaType::Def(type_id) = ty {
+            let scope = match type_id.get_id() {
+                LuaTypeIdentifier::Global(_) => TypeScope::Global,
+                LuaTypeIdentifier::Internal(ws, _) => TypeScope::Internal(*ws),
+                LuaTypeIdentifier::File(file, _) => TypeScope::File(*file),
+            };
+            let class_owner = OwnerId::Type(scope, type_id.get_name().into());
+            if !ids.contains(&class_owner) {
+                ids.push(class_owner);
+            }
+        }
+    }
+    set.ids = ids;
+    set
 }
 
 fn member_key_and_owner_ids(
     db: &SemanticDatabase,
     member: &SemanticId,
-) -> Option<(String, Vec<OwnerId>)> {
+) -> Option<(String, OwnerSet)> {
     let SemanticId::Member(key) = member else {
         return None;
     };
@@ -272,7 +335,7 @@ fn member_key_and_owner_ids(
     let target = members.iter().find(|m| &m.id == member)?;
     Some((
         target.key.to_path(),
-        model.owner_ids_with_declared_type(&target.owner),
+        member_owner_ids(&model, &target.owner),
     ))
 }
 
