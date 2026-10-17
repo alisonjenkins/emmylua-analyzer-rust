@@ -466,9 +466,7 @@ fn collect_require_field_uses(db: &SemanticDatabase) -> Vec<RequireFieldUse> {
             out.push(RequireFieldUse {
                 file_id,
                 member,
-                key_range: index_expr
-                    .get_index_key()
-                    .and_then(|key| key.get_range()),
+                key_range: index_expr.get_index_key().and_then(|key| key.get_range()),
                 module_literal_range,
             });
         }
@@ -679,6 +677,18 @@ fn alias_members_of_decl(db: &SemanticDatabase, decl: &SemanticId) -> Vec<Semant
 /// Which declarations are initialized from a member alias (the `f` in `local f = require("mod").flush`).
 fn decls_aliased_to_member(db: &SemanticDatabase, member: &SemanticId) -> Vec<SemanticId> {
     let mut out = Vec::new();
+    // Resolving an access to a member looks the member up by the accessed key, so only accesses
+    // of the member's own name can name it; skipping the rest avoids inferring thousands of receivers.
+    let member_name = match member {
+        SemanticId::Member(key) => SemanticModel::new(db, key.file_id)
+            .file_facts_of(key.file_id)
+            .and_then(|facts| facts.member_by_id(member))
+            .and_then(|fact| match &fact.key {
+                LuaMemberKey::Name(name) => Some(name.clone()),
+                _ => None,
+            }),
+        _ => None,
+    };
     for file_id in db.file_ids() {
         let model = SemanticModel::new(db, file_id);
         let Some(decls) = model.decls() else {
@@ -697,6 +707,13 @@ fn decls_aliased_to_member(db: &SemanticDatabase, member: &SemanticId) -> Vec<Se
             else {
                 continue;
             };
+            if let Some(name) = &member_name
+                && index_expr
+                    .get_index_key()
+                    .is_some_and(|key| key.get_path_part() != name.as_str())
+            {
+                continue;
+            }
             let resolved = model
                 .resolve_member(&index_expr)
                 .and_then(|resolved| resolved.member_id)
