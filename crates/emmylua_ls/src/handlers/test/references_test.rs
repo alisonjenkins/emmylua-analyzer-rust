@@ -1670,4 +1670,38 @@ mod tests {
         ));
         verify_eq!(reference_lines(&content, position, &mut ws), vec![2])
     }
+
+    #[gtest]
+    fn test_references_of_field_through_closure_param_of_nested_typed_literal() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Node
+                ---@field te<??>xt string
+
+                ---@alias Provider fun(icon: Node)
+
+                ---@class Icon
+                ---@field provider Provider?
+
+                ---@class Components
+                ---@field icon Icon
+
+                ---@class Config
+                ---@field components Components
+
+                ---@type Config
+                local config = {
+                    components = {
+                        icon = {
+                            provider = function(icon)
+                                icon.text = "x"
+                            end,
+                        },
+                    },
+                }
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![2, 20])
+    }
 }
