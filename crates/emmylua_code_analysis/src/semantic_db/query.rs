@@ -1828,13 +1828,17 @@ fn push_type_associated_owner_ids(
                     );
                 }
             }
-            if let Some(facts) = db.file_facts_of(file_id)
-                && let Some(def) = facts.type_def_by_id(type_id)
-                && let Some(owner_syntax) = def.owner_syntax
-            {
-                for decl in facts.decls_by_owner_syntax(owner_syntax) {
-                    if let Some(decl_owner) = canonical_owner_id(db, &decl.id) {
-                        push_unique_owner_id(out, decl_owner);
+            if let Some(facts) = db.file_facts_of(file_id) {
+                // A class redeclared in one file (`---@class A` on two tables) has several defs
+                // under one id; each one's table carries members.
+                for owner_syntax in facts
+                    .type_defs_with_id(type_id)
+                    .filter_map(|def| def.owner_syntax)
+                {
+                    for decl in facts.decls_by_owner_syntax(owner_syntax) {
+                        if let Some(decl_owner) = canonical_owner_id(db, &decl.id) {
+                            push_unique_owner_id(out, decl_owner);
+                        }
                     }
                 }
             }
