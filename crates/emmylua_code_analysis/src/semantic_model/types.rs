@@ -1082,26 +1082,20 @@ impl<'db> SemanticModel<'db> {
                 let Some(init_syntax) = decl.value_expr_syntax else {
                     return false;
                 };
-                let Some(tree) = self.syntax_tree_of(decl_key.file_id) else {
-                    return false;
-                };
-                let Some(node) = init_syntax.to_node_from_root(&tree.get_red_root()) else {
-                    return false;
-                };
-                LuaTableExpr::cast(node)
-                    .is_some_and(|table| table.get_range().contains(value_range.start()))
+                LuaTableExpr::can_cast(init_syntax.get_kind())
+                    && init_syntax.get_range().contains(value_range.start())
             }
             SemanticId::Member(table_key) => {
                 let Some(tree) = self.syntax_tree_of(table_key.file_id) else {
                     return false;
                 };
-                let root = tree.get_red_root();
-                root.descendants()
-                    .filter_map(LuaTableExpr::cast)
-                    .any(|table| {
-                        table.get_range() == table_key.key_range
-                            && table.get_range().contains(value_range.start())
-                    })
+                table_key.key_range.contains(value_range.start())
+                    && LuaSyntaxId::find_node_at_range(
+                        &tree.get_red_root(),
+                        table_key.key_range,
+                        |kind| LuaTableExpr::can_cast(kind.into()),
+                    )
+                    .is_some()
             }
             _ => false,
         }
