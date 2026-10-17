@@ -1657,6 +1657,27 @@ mod tests {
     }
 
     #[gtest]
+    fn test_references_of_self_field_in_a_method_stay_apart_from_the_parent_field() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(
+            r#"
+                ---@class Opts
+                ---@field active boolean
+
+                ---@class Watcher: Opts
+                local Watcher = {}
+
+                function Watcher:start()
+                    if not self.act<??>ive then
+                        self.active = true
+                    end
+                end
+            "#,
+        ));
+        verify_eq!(reference_lines(&content, position, &mut ws), vec![8, 9])
+    }
+
+    #[gtest]
     fn test_references_of_parent_field_skip_keys_of_class_that_redeclares_it() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         let (content, position) = check!(ProviderVirtualWorkspace::handle_file_content(

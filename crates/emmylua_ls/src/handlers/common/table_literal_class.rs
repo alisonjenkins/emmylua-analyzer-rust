@@ -152,7 +152,13 @@ pub fn class_fields_of_table_key(
         let (LuaType::Ref(type_id) | LuaType::Def(type_id)) = &class_type else {
             continue;
         };
-        out.extend(class_fields_named(model, type_id, &class_type, &member_key));
+        out.extend(class_fields_named(
+            model,
+            type_id,
+            &class_type,
+            &member_key,
+            true,
+        ));
     }
     out
 }
@@ -165,6 +171,7 @@ pub fn class_fields_named(
     type_id: &LuaTypeDeclId,
     class_type: &LuaType,
     member_key: &LuaMemberKey,
+    inherit: bool,
 ) -> Vec<SemanticId> {
     let Some(class) = model.type_def_of(type_id) else {
         return Vec::new();
@@ -188,7 +195,7 @@ pub fn class_fields_named(
         .filter(|id| owner_of(id).is_some_and(|owner| owner == class.id))
         .cloned()
         .collect::<Vec<_>>();
-    if !own.is_empty() {
+    if !own.is_empty() || !inherit {
         return own;
     }
     // Only a `---@field` of a parent class: a method of the runtime table is no such slot.
