@@ -237,6 +237,22 @@ mod tests {
     }
 
     #[gtest]
+    fn test_local_function_called_in_table_key_expression() -> Result<()> {
+        let mut ws = ProviderVirtualWorkspace::new();
+        check!(ws.check_implementation(
+            r#"
+                local function from_root(p) return p end
+                local t = { [from<??>_root("a")] = 1 }
+            "#,
+            vec![VirtualLocation {
+                file: "".to_string(),
+                line: 1,
+            }],
+        ));
+        Ok(())
+    }
+
+    #[gtest]
     fn test_string_literal_table_key() -> Result<()> {
         let mut ws = ProviderVirtualWorkspace::new();
         check!(ws.check_implementation(

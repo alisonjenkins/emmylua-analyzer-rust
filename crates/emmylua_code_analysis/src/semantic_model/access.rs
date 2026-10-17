@@ -245,14 +245,16 @@ impl<'db> SemanticModel<'db> {
         }
 
         // 1.5 Member key (definition site: the `x` in `{ x = 1 }` / `@field x` / `@field [1]` / `T.x = v`) -> Member.
-        if let Some(facts) = self.file_facts()
+        // A name inside a `[expr] = v` key is a use of a binding, not the member key.
+        let parent = token.parent()?;
+        let kind: LuaSyntaxKind = parent.kind().into();
+        if kind != LuaSyntaxKind::NameExpr
+            && let Some(facts) = self.file_facts()
             && let Some(member) = facts.member_at_offset(offset)
         {
             return Some(member.id.clone());
         }
 
-        let parent = token.parent()?;
-        let kind: LuaSyntaxKind = parent.kind().into();
         // 2. Index-expression member key (the `x` in `T.x`, including definition sites) -> Member.
         if kind == LuaSyntaxKind::IndexExpr
             && let Some(index_expr) = LuaIndexExpr::cast(parent.clone())
